@@ -755,16 +755,84 @@
                                 alt="page after step"
                               />
                             </a>
-                            <div
-                              v-if="showDevLogs && (w.aiPrompt || w.aiResponse)"
-                              style="margin-top: 4px"
+                            <!-- One card per AI pass: the picture the model was shown, the
+                                 prompt it was shown with, and its reply. The flask re-asks
+                                 that pass on its own, with an edited wording -->
+                            <template
+                              v-for="(ai, pi) in showDevLogs
+                                ? webAiPasses(w)
+                                : []"
+                              :key="pi"
                             >
-                              <pre class="dev-block-pre">{{
-                                [w.aiPrompt, w.aiResponse]
-                                  .filter(Boolean)
-                                  .join("\n\n--- reply ---\n")
-                              }}</pre>
-                            </div>
+                              <template
+                                v-if="
+                                  debugKey !==
+                                  `${expandedId}-${sIdx}-web-${wi}-${pi}`
+                                "
+                              >
+                                <div class="dev-block" style="margin-top: 4px">
+                                  <div
+                                    class="dev-block-label"
+                                    style="
+                                      display: flex;
+                                      align-items: center;
+                                      justify-content: space-between;
+                                    "
+                                  >
+                                    <span
+                                      >{{ t("logs.aiPrompt")
+                                      }}{{ ai.label ? ` — ${ai.label}` : "" }}</span
+                                    >
+                                    <!-- No picture kept, no debugging: re-asking a vision
+                                         prompt without its image answers nothing -->
+                                    <button
+                                      class="btn btn-ghost btn-sm btn-icon debug-open-btn"
+                                      :disabled="!ai.image"
+                                      :title="t('logs.debug.open')"
+                                      @click="openDebugWeb(ai, sIdx, wi, pi)"
+                                    >
+                                      <i class="fa-solid fa-flask"></i>
+                                    </button>
+                                  </div>
+                                  <a
+                                    v-if="ai.image"
+                                    :href="ai.image"
+                                    target="_blank"
+                                  >
+                                    <img
+                                      :src="ai.image"
+                                      class="dev-block-img"
+                                      alt="image sent to AI"
+                                    />
+                                  </a>
+                                  <pre class="dev-block-pre">{{ ai.prompt }}</pre>
+                                </div>
+                                <div
+                                  v-if="ai.reply"
+                                  class="dev-block"
+                                  style="margin-top: 4px"
+                                >
+                                  <div class="dev-block-label">
+                                    {{ t("logs.aiResponse") }}
+                                  </div>
+                                  <pre class="dev-block-pre">{{ ai.reply }}</pre>
+                                </div>
+                              </template>
+                              <DebugPanel
+                                v-else
+                                v-model:prompt="debugPrompt"
+                                v-model:model="debugModel"
+                                v-model:max-tokens="debugMaxTokens"
+                                :images="debugImages"
+                                :suppliers="debugSuppliers"
+                                :running="debugRunning"
+                                :response="debugResponse"
+                                :error="debugError"
+                                :duration-ms="debugDurationMs"
+                                @run="runDebug"
+                                @close="debugKey = null"
+                              />
+                            </template>
                           </div>
                         </div>
                         <div
@@ -1179,6 +1247,7 @@ import {
   type EmbywatchLog,
   type RealWatchNote,
   type CustomStepLog,
+  type WebStepLog,
   type AiSupplier,
 } from "../api/client";
 import { t, locale } from "../i18n";
@@ -1235,6 +1304,45 @@ function openDebug(step: CustomStepLog, sIdx: number) {
     `${expandedId.value}-${sIdx}`,
     step.aiPrompt ?? "",
     step.preClickImage ? [step.preClickImage] : [],
+  );
+}
+
+type WebAiPass = { label: string; prompt: string; reply: string; image?: string };
+
+/** A prompt and a reply split back into the passes they were logged as, headings and all. */
+function splitAiPasses(text: string | undefined): { label: string; body: string }[] {
+  const parts = (text ?? "").split(/(?:^|\n\n)--- (.+?) ---\n\n/);
+  const out: { label: string; body: string }[] = [];
+  // Anything before the first heading is a step that made one call and never headed it
+  if (parts[0]?.trim()) out.push({ label: "", body: parts[0] });
+  for (let i = 1; i < parts.length; i += 2)
+    out.push({ label: parts[i], body: parts[i + 1] ?? "" });
+  return out;
+}
+
+/**
+ * The AI passes of one page step, each with the picture it was shown. A step that took a
+ * wide look and then a close-up per position logged them in order, so pass and picture line
+ * up by index -- and each can be re-asked on its own, which is the only way to tell which
+ * pass put the click in the wrong place.
+ */
+function webAiPasses(step: WebStepLog): WebAiPass[] {
+  const prompts = splitAiPasses(step.aiPrompt);
+  const replies = splitAiPasses(step.aiResponse);
+  return prompts.map((p, i) => ({
+    label: p.label,
+    prompt: p.body,
+    reply: replies[i]?.body ?? "",
+    image: step.aiImages?.[i],
+  }));
+}
+
+/** One pass's debug panel: its own wording and its own picture, nothing from the others. */
+function openDebugWeb(pass: WebAiPass, sIdx: number, wIdx: number, pIdx: number) {
+  openDebugPanel(
+    `${expandedId.value}-${sIdx}-web-${wIdx}-${pIdx}`,
+    pass.prompt,
+    pass.image ? [pass.image] : [],
   );
 }
 

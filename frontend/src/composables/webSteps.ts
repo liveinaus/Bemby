@@ -67,6 +67,12 @@ export type WebStepForm = {
   dragY: number;
   /** web_drag: how long the drag itself takes. */
   durationMs: number;
+  /** ai_web_click_xy_multi: pause between one click and the next. */
+  gapMs: number;
+  /** ai_web_click_xy_multi: check each position with a close-up second look. */
+  refine: boolean;
+  /** ai_web_click_xy_multi: take the wide look at the captcha panel alone, ruled finely. */
+  zoom: boolean;
   continueOnError: boolean;
   betweenMs: number;
   check: "element" | "text" | "url";
@@ -109,6 +115,7 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "ai_web_input",
   "ai_web_button",
   "ai_web_click_xy",
+  "ai_web_click_xy_multi",
 ];
 
 /** Types that need the vision model, so the editor can gate them on a configured key. */
@@ -117,6 +124,7 @@ export const AI_WEB_STEP_TYPES: WebStepType[] = [
   "ai_web_input",
   "ai_web_button",
   "ai_web_click_xy",
+  "ai_web_click_xy_multi",
 ];
 
 /** Types that reach the data store, so the editor can hide them while it is switched off. */
@@ -193,6 +201,9 @@ export function defaultWebStep(): WebStepForm {
     dragX: 260,
     dragY: 0,
     durationMs: 600,
+    gapMs: 500,
+    refine: true,
+    zoom: true,
     continueOnError: true,
     betweenMs: 45000,
     check: "element",
@@ -386,6 +397,15 @@ export function webStepToConfig(s: WebStepForm): WebStep {
       return { type: "ai_web_button", ...(s.hint.trim() ? { hint: s.hint.trim() } : {}) };
     case "ai_web_click_xy":
       return { type: "ai_web_click_xy", ...(s.hint.trim() ? { hint: s.hint.trim() } : {}) };
+    case "ai_web_click_xy_multi":
+      return {
+        type: "ai_web_click_xy_multi",
+        ...(s.hint.trim() ? { hint: s.hint.trim() } : {}),
+        ...(s.gapMs > 0 ? { gapMs: s.gapMs } : {}),
+        ...(s.max > 0 ? { max: s.max } : {}),
+        ...(s.refine ? {} : { refine: false }),
+        ...(s.zoom ? {} : { zoom: false }),
+      };
     case "ai_web_input":
       return {
         type: "ai_web_input",
@@ -566,6 +586,16 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
     case "ai_web_button":
     case "ai_web_click_xy":
       return { ...base, type: s.type, hint: s.hint ?? "" };
+    case "ai_web_click_xy_multi":
+      return {
+        ...base,
+        type: s.type,
+        hint: s.hint ?? "",
+        gapMs: s.gapMs ?? 500,
+        max: s.max ?? 0,
+        refine: s.refine ?? true,
+        zoom: s.zoom ?? true,
+      };
     case "ai_web_input":
       return { ...base, type: s.type, hint: s.hint ?? "", text: s.text ?? "" };
   }

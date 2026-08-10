@@ -809,6 +809,35 @@ export type WebStep =
       hint?: string;
     }
   | {
+      /**
+       * The same look, asking for several positions at once, each clicked in the order the
+       * AI gave them with a pause between. For a page that wants more than one press to be
+       * satisfied -- a picture captcha's matching tiles, or characters clicked in a stated
+       * order -- where one `ai_web_click_xy` per target would take a fresh screenshot each
+       * time and lose the order the first shot showed.
+       */
+      type: "ai_web_click_xy_multi";
+      /** Optional steer, e.g. "each traffic light, left to right". Blank lets the AI judge. */
+      hint?: string;
+      /** Pause between one click and the next. Blank/0 waits 500ms. */
+      gapMs?: number;
+      /** Click at most this many positions. Blank/0 takes what the AI gives, up to 20. */
+      max?: number;
+      /**
+       * Check each position with a close-up second look, as `ai_web_click_xy` does. Costs
+       * one more AI call per position, and is what small targets need. Defaults to true.
+       */
+      refine?: boolean;
+      /**
+       * When a captcha panel is on the page, take the wide look at that panel alone rather
+       * than the whole viewport, ruled finely. Nine 70px tiles under a 100px grid cannot be
+       * told apart; the same tiles under a 20px one can. Defaults to true, and falls back to
+       * the whole page whenever no panel is found or the panel look yields nothing. Turn it
+       * off for a step whose targets sit outside the panel.
+       */
+      zoom?: boolean;
+    }
+  | {
       /** AI reads a screenshot and decides which field to type into. */
       type: "ai_web_input";
       /** Optional steer, e.g. "the password box". Blank lets the AI judge on its own. */
@@ -833,6 +862,12 @@ export type WebStepLog = {
   aiPrompt?: string;
   /** What the model replied (`ai_*` steps only). */
   aiResponse?: string;
+  /**
+   * data: URIs of the pictures the model was actually shown, in the order of the passes in
+   * `aiPrompt` -- the ruled and marked-up shots, not the clean one kept as `screenshot`.
+   * Without these a prompt cannot be debugged: half of what was asked is the image.
+   */
+  aiImages?: string[];
 };
 
 export type CustomConfig = {

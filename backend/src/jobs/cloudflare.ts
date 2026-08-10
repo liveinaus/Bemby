@@ -1919,8 +1919,19 @@ const MAX_WEB_SHOTS = 24;
 /** Ceiling on markers offered to the model: past this the picture is unreadable anyway. */
 const MAX_WEB_MARKS = 60;
 
+/**
+ * Ceiling on the pictures one step keeps of what the model was shown, and on their size
+ * together. Job logs are JSON in SQLite, so a step that took twenty close-ups keeps the
+ * first few of them and no more.
+ */
+const MAX_WEB_AI_IMAGES = 6;
+const MAX_WEB_AI_IMAGE_CHARS = 1_500_000;
+
 /** Spacing of the ruler drawn over the whole page for `ai_web_click_xy`, in CSS pixels. */
 const WEB_GRID_PX = 100;
+
+/** Ceiling on positions one `ai_web_click_xy_multi` will click, however many the AI lists. */
+const MAX_WEB_POINTS = 20;
 
 /**
  * Side of the close-up the second pass looks at, and the ruler drawn on it.
@@ -1931,6 +1942,31 @@ const WEB_GRID_PX = 100;
  */
 const WEB_REFINE_PX = 320;
 const WEB_REFINE_GRID_PX = 20;
+
+/**
+ * The ruler drawn over a captcha panel the wide pass zooms into, and the padding kept
+ * around the panel so its own edges stay in the shot.
+ *
+ * A picture captcha's tiles are around 70px on a page ruled every 100px, which is roughly
+ * one gridline per tile: reading a tile centre off that is a toss-up between neighbours.
+ */
+const WEB_PANEL_GRID_PX = 20;
+const WEB_PANEL_PAD_PX = 12;
+
+/**
+ * Frames a challenge draws itself in. Matched on `src` and on `title`, because hCaptcha
+ * names its challenge frame in the title and serves it from more than one host.
+ */
+const CAPTCHA_PANEL_SELECTOR = [
+  "iframe[src*='hcaptcha.com']",
+  "iframe[title*='hCaptcha']",
+  "iframe[title*='hcaptcha']",
+  "iframe[src*='recaptcha']",
+  "iframe[title*='recaptcha']",
+  "iframe[src*='challenges.cloudflare.com']",
+  "iframe[src*='arkoselabs']",
+  "iframe[src*='funcaptcha']",
+].join(",");
 
 /** Elements a press can land on. */
 const CLICKABLE_SELECTOR =
@@ -2016,10 +2052,22 @@ async function markWebElements(page: Page, selector: string, limit: number): Pro
  * marker. A model reads a coordinate off visible gridlines far better than it estimates one
  * from a bare picture, and the lines come off again before anything is clicked.
  *
+ * Drawn at the top of the z order, not one below it. A captcha panel sits in a container of
+ * its own at the maximum z-index, and a ruler one short of that is painted *under* the
+ * challenge: lines and figures show in the margins around the panel and nowhere on the tiles
+ * that needed measuring, which reads as a ruled picture while telling the model nothing. The
+ * tie at the maximum goes to whatever came last in the document, which is this overlay.
+ *
+ * Figures go on every line only while they fit. At a 20px spacing three digits per line run
+ * into each other and there is nothing to say which line owns which number, so only every
+ * nth line is labelled -- and those lines are drawn stronger, so a figure can be traced to
+ * its own line. Both edges carry the figures, because a tile in the middle of a tall panel
+ * is otherwise 400px from the only number that describes it.
+ *
  * The overlay carries the same `__bemby_mark` class as the marker badges, so
  * `clearWebMarkBadges` takes both away.
  */
-async function drawWebGrid(page: Page, gap: number, frame?: WebRect): Promise<void> {
+export async function drawWebGrid(page: Page, gap: number, frame?: WebRect): Promise<void> {
   // Deliberately written without an inner helper function. The dev server runs this file
   // through tsx, whose keep-names transform wraps any named function in a `__name` helper
   // that does not exist inside the page -- which throws, and the catch below would hide it.
@@ -2034,22 +2082,32 @@ async function drawWebGrid(page: Page, gap: number, frame?: WebRect): Promise<vo
         const view = box ?? { x: 0, y: 0, width: innerWidth, height: innerHeight };
         const right = view.x + view.width;
         const bottom = view.y + view.height;
-        const base = "position:fixed;pointer-events:none;z-index:2147483646;";
-        const line = `${base}background:rgba(225,29,72,.30);`;
+        // One label per 48px of picture at the closest, which is what a three-digit figure
+        // in a 10px monospace needs to stand clear of the next one
+        const every = Math.max(1, Math.ceil(48 / step));
+        const base = "position:fixed;pointer-events:none;z-index:2147483647;";
+        const faint = `${base}background:rgba(225,29,72,.22);`;
+        const strong = `${base}background:rgba(225,29,72,.55);`;
         const label =
           `${base}color:#e11d48;font:bold 10px/1 monospace;` +
-          "background:rgba(255,255,255,.75);padding:1px 2px;";
+          "background:rgba(255,255,255,.8);padding:1px 2px;";
 
         let html = "";
         for (let x = Math.ceil(view.x / step) * step; x < right; x += step) {
           if (x <= view.x) continue;
-          html += `<div style="${line}left:${x}px;top:${view.y}px;width:1px;height:${view.height}px"></div>`;
+          const named = Math.round(x / step) % every === 0;
+          html += `<div style="${named ? strong : faint}left:${x}px;top:${view.y}px;width:1px;height:${view.height}px"></div>`;
+          if (!named) continue;
           html += `<div style="${label}left:${x + 2}px;top:${view.y}px">${x}</div>`;
+          html += `<div style="${label}left:${x + 2}px;top:${bottom - 12}px">${x}</div>`;
         }
         for (let y = Math.ceil(view.y / step) * step; y < bottom; y += step) {
           if (y <= view.y) continue;
-          html += `<div style="${line}left:${view.x}px;top:${y}px;width:${view.width}px;height:1px"></div>`;
+          const named = Math.round(y / step) % every === 0;
+          html += `<div style="${named ? strong : faint}left:${view.x}px;top:${y}px;width:${view.width}px;height:1px"></div>`;
+          if (!named) continue;
           html += `<div style="${label}left:${view.x}px;top:${y + 2}px">${y}</div>`;
+          html += `<div style="${label}left:${right - 26}px;top:${y + 2}px">${y}</div>`;
         }
 
         const holder = document.createElement("div");
@@ -2158,6 +2216,45 @@ export function parseWebAiPoint(
   return undefined;
 }
 
+/**
+ * Pulls a list of positions out of the model's reply, for `ai_web_click_xy_multi`. The
+ * order is kept as given: a page that wants its characters clicked in a stated order gets
+ * nothing out of the same points in a different one.
+ *
+ * A reply carrying a single position is a list of one, so a model that answers the
+ * one-point way still works.
+ */
+export function parseWebAiPoints(reply: string): { x: number; y: number; what?: string }[] {
+  const obj = /\{[\s\S]*\}/.exec(reply);
+  if (obj) {
+    try {
+      const parsed = JSON.parse(obj[0]) as { points?: unknown };
+      // A `points` list is the answer whether or not it holds anything. It shares the reply
+      // with the candidates the model worked through in `seen`, and an empty list falling
+      // through to the looser reads below would click every candidate it had just rejected
+      if (Array.isArray(parsed.points))
+        return parsed.points
+          .map((p) => (p && typeof p === "object" ? parseWebAiPoint(JSON.stringify(p)) : undefined))
+          .filter((p): p is { x: number; y: number; what?: string } => !!p);
+    } catch {
+      // fall through to the looser reads below
+    }
+  }
+  // No list came back in one piece: read each `{...}` on its own, which is what a model
+  // that answered in prose around its objects leaves behind
+  const each = reply.match(/\{[^{}]*\}/g) ?? [];
+  const points = each
+    .map((one) => parseWebAiPoint(one))
+    .filter((p): p is { x: number; y: number; what?: string } => !!p);
+  if (points.length) return points;
+  // Nor that: a line at a time, which is how a model listing "1. 412, 300" answers
+  const listed = reply
+    .split(/\r?\n/)
+    .map((line) => parseWebAiPoint(line))
+    .filter((p): p is { x: number; y: number; what?: string } => !!p);
+  return listed;
+}
+
 type WebRect = { x: number; y: number; width: number; height: number };
 
 /**
@@ -2175,13 +2272,109 @@ async function locateWebPoint(
   prompt: string,
   gap: number,
   clip?: WebRect,
-): Promise<{ reply: string; point?: { x: number; y: number; what?: string } }> {
+): Promise<{ reply: string; image: string; point?: { x: number; y: number; what?: string } }> {
+  const asked = await askAboutWebShot(page, aiLocate, prompt, gap, clip);
+  return { ...asked, point: parseWebAiPoint(asked.reply) };
+}
+
+/**
+ * The look itself: rule the page, capture it, take the ruler off, and ask. The picture goes
+ * back with the reply, because a prompt cannot be debugged against a page that has since
+ * moved on -- what the model was shown has to be kept as it was shown.
+ */
+async function askAboutWebShot(
+  page: Page,
+  aiLocate: (image: string, prompt: string) => Promise<string>,
+  prompt: string,
+  gap: number,
+  clip?: WebRect,
+): Promise<{ reply: string; image: string }> {
   await drawWebGrid(page, gap, clip);
-  const shot = await screenshotOf(page, 60, clip);
+  // A close-up is a small picture to begin with, so it is not the place to save bytes:
+  // JPEG mush over a 70px captcha tile is the difference between reading it and guessing
+  const quality = clip && clip.width * clip.height < 400_000 ? 85 : 60;
+  const shot = await screenshotOf(page, quality, clip);
   await clearWebMarkBadges(page);
   if (!shot) throw new Error("the page could not be captured for the AI");
-  const reply = (await aiLocate(shot, prompt)) ?? "";
-  return { reply, point: parseWebAiPoint(reply) };
+  return { reply: (await aiLocate(shot, prompt)) ?? "", image: shot };
+}
+
+/**
+ * Keeps a picture the model was shown on the step log, for the debug panel to re-ask with.
+ * Bounded twice over: the passes of one step, and the bytes of them together. A step that
+ * clicked twenty tiles would otherwise carry twenty-one screenshots into a log row.
+ *
+ * The wide pass is always the one kept, being the first, and it is the one that chose the
+ * positions the close-ups only nudged.
+ */
+function keepAiImage(log: WebStepLog, image: string | undefined): void {
+  if (!image) return;
+  const kept = log.aiImages ?? [];
+  if (kept.length >= MAX_WEB_AI_IMAGES) return;
+  if (kept.reduce((n, one) => n + one.length, 0) + image.length > MAX_WEB_AI_IMAGE_CHARS) return;
+  log.aiImages = [...kept, image];
+}
+
+/**
+ * The challenge panel a picture captcha draws its tiles in, if one is on the page and worth
+ * zooming into. Returned padded and clamped to the viewport, in the CSS pixels the grid is
+ * labelled with, so an answer read off the zoomed shot needs no arithmetic to click.
+ *
+ * The biggest visible challenge frame wins, and it has to be tall: a checkbox widget frame
+ * is wide and short, and holds nothing worth several clicks. A panel that fills most of the
+ * viewport is left alone, because zooming into it buys no resolution and only hides the
+ * rest of the page.
+ */
+async function captchaPanelBox(
+  page: Page,
+  view: { w: number; h: number },
+): Promise<WebRect | undefined> {
+  const box = (await page
+    .evaluate(
+      `(function () { ${DEEP_QUERY_FN}
+         var best = null;
+         var frames = __deepQuery(${JSON.stringify(CAPTCHA_PANEL_SELECTOR)});
+         for (var i = 0; i < frames.length; i++) {
+           var r = frames[i].getBoundingClientRect();
+           if (r.width < 120 || r.height < 180) continue;
+           if (r.bottom < 0 || r.right < 0 || r.top > innerHeight || r.left > innerWidth) continue;
+           var cs = getComputedStyle(frames[i]);
+           if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+           if (Number(cs.opacity) < 0.05) continue;
+           if (!best || r.width * r.height > best.width * best.height)
+             best = { x: r.x, y: r.y, width: r.width, height: r.height };
+         }
+         return best;
+       })()`,
+    )
+    .catch(() => null)) as WebRect | null;
+  if (!box) return undefined;
+
+  const x = Math.max(0, Math.round(box.x - WEB_PANEL_PAD_PX));
+  const y = Math.max(0, Math.round(box.y - WEB_PANEL_PAD_PX));
+  const width = Math.min(view.w - x, Math.round(box.width + WEB_PANEL_PAD_PX * 2));
+  const height = Math.min(view.h - y, Math.round(box.height + WEB_PANEL_PAD_PX * 2));
+  if (width < 120 || height < 180) return undefined;
+  if (width * height > view.w * view.h * 0.55) return undefined;
+  return { x, y, width, height };
+}
+
+/**
+ * One log entry per AI pass, each headed by which pass it was -- the first included, so the
+ * log reader can split the passes back apart and debug one of them on its own.
+ */
+function joinAiPasses(parts: string[], labels: string[]): string {
+  return parts.map((part, i) => `--- ${labels[i] ?? `pass ${i + 1}`} ---\n\n${part}`).join("\n\n");
+}
+
+/**
+ * How far a close-up may move a wide answer: one cell of the ruler that answer was read
+ * off, and never less than 30px. A jump bigger than the grid is not a correction of the
+ * position, it is a different target -- the neighbouring tile that shares the close-up
+ * window -- and taking it clicks something the wide pass never chose.
+ */
+function refineShiftLimit(wideGap: number): number {
+  return Math.max(wideGap, 30);
 }
 
 /** The close-up window around a first guess, kept inside the page. */
@@ -3392,6 +3585,7 @@ async function runStepList(
           if (!shot) throw new Error("the page could not be captured for the AI");
           const prompt = buildWebWritePrompt(hint);
           log.aiPrompt = prompt;
+          keepAiImage(log, shot);
           const reply = await hooks.aiLocate(shot, prompt);
           log.aiResponse = reply;
 
@@ -3443,6 +3637,7 @@ async function runStepList(
             wantText,
           );
           log.aiPrompt = prompt;
+          keepAiImage(log, marked);
           const reply = await hooks.aiLocate(marked, prompt);
           log.aiResponse = reply;
 
@@ -3478,12 +3673,14 @@ async function runStepList(
 
           // First look: the whole page, ruled coarsely. Enough to say which part of the
           // page the target is in, and reliably a few tens of pixels out on a small one.
-          const wide = await locateWebPoint(
-            page,
-            hooks.aiLocate,
-            buildWebPointPrompt(step.hint, view, WEB_GRID_PX),
-            WEB_GRID_PX,
-          );
+          const xyPasses = ["whole-page pass", "close-up pass"];
+          const widePrompt = buildWebPointPrompt(step.hint, view, WEB_GRID_PX);
+          const wide = await locateWebPoint(page, hooks.aiLocate, widePrompt, WEB_GRID_PX);
+          // Logged the moment it comes back, not once the step has worked. A step that fails
+          // on this answer is precisely the one whose prompt and picture need reading after
+          log.aiPrompt = joinAiPasses([widePrompt], xyPasses);
+          log.aiResponse = joinAiPasses([wide.reply], xyPasses);
+          keepAiImage(log, wide.image);
           if (!wide.point)
             throw new Error(`the AI named no usable position (replied "${oneLine(wide.reply)}")`);
           if (
@@ -3507,8 +3704,9 @@ async function runStepList(
             WEB_REFINE_GRID_PX,
             window,
           );
-          log.aiPrompt = `${buildWebPointPrompt(step.hint, view, WEB_GRID_PX)}\n\n--- close-up pass ---\n\n${refinePrompt}`;
-          log.aiResponse = `${wide.reply}\n\n--- close-up pass ---\n\n${close.reply}`;
+          log.aiPrompt = joinAiPasses([widePrompt, refinePrompt], xyPasses);
+          log.aiResponse = joinAiPasses([wide.reply, close.reply], xyPasses);
+          keepAiImage(log, close.image);
 
           // A correction outside the window it was shown is not a correction, so the wide
           // answer stands rather than the click going somewhere nobody looked at
@@ -3553,6 +3751,164 @@ async function runStepList(
               : `the close-up moved it from ${from}`;
           const called = refined?.what ? `, which the AI called "${refined.what}"` : "";
           log.outcome = `AI clicked ${x},${y}, on ${under}${called} (${shift})`;
+          break;
+        }
+
+        case "ai_web_click_xy_multi": {
+          if (!hooks.aiLocate) throw new Error("no AI model is configured for this step");
+          const view = await page
+            .evaluate(() => ({ w: innerWidth, h: innerHeight }))
+            .catch(() => undefined);
+          if (!view?.w || !view.h) throw new Error("the page size could not be read");
+
+          const wanted =
+            step.max && step.max > 0
+              ? Math.min(Math.floor(step.max), MAX_WEB_POINTS)
+              : MAX_WEB_POINTS;
+          const gapMs = step.gapMs && step.gapMs > 0 ? step.gapMs : 500;
+          const refining = step.refine !== false;
+
+          // The wide look goes at the challenge panel alone where there is one, so tiles a
+          // 100px ruler cannot separate get a 20px one. Anything the panel shot puts outside
+          // the panel is a guess about a part of the page the model was not shown
+          const panel = step.zoom === false ? undefined : await captchaPanelBox(page, view);
+          const onPage: { x: number; y: number; what?: string }[] = [];
+          const prompts: string[] = [];
+          const replies: string[] = [];
+          // What each pass was, so the log reads as the sequence it was
+          const passes: string[] = [];
+          // Every pass goes on the log as it happens, rather than once the clicking is done.
+          // A step that throws part way -- no usable position, no time left, a pointer that
+          // would not press -- is the one whose prompts and pictures are worth reading, and
+          // writing them at the end is writing them only when they are least needed
+          const notePass = (prompt: string, reply: string, label: string, image?: string) => {
+            prompts.push(prompt);
+            replies.push(reply);
+            passes.push(label);
+            keepAiImage(log, image);
+            log.aiPrompt = joinAiPasses(prompts, passes);
+            log.aiResponse = joinAiPasses(replies, passes);
+          };
+          let wideGap = WEB_GRID_PX;
+          let looked = panel ? "in the captcha panel" : "on the page";
+          for (const area of panel ? [panel, undefined] : [undefined]) {
+            // One wide look for the lot: a shot per target would show a page the earlier
+            // clicks had already changed, and lose the order the first one was read in
+            wideGap = area ? WEB_PANEL_GRID_PX : WEB_GRID_PX;
+            const widePrompt = buildWebPointsPrompt(step.hint, area ?? view, wideGap, wanted);
+            const wide = await askAboutWebShot(page, hooks.aiLocate, widePrompt, wideGap, area);
+            const wideReply = wide.reply;
+            notePass(
+              widePrompt,
+              wideReply,
+              area ? "captcha panel pass" : "whole-page pass",
+              wide.image,
+            );
+            const box = area ?? { x: 0, y: 0, width: view.w, height: view.h };
+            onPage.push(
+              ...parseWebAiPoints(wideReply).filter(
+                (p) =>
+                  p.x >= box.x &&
+                  p.y >= box.y &&
+                  p.x <= box.x + box.width &&
+                  p.y <= box.y + box.height,
+              ),
+            );
+            // A panel look that found nothing is a panel that was the wrong thing to zoom
+            // into, so the whole page gets its turn rather than the step failing
+            if (onPage.length) break;
+            if (area) looked = "on the page, the captcha panel look having found nothing";
+          }
+
+          const found = onPage.slice(0, wanted);
+          if (!found.length)
+            throw new Error(
+              `the AI named no usable position (replied "${oneLine(replies[replies.length - 1])}")`,
+            );
+
+          const shiftLimit = refineShiftLimit(wideGap);
+          const done: string[] = [];
+          for (const [i, at] of found.entries()) {
+            if (msLeft(deadline) <= 0)
+              throw new Error(`ran out of time after ${i} of ${found.length} click(s)`);
+
+            // The close-up asks after this point's own target rather than the step's hint:
+            // a window around one tile may well hold another, and "each tile" would let the
+            // model correct towards the neighbour
+            let aimed = at;
+            let moved: string | undefined;
+            if (refining) {
+              const window = refineWindow(at, view);
+              const refinePrompt = buildWebRefinePrompt(
+                at.what || step.hint,
+                window,
+                WEB_REFINE_GRID_PX,
+              );
+              const close = await locateWebPoint(
+                page,
+                hooks.aiLocate,
+                refinePrompt,
+                WEB_REFINE_GRID_PX,
+                window,
+              );
+              notePass(refinePrompt, close.reply, `close-up pass ${i + 1}`, close.image);
+              const inside =
+                close.point &&
+                close.point.x >= window.x &&
+                close.point.x <= window.x + window.width &&
+                close.point.y >= window.y &&
+                close.point.y <= window.y + window.height;
+              const shift = close.point
+                ? Math.max(Math.abs(close.point.x - at.x), Math.abs(close.point.y - at.y))
+                : 0;
+              if (inside && close.point && shift > shiftLimit) {
+                // Further than the wide ruler could have been misread by: the close-up has
+                // picked out a different thing, not a better spot on this one
+                moved = `a close-up jump of ${Math.round(shift)}px ignored`;
+              } else if (inside && close.point) {
+                moved =
+                  Math.round(close.point.x) !== Math.round(at.x) ||
+                  Math.round(close.point.y) !== Math.round(at.y)
+                    ? `moved from ${Math.round(at.x)},${Math.round(at.y)}`
+                    : undefined;
+                aimed = { ...close.point, what: close.point.what || at.what };
+              }
+            }
+
+            const x = Math.round(aimed.x);
+            const y = Math.round(aimed.y);
+            const under = await describePoint(page, x, y);
+
+            let pointerFailure: string | undefined;
+            await page.mouse.move(x - 8, y + 6).catch((err: any) => {
+              pointerFailure = `move: ${err?.message ?? err}`;
+            });
+            await page.mouse.click(x, y).catch((err: any) => {
+              pointerFailure = `click: ${err?.message ?? err}`;
+            });
+            if (pointerFailure)
+              throw new Error(`the pointer could not be used (${pointerFailure})`);
+
+            // Numbered, so the screenshot shows the order as well as the places
+            await markClickPoint(page, x, y, `${i + 1}`);
+            marked = true;
+            done.push(
+              `${i + 1}) ${x},${y} on ${under}` +
+                (aimed.what ? `, called "${aimed.what}"` : "") +
+                (moved ? ` (${moved})` : ""),
+            );
+
+            // The page needs the same moment between presses a person would leave it
+            if (i < found.length - 1) await sleep(gapMs, deadline);
+          }
+
+          const dropped =
+            onPage.length > found.length
+              ? `, ${onPage.length - found.length} past the limit ignored`
+              : "";
+          log.outcome =
+            `AI clicked ${done.length} position(s) ${gapMs}ms apart, found ${looked}${dropped}: ` +
+            done.join("; ");
           break;
         }
       }
@@ -3678,6 +4034,11 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
       return `AI fills a field${step.hint?.trim() ? ` (${step.hint.trim()})` : ""}`;
     case "ai_web_click_xy":
       return `AI clicks a position${step.hint?.trim() ? ` (${step.hint.trim()})` : ""}`;
+    case "ai_web_click_xy_multi":
+      return (
+        `AI clicks ${step.max && step.max > 0 ? `up to ${Math.floor(step.max)} ` : ""}positions` +
+        `${step.hint?.trim() ? ` (${step.hint.trim()})` : ""}`
+      );
   }
 }
 
@@ -3776,6 +4137,72 @@ function buildWebPointPrompt(
     "",
     'Reply with ONLY a JSON object: {"x": <number>, "y": <number>}, in the coordinates printed',
     "on the grid. No explanation, no code fences.",
+  ].join("\n");
+}
+
+/**
+ * The wide look for `ai_web_click_xy_multi`, which asks for every match at once rather than
+ * one. A cap goes in the prompt as well as being applied to the reply: a model told to find
+ * "each tile" with no ceiling will pad its list out with near-misses.
+ *
+ * Order is spelled out because it is often the whole task -- a captcha asking for characters
+ * in a stated order is failed by the right positions in the wrong sequence.
+ *
+ * What is *not* a target is spelled out too. Asked for "the pictures matching the
+ * instruction", models answer with the example picture printed inside the instruction bar
+ * itself: it matches the words better than anything else in the shot does. Naming the
+ * furniture is what keeps the answer on the tiles. The candidates are taken one at a time
+ * for the same reason -- a model that has to decide about each tile stops answering with
+ * the first thing that looks right and one guess to keep it company.
+ *
+ * `area` is the region the screenshot actually covers, which is the panel alone on a zoomed
+ * pass; the labels carry page coordinates either way.
+ */
+function buildWebPointsPrompt(
+  hint: string | undefined,
+  area: { w: number; h: number } | WebRect,
+  gap: number,
+  max: number,
+): string {
+  const zoomed = "x" in area;
+  const opening = zoomed
+    ? [
+        `The screenshot is a close-up of one part of a web page: the region from x=${area.x} to`,
+        `x=${area.x + area.width}, y=${area.y} to y=${area.y + area.height}, which is the panel`,
+        `holding the challenge. A red grid every ${gap} pixels is drawn over it, labelled with`,
+        `those same page coordinates. The grid is an overlay for measuring only -- it is not`,
+        `part of the page.`,
+      ]
+    : [
+        `The screenshot is a web page, ${area.w} by ${area.h}. A red grid has been drawn over it`,
+        `every ${gap} pixels, and the gridlines are labelled along the top and left edges with the`,
+        `coordinates to answer in. The grid is an overlay for measuring only -- it is not part of`,
+        `the page.`,
+      ];
+  return [
+    ...opening,
+    "",
+    `Find every one of these, and give the position at the centre of each: ${webPointTarget(hint)}`,
+    "",
+    `List every candidate first, then decide. Answer with positions on the things being asked`,
+    `for and nothing else: an instruction, a caption, an example picture shown as part of the`,
+    `instructions, a button, a logo, a reload or menu control, or anything else the page is`,
+    `built from is never a target, however well it matches the words. No two positions may`,
+    `fall on the same thing.`,
+    "",
+    `Read each position off the labelled gridlines: work out which lines it sits between, then`,
+    `estimate within them. The figures are printed along all four edges, so use the ones`,
+    `nearest what you are measuring. Aim for the middle of the target, not its edge or its`,
+    `label. Order the ones to click as they should be clicked -- the order asked for above if`,
+    `one is given, otherwise top to bottom, left to right. Click at most ${max}, and only what`,
+    `you can actually see: a position you are unsure of is worse than a shorter list.`,
+    "",
+    'Reply with ONLY a JSON object: {"seen": [{"x": <number>, "y": <number>, "what": "<what',
+    'this one is>", "match": <true or false>}, ...], "points": [{"x": <number>, "y": <number>,',
+    '"what": "<what this one is>"}, ...]}, in the coordinates printed on the grid. "seen" is',
+    'every candidate, each named and judged; "points" is the ones to click, in order. Fill in',
+    '"seen" before "points", and let it decide "points". If nothing matches, reply with',
+    '"points": []. No explanation, no code fences.',
   ].join("\n");
 }
 

@@ -8,7 +8,7 @@ vi.mock("../db/database", () => ({
 }));
 
 import { describe, it, expect, vi } from "vitest";
-import { parseWebAiPoint, parseWebAiReply } from "../jobs/cloudflare";
+import { parseWebAiPoint, parseWebAiPoints, parseWebAiReply } from "../jobs/cloudflare";
 
 describe("parseWebAiReply", () => {
   it("reads the JSON object it asked for", () => {
@@ -105,5 +105,83 @@ describe("parseWebAiPoint", () => {
       what: "the checkbox",
     });
     expect(parseWebAiPoint('{"x": 344, "y": 456, "what": 42}')?.what).toBeUndefined();
+  });
+});
+
+// `ai_web_click_xy_multi` asks for the lot in one reply. Order is part of the answer -- a
+// captcha wanting its characters in a stated order is failed by the right places in the
+// wrong sequence -- so nothing here sorts or dedupes what came back.
+describe("parseWebAiPoints", () => {
+  it("reads the list it asked for, in the order given", () => {
+    expect(parseWebAiPoints('{"points": [{"x": 10, "y": 20}, {"x": 300, "y": 40}]}')).toEqual([
+      { x: 10, y: 20 },
+      { x: 300, y: 40 },
+    ]);
+  });
+
+  it("keeps what the model says each position is, for the log and the close-up pass", () => {
+    expect(
+      parseWebAiPoints('{"points": [{"x": 10, "y": 20, "what": "the first tile"}]}'),
+    ).toEqual([{ x: 10, y: 20, what: "the first tile" }]);
+  });
+
+  it("finds the list inside a fence or prose", () => {
+    expect(parseWebAiPoints('```json\n{"points": [{"x": 1, "y": 2}]}\n```')).toEqual([
+      { x: 1, y: 2 },
+    ]);
+  });
+
+  it("falls back to each object on its own when the list will not parse", () => {
+    expect(parseWebAiPoints("Here they are: {x: 10, y: 20} then {x: 30, y: 40}")).toEqual([
+      { x: 10, y: 20 },
+      { x: 30, y: 40 },
+    ]);
+  });
+
+  it("reads a line at a time when no JSON came back at all", () => {
+    expect(parseWebAiPoints("1. 412, 300\n2. 500, 620")).toEqual([
+      { x: 412, y: 300 },
+      { x: 500, y: 620 },
+    ]);
+  });
+
+  it("takes a single position as a list of one", () => {
+    expect(parseWebAiPoints('{"x": 412, "y": 300}')).toEqual([{ x: 412, y: 300 }]);
+  });
+
+  it("gives back nothing when the model found nothing, so the step fails instead of guessing", () => {
+    expect(parseWebAiPoints('{"points": []}')).toEqual([]);
+    expect(parseWebAiPoints("I cannot see any of them")).toEqual([]);
+    expect(parseWebAiPoints("")).toEqual([]);
+  });
+
+  it("drops the entries carrying no position rather than clicking the page corner", () => {
+    expect(
+      parseWebAiPoints('{"points": [{"x": 10, "y": 20}, {"x": null, "y": null}]}'),
+    ).toEqual([{ x: 10, y: 20 }]);
+  });
+
+  it("takes the chosen ones from a reply that lists the candidates it worked through", () => {
+    const reply = JSON.stringify({
+      seen: [
+        { x: 200, y: 400, what: "a dolphin", match: false },
+        { x: 324, y: 574, what: "a koala", match: true },
+      ],
+      points: [{ x: 324, y: 574, what: "a koala" }],
+    });
+    expect(parseWebAiPoints(reply)).toEqual([{ x: 324, y: 574, what: "a koala" }]);
+  });
+
+  it("clicks nothing when the candidates were all rejected, rather than clicking them all", () => {
+    // The rejected candidates are in the reply as well, and a fall-through to the looser
+    // reads would take them for the answer
+    const reply = JSON.stringify({
+      seen: [
+        { x: 200, y: 400, what: "a dolphin", match: false },
+        { x: 260, y: 400, what: "a shark", match: false },
+      ],
+      points: [],
+    });
+    expect(parseWebAiPoints(reply)).toEqual([]);
   });
 });

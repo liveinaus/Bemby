@@ -22,7 +22,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Browser, Page } from "playwright-core";
 import { chromium } from "playwright-core";
 import { chromiumExecutable } from "../jobs/cfBrowser";
-import { runWebSteps } from "../jobs/cloudflare";
+import { drawWebGrid, runWebSteps } from "../jobs/cloudflare";
 
 // The keyed build quits without a licence seat, so these drive the unlicensed one
 const exe = chromiumExecutable("free");
@@ -144,6 +144,296 @@ describe.skipIf(!exe)("page steps in a real browser", () => {
       expect(prompts).toHaveLength(2);
       expect(prompts[1]).not.toContain("360");
       expect(prompts[1]).not.toContain("485");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "clicks every position the AI listed, in order, with one look at the page",
+    async () => {
+      const boxes = [
+        { id: "a", left: 100, top: 100 },
+        { id: "b", left: 300, top: 100 },
+        { id: "c", left: 500, top: 100 },
+      ];
+      const p = await open(
+        boxes
+          .map(
+            (b) =>
+              `<input id="${b.id}" type="checkbox" style="position:absolute;left:${b.left}px;` +
+              `top:${b.top}px;width:22px;height:22px;margin:0">`,
+          )
+          .join(""),
+      );
+      const at = (id: string) =>
+        p.evaluate((el: string) => {
+          const r = document.getElementById(el)!.getBoundingClientRect();
+          return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+        }, id);
+      const want = [await at("a"), await at("b"), await at("c")];
+
+      let calls = 0;
+      const run = await runWebSteps(
+        p,
+        [{ type: "ai_web_click_xy_multi", hint: "every checkbox", gapMs: 0, refine: false }],
+        Date.now() + 30_000,
+        {
+          aiLocate: async () => {
+            calls++;
+            return JSON.stringify({ points: want });
+          },
+        },
+      );
+
+      expect(run.logs[0].error).toBeUndefined();
+      // One screenshot for the lot: a shot per target would show a page the earlier clicks
+      // had already changed, and with the close-up off there is nothing else to ask
+      expect(calls).toBe(1);
+      expect(run.logs[0].outcome).toContain("AI clicked 3 position(s)");
+      for (const [i, point] of want.entries())
+        expect(run.logs[0].outcome).toContain(`${i + 1}) ${point.x},${point.y}`);
+      expect(
+        await p.evaluate(() =>
+          ["a", "b", "c"].map((id) => (document.getElementById(id) as HTMLInputElement).checked),
+        ),
+      ).toEqual([true, true, true]);
+      expect(await p.evaluate(() => document.querySelectorAll(".__bemby_mark").length)).toBe(0);
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "takes a close-up of each position when asked, and clicks what it corrected to",
+    async () => {
+      const p = await open(
+        `<input id="a" type="checkbox" style="position:absolute;left:100px;top:100px;width:22px;height:22px;margin:0">` +
+          `<input id="b" type="checkbox" style="position:absolute;left:400px;top:300px;width:22px;height:22px;margin:0">`,
+      );
+      const truth = await p.evaluate(() =>
+        ["a", "b"].map((id) => {
+          const r = document.getElementById(id)!.getBoundingClientRect();
+          return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+        }),
+      );
+
+      // The wide pass is 20px out on both, the way the live model is on a small target
+      const prompts: string[] = [];
+      let pass = 0;
+      const run = await runWebSteps(
+        p,
+        [{ type: "ai_web_click_xy_multi", hint: "both checkboxes", gapMs: 0 }],
+        Date.now() + 30_000,
+        {
+          aiLocate: async (_image, prompt) => {
+            prompts.push(prompt);
+            if (pass++ === 0)
+              return JSON.stringify({
+                points: truth.map((t, i) => ({ x: t.x + 20, y: t.y + 20, what: `checkbox ${i}` })),
+              });
+            return JSON.stringify(truth[pass - 2]);
+          },
+        },
+      );
+
+      expect(run.logs[0].error).toBeUndefined();
+      // One wide look, then one close-up per position
+      expect(prompts).toHaveLength(3);
+      // One kept picture per pass, in the order the prompt lists them, and every pass headed
+      // so the log reader can split them apart and debug one on its own
+      expect(run.logs[0].aiImages).toHaveLength(3);
+      expect(run.logs[0].aiPrompt).toMatch(/^--- whole-page pass ---/);
+      expect(run.logs[0].aiPrompt).toContain("\n\n--- close-up pass 1 ---\n\n");
+      expect(run.logs[0].aiPrompt).toContain("\n\n--- close-up pass 2 ---\n\n");
+      expect(run.logs[0].aiResponse).toMatch(/^--- whole-page pass ---/);
+      expect(run.logs[0].outcome).toContain("moved from");
+      expect(
+        await p.evaluate(() =>
+          ["a", "b"].map((id) => (document.getElementById(id) as HTMLInputElement).checked),
+        ),
+      ).toEqual([true, true]);
+      await p.close();
+    },
+    60_000,
+  );
+
+  // A challenge frame the size hCaptcha draws one, with a checkbox inside the page behind it
+  // standing in for a tile: the frame is only there to be found and measured.
+  const panelPage = () =>
+    open(
+      `<iframe title="hCaptcha challenge" style="position:absolute;left:125px;top:265px;` +
+        `width:320px;height:460px;border:0"></iframe>` +
+        `<input id="a" type="checkbox" style="position:absolute;left:600px;top:100px;` +
+        `width:22px;height:22px;margin:0">`,
+      { width: 945, height: 939 },
+    );
+
+  it(
+    "rules at the top of the z order, and names only the lines a figure fits beside",
+    async () => {
+      // A panel at the maximum z-index, which is where a captcha container sits. A ruler one
+      // below that is painted under the challenge: figures in the margins, nothing on the
+      // tiles that needed measuring, which is a ruled picture that measures nothing.
+      const p = await open(
+        `<div style="position:fixed;left:100px;top:100px;width:200px;height:200px;` +
+          `background:#123;z-index:2147483647"></div>`,
+        { width: 400, height: 400 },
+      );
+      await drawWebGrid(p, 20, { x: 100, y: 100, width: 200, height: 200 });
+      const ruler = await p.evaluate(() =>
+        Array.from(document.querySelectorAll(".__bemby_mark > div")).map((d) => ({
+          z: getComputedStyle(d).zIndex,
+          text: d.textContent ?? "",
+        })),
+      );
+
+      expect(ruler.length).toBeGreaterThan(0);
+      expect(ruler.every((d) => d.z === "2147483647")).toBe(true);
+      // Three digits per 20px line is an unreadable run of figures, so only every third line
+      // is named, and each named line carries its figure at both edges of the shot
+      const figures = ruler.filter((d) => d.text).map((d) => Number(d.text));
+      expect(figures.length).toBeGreaterThan(0);
+      expect(figures.every((n) => n % 60 === 0)).toBe(true);
+      // 180 is a named line on both axes, and each carries its figure at both edges
+      expect(figures.filter((n) => n === 180)).toHaveLength(4);
+      // And a coarse ruler still names every line, three digits fitting easily in 100px
+      await drawWebGrid(p, 100);
+      const coarse = await p.evaluate(() =>
+        Array.from(document.querySelectorAll(".__bemby_mark > div"))
+          .map((d) => d.textContent ?? "")
+          .filter(Boolean),
+      );
+      expect(coarse).toContain("100");
+      expect(coarse).toContain("200");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "takes the wide look at the captcha panel alone, ruled finely",
+    async () => {
+      const p = await panelPage();
+      const prompts: string[] = [];
+      const run = await runWebSteps(
+        p,
+        [{ type: "ai_web_click_xy_multi", hint: "each tile", gapMs: 0, refine: false }],
+        Date.now() + 30_000,
+        {
+          aiLocate: async (_image, prompt) => {
+            prompts.push(prompt);
+            return JSON.stringify({ points: [{ x: 200, y: 400, what: "a watering can" }] });
+          },
+        },
+      );
+
+      expect(run.logs[0].error).toBeUndefined();
+      // One look, at the panel: its own region, and the fine ruler rather than the 100px one
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0]).toContain("the panel");
+      expect(prompts[0]).toContain("x=113");
+      expect(prompts[0]).toContain("A red grid every 20 pixels");
+      expect(run.logs[0].outcome).toContain("found in the captcha panel");
+      // The ruled shot is kept as it was sent: a prompt cannot be debugged without it
+      expect(run.logs[0].aiImages).toHaveLength(1);
+      expect(run.logs[0].aiImages?.[0]).toMatch(/^data:image\/jpeg;base64,/);
+      expect(run.logs[0].aiImages?.[0]).not.toBe(run.logs[0].screenshot);
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "falls back to the whole page when the panel look answers off the panel",
+    async () => {
+      const p = await panelPage();
+      const prompts: string[] = [];
+      const at = await p.evaluate(() => {
+        const r = document.getElementById("a")!.getBoundingClientRect();
+        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+      });
+      const run = await runWebSteps(
+        p,
+        [{ type: "ai_web_click_xy_multi", hint: "the checkbox", gapMs: 0, refine: false }],
+        Date.now() + 30_000,
+        {
+          aiLocate: async (_image, prompt) => {
+            prompts.push(prompt);
+            return JSON.stringify({ points: [at] });
+          },
+        },
+      );
+
+      expect(run.logs[0].error).toBeUndefined();
+      // The panel look answered outside the panel, so the page got its own look
+      expect(prompts).toHaveLength(2);
+      expect(prompts[1]).toContain("The screenshot is a web page, 945 by 939");
+      expect(run.logs[0].outcome).toContain("the captcha panel look having found nothing");
+      expect(
+        await p.evaluate(() => (document.getElementById("a") as HTMLInputElement).checked),
+      ).toBe(true);
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "keeps the prompt and the picture on a step that failed, which is when they are wanted",
+    async () => {
+      const p = await panelPage();
+      const run = await runWebSteps(
+        p,
+        [{ type: "ai_web_click_xy_multi", hint: "each tile", gapMs: 0 }],
+        Date.now() + 30_000,
+        { aiLocate: async () => "I cannot see any of them" },
+      );
+
+      expect(run.logs[0].error).toContain("no usable position");
+      // Both looks are on the log, each with the picture it was shown, so the failure can be
+      // debugged rather than only reported
+      expect(run.logs[0].aiPrompt).toContain("--- captcha panel pass ---");
+      expect(run.logs[0].aiPrompt).toContain("--- whole-page pass ---");
+      expect(run.logs[0].aiResponse).toContain("I cannot see any of them");
+      expect(run.logs[0].aiImages).toHaveLength(2);
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "ignores a close-up that jumps further than the wide grid could have been misread by",
+    async () => {
+      const p = await open(
+        `<input id="a" type="checkbox" style="position:absolute;left:389px;top:289px;` +
+          `width:22px;height:22px;margin:0">`,
+        { width: 945, height: 939 },
+      );
+      const at = await p.evaluate(() => {
+        const r = document.getElementById("a")!.getBoundingClientRect();
+        return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+      });
+
+      let pass = 0;
+      const run = await runWebSteps(
+        p,
+        [{ type: "ai_web_click_xy_multi", hint: "the checkbox", gapMs: 0, zoom: false }],
+        Date.now() + 30_000,
+        {
+          aiLocate: async () =>
+            pass++ === 0
+              ? JSON.stringify({ points: [{ ...at, what: "a checkbox" }] })
+              : // Inside the 320px close-up window, but 120px along it: the neighbour, not
+                // a better reading of the same target
+                JSON.stringify({ x: at.x + 120, y: at.y, what: "a checkbox" }),
+        },
+      );
+
+      expect(run.logs[0].error).toBeUndefined();
+      expect(run.logs[0].outcome).toContain("close-up jump of 120px ignored");
+      expect(
+        await p.evaluate(() => (document.getElementById("a") as HTMLInputElement).checked),
+      ).toBe(true);
       await p.close();
     },
     60_000,

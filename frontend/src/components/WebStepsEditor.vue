@@ -677,17 +677,55 @@
 
       <div
         v-if="
-          s.type === 'ai_web_button' || s.type === 'ai_web_input' || s.type === 'ai_web_click_xy'
+          s.type === 'ai_web_button' ||
+          s.type === 'ai_web_input' ||
+          s.type === 'ai_web_click_xy' ||
+          s.type === 'ai_web_click_xy_multi'
         "
       >
         <label class="form-label">{{ t("jobs.web.labelHint") }}</label>
-        <input
+        <!-- A textarea, not a one-line input: a hint that says where the targets are and
+             what is not one runs to several lines, and is worth reading back -->
+        <textarea
           v-model.trim="s.hint"
           class="form-input"
+          rows="3"
+          style="resize: vertical"
           :placeholder="hintPlaceholder(s.type)"
         />
         <div style="font-size: 11px; color: #aaa; margin-top: 3px">
-          {{ s.type === "ai_web_click_xy" ? t("jobs.web.hintXyHint") : t("jobs.web.hintHint") }}
+          {{ hintHint(s.type) }}
+        </div>
+      </div>
+
+      <!-- Several positions from one screenshot: how far apart to click them, and how many -->
+      <div v-if="s.type === 'ai_web_click_xy_multi'" style="margin-top: 8px">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelClickGap") }}</label>
+            <input v-model.number="s.gapMs" class="form-input" type="number" min="0" step="100" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelMaxPoints") }}</label>
+            <input v-model.number="s.max" class="form-input" type="number" min="0" max="20" step="1" />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.clickGapHint") }}
+        </div>
+        <label class="form-checkbox-label" style="margin-top: 8px">
+          <input v-model="s.refine" type="checkbox" />
+          {{ t("jobs.web.labelRefinePoints") }}
+        </label>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.refinePointsHint") }}
+        </div>
+        <label class="form-checkbox-label" style="margin-top: 8px">
+          <input v-model="s.zoom" type="checkbox" />
+          {{ t("jobs.web.labelZoomPanel") }}
+        </label>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.zoomPanelHint") }}
         </div>
       </div>
 
@@ -846,7 +884,14 @@ const heading = computed(() => {
 function hintPlaceholder(type: WebStepType): string {
   if (type === "ai_web_input") return t("jobs.web.hintInputPlaceholder");
   if (type === "ai_web_click_xy") return t("jobs.web.hintXyPlaceholder");
+  if (type === "ai_web_click_xy_multi") return t("jobs.web.hintXyMultiPlaceholder");
   return t("jobs.web.hintButtonPlaceholder");
+}
+
+function hintHint(type: WebStepType): string {
+  if (type === "ai_web_click_xy") return t("jobs.web.hintXyHint");
+  if (type === "ai_web_click_xy_multi") return t("jobs.web.hintXyMultiHint");
+  return t("jobs.web.hintHint");
 }
 
 function add() {

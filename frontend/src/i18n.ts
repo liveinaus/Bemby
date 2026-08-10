@@ -840,6 +840,7 @@ const zh = {
         ai_web_input: "AI 输入文本（看截图判断）",
         ai_web_button: "AI 点击按钮（看截图判断）",
         ai_web_click_xy: "AI 点击坐标（看截图定位像素）",
+        ai_web_click_xy_multi: "AI 连续点击多个坐标（看截图定位像素）",
       },
       labelAnchor: "锚点元素（CSS 选择器）",
       anchorHint: "只用来定位，不会点击它。选一个位置稳定的容器，再用下面的偏移量定位真正要按住的点",
@@ -1022,6 +1023,18 @@ const zh = {
       hintXyPlaceholder: "例如：Verify you are human 的复选框",
       hintXyHint:
         "截图上会画出 100 像素的红色网格，AI 读出目标中心的像素坐标，浏览器直接点击该坐标。适用于编号方式够不到的元素，例如 Cloudflare Turnstile 复选框（位于跨域 iframe 或 shadow root 内）、canvas 绘制的控件。留空则由 AI 自行判断该点哪里",
+      hintXyMultiPlaceholder: "例如：所有含红绿灯的方块，从左到右",
+      hintXyMultiHint:
+        "与「AI 点击坐标」相同的网格截图，但一次要求多个坐标，并按 AI 给出的顺序依次点击。适用于需要点击多处才能完成的页面，例如图片验证码的多个方块、按指定顺序点选文字。留空则由 AI 自行判断该点哪些位置。描述时要说清目标在哪里、哪些不是目标，而不只是要找什么 —— 「提示栏下方九个图片方块中，点击图案符合提示的每一个方块中心，提示栏内的示例图片绝不要点」这样写效果好，「符合描述的图片」这样写往往会点到示例图片",
+      labelClickGap: "点击间隔（毫秒）",
+      labelMaxPoints: "最多点击数量",
+      clickGapHint: "两次点击之间的等待时间，留空 / 0 为 500 毫秒。数量填 0 表示按 AI 给出的全部点击，最多 20 个",
+      labelRefinePoints: "每个坐标再做一次局部精修",
+      refinePointsHint:
+        "对每个坐标额外截取 320 像素范围的放大图再确认一次，目标较小时更准，但每个坐标会多消耗一次 AI 调用。若精修后的偏移超过粗定位网格本身的误差范围，则视为换了目标而被忽略，避免修正到旁边的方块。目标较大（例如整块图片方块）时可关闭以加快速度",
+      labelZoomPanel: "只截取验证码面板",
+      zoomPanelHint:
+        "页面上存在验证码框架时，粗定位只截取该面板本身，并按 20 像素而非 100 像素画网格。九个约 70 像素的方块在 100 像素网格下无法区分。未找到面板、或面板截图没有结果时，自动回退到整页。目标不在面板内的步骤请关闭",
       labelAiText: "输入内容（可选）",
       aiTextPlaceholder: "留空则由 AI 从页面判断",
       aiTextHint: "留空时 AI 会根据页面内容决定输入什么，例如读取图形验证码或回答页面提出的问题",
@@ -2667,6 +2680,7 @@ const en: typeof zh = {
         ai_web_input: "AI fills a field (from a screenshot)",
         ai_web_button: "AI presses a control (from a screenshot)",
         ai_web_click_xy: "AI clicks a position (pixels from a screenshot)",
+        ai_web_click_xy_multi: "AI clicks several positions in turn (pixels from a screenshot)",
       },
       labelAnchor: "Anchor element (CSS selector)",
       anchorHint: "Only measured, never pressed. Name a container that sits still, then aim at the real target with the offset below",
@@ -2857,6 +2871,19 @@ const en: typeof zh = {
       hintXyPlaceholder: "e.g. the \"Verify you are human\" checkbox",
       hintXyHint:
         "The screenshot is ruled with a red 100px grid, the AI reads off the pixel position at the centre of the target, and the browser clicks exactly there. For anything the numbered approach cannot reach: a Cloudflare Turnstile checkbox (it sits in a cross-origin iframe or a shadow root), or a control painted on a canvas. Leave blank to let the AI judge on its own",
+      hintXyMultiPlaceholder: "e.g. every square with a traffic light, left to right",
+      hintXyMultiHint:
+        "The same ruled screenshot as the single-position step, but several positions are asked for at once and clicked in the order the AI gave them. For a page that wants more than one press: the matching tiles of a picture captcha, or characters clicked in a stated order. Leave blank to let the AI judge on its own. Say where the targets are and what is not one, not just what to look for -- \"the nine picture tiles below the instruction bar; click the centre of each whose picture matches the instruction, never the example picture inside the bar itself\" is answered well, \"the images matching the description\" is answered with the example picture",
+      labelClickGap: "Gap between clicks (ms)",
+      labelMaxPoints: "Most positions to click",
+      clickGapHint:
+        "How long to wait between one click and the next; blank/0 waits 500ms. A count of 0 clicks everything the AI gives, up to 20",
+      labelRefinePoints: "Check each position with a close-up",
+      refinePointsHint:
+        "Takes a second, 320px close-up look at each position before clicking it. More accurate on small targets, at one extra AI call per position. A close-up that moves the position further than the wide grid could have been misread by is ignored, so a correction cannot land on the tile next door. Worth turning off for large targets, such as whole captcha tiles",
+      labelZoomPanel: "Look at the captcha panel alone",
+      zoomPanelHint:
+        "Where a captcha frame is on the page, the wide look is taken of that panel by itself and ruled every 20px instead of 100px. Nine 70px tiles under a 100px grid cannot be told apart. Falls back to the whole page when no panel is found, or when the panel look comes back with nothing. Turn off for a step whose targets sit outside the panel",
       labelAiText: "Text to type (optional)",
       aiTextPlaceholder: "Blank lets the AI decide from the page",
       aiTextHint:

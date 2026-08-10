@@ -695,6 +695,19 @@ export type WebStep =
     }
   | { type: "ai_web_button"; hint?: string }
   | { type: "ai_web_click_xy"; hint?: string }
+  | {
+      /** AI gives back several positions, each clicked in turn with a pause between. */
+      type: "ai_web_click_xy_multi";
+      hint?: string;
+      /** Pause between clicks. Blank/0 waits 500ms. */
+      gapMs?: number;
+      /** Click at most this many. Blank/0 takes what the AI gives, up to 20. */
+      max?: number;
+      /** Check each position with a close-up second look. Defaults to true. */
+      refine?: boolean;
+      /** Take the wide look at the captcha panel alone, ruled finely. Defaults to true. */
+      zoom?: boolean;
+    }
   | { type: "ai_web_input"; hint?: string; text?: string };
 
 /** What one `open_url` sub-step did, with the page as it looked afterwards. */
@@ -708,6 +721,8 @@ export type WebStepLog = {
   screenshot?: string;
   aiPrompt?: string;
   aiResponse?: string;
+  /** The ruled or marked-up pictures the model was shown, in the order of the passes. */
+  aiImages?: string[];
 };
 
 export type CustomConfig = {

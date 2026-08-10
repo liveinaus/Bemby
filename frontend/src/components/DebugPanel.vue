@@ -11,7 +11,7 @@
     <textarea
       v-model="prompt"
       class="debug-panel-textarea"
-      rows="5"
+      rows="14"
       :placeholder="t('logs.debug.promptPlaceholder')"
     />
     <div class="debug-panel-controls">
@@ -55,7 +55,9 @@
       </div>
       <pre class="dev-block-pre">{{ response }}</pre>
     </div>
-    <div v-if="error" class="chat-error" style="margin-top: 6px">
+    <!-- Its own error style: the log view's is scoped to that component, so borrowing it
+         here left the text in the inherited colour, unreadable on this panel -->
+    <div v-if="error" class="debug-panel-error">
       {{ error }}
     </div>
   </div>
@@ -104,7 +106,7 @@ const maxTokens = defineModel<number>("maxTokens", { required: true });
 .debug-panel-img {
   display: block;
   width: 100%;
-  max-height: 200px;
+  max-height: 420px;
   object-fit: contain;
   object-position: left;
   border-radius: 4px;
@@ -124,6 +126,9 @@ const maxTokens = defineModel<number>("maxTokens", { required: true });
   padding: 8px;
   line-height: 1.5;
   resize: vertical;
+  /* A prompt runs to dozens of lines and is meant to be edited, so it gets the room */
+  min-height: 160px;
+  max-height: 60vh;
 }
 
 .debug-panel-controls {
@@ -174,11 +179,33 @@ const maxTokens = defineModel<number>("maxTokens", { required: true });
 
 .debug-panel-response .dev-block-pre {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   color: #cdd6f4;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: monospace;
+  line-height: 1.6;
+  /* Long replies scroll here rather than pushing the run button off the screen */
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px;
+  background: #1e1e2e;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+}
+
+.debug-panel-error {
+  margin-top: 10px;
+  padding: 8px;
+  font-size: 12px;
   line-height: 1.5;
+  color: #f38ba8;
+  background: rgba(243, 139, 168, 0.1);
+  border: 1px solid rgba(243, 139, 168, 0.35);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
 }
 </style>
