@@ -4125,18 +4125,16 @@ function buildWebPointPrompt(
   gap: number,
 ): string {
   return [
-    `The screenshot is a web page, ${view.w} by ${view.h}. A red grid has been drawn over it`,
-    `every ${gap} pixels, and the gridlines are labelled along the top and left edges with the`,
-    `coordinates to answer in. The grid is an overlay for measuring only -- it is not part of`,
-    `the page.`,
+    `The screenshot is a web page, ${view.w} by ${view.h}.`,
+    `A red grid every ${gap} pixels is drawn over it for measuring, and the figures along`,
+    `its edges are the coordinates to answer in.`,
     "",
-    `Find this and give the position at its centre: ${webPointTarget(hint)}`,
+    `Click this: ${webPointTarget(hint)}`,
     "",
-    `Read the position off the labelled gridlines: work out which lines it sits between, then`,
-    `estimate within them. Aim for the middle of the target, not its edge or its label.`,
+    `Give the position at its centre, not at its edge or the words beside it.`,
     "",
-    'Reply with ONLY a JSON object: {"x": <number>, "y": <number>}, in the coordinates printed',
-    "on the grid. No explanation, no code fences.",
+    'Reply with ONLY a JSON object: {"x": <number>, "y": <number>}. No explanation, no code',
+    "fences.",
   ].join("\n");
 }
 
@@ -4145,15 +4143,16 @@ function buildWebPointPrompt(
  * one. A cap goes in the prompt as well as being applied to the reply: a model told to find
  * "each tile" with no ceiling will pad its list out with near-misses.
  *
- * Order is spelled out because it is often the whole task -- a captcha asking for characters
- * in a stated order is failed by the right positions in the wrong sequence.
+ * Kept short on purpose. The reply is capped at a few hundred tokens, and asking the model to
+ * think on paper first -- every candidate named and judged before the answer -- spent the
+ * whole allowance on the working out and truncated the list of positions mid-object. Only the
+ * positions are asked for now.
  *
- * What is *not* a target is spelled out too. Asked for "the pictures matching the
- * instruction", models answer with the example picture printed inside the instruction bar
- * itself: it matches the words better than anything else in the shot does. Naming the
- * furniture is what keeps the answer on the tiles. The candidates are taken one at a time
- * for the same reason -- a model that has to decide about each tile stops answering with
- * the first thing that looks right and one guess to keep it company.
+ * Order is spelled out because it is often the whole task -- a captcha asking for characters
+ * in a stated order is failed by the right positions in the wrong sequence. What is *not* a
+ * target is spelled out for a plainer reason: asked for "the pictures matching the
+ * instruction", models answer with the example picture printed in the instruction bar, which
+ * matches the words better than anything else in the shot does.
  *
  * `area` is the region the screenshot actually covers, which is the panel alone on a zoomed
  * pass; the labels carry page coordinates either way.
@@ -4167,42 +4166,28 @@ function buildWebPointsPrompt(
   const zoomed = "x" in area;
   const opening = zoomed
     ? [
-        `The screenshot is a close-up of one part of a web page: the region from x=${area.x} to`,
-        `x=${area.x + area.width}, y=${area.y} to y=${area.y + area.height}, which is the panel`,
-        `holding the challenge. A red grid every ${gap} pixels is drawn over it, labelled with`,
-        `those same page coordinates. The grid is an overlay for measuring only -- it is not`,
-        `part of the page.`,
+        `The screenshot is the part of a web page from x=${area.x} to x=${area.x + area.width},`,
+        `y=${area.y} to y=${area.y + area.height} -- the panel holding the challenge.`,
+        `A red grid every ${gap} pixels is drawn over it for measuring, and the figures along`,
+        `its edges are the page coordinates to answer in.`,
       ]
     : [
-        `The screenshot is a web page, ${area.w} by ${area.h}. A red grid has been drawn over it`,
-        `every ${gap} pixels, and the gridlines are labelled along the top and left edges with the`,
-        `coordinates to answer in. The grid is an overlay for measuring only -- it is not part of`,
-        `the page.`,
+        `The screenshot is a web page, ${area.w} by ${area.h}.`,
+        `A red grid every ${gap} pixels is drawn over it for measuring, and the figures along`,
+        `its edges are the coordinates to answer in.`,
       ];
   return [
     ...opening,
     "",
-    `Find every one of these, and give the position at the centre of each: ${webPointTarget(hint)}`,
+    `Click these: ${webPointTarget(hint)}`,
     "",
-    `List every candidate first, then decide. Answer with positions on the things being asked`,
-    `for and nothing else: an instruction, a caption, an example picture shown as part of the`,
-    `instructions, a button, a logo, a reload or menu control, or anything else the page is`,
-    `built from is never a target, however well it matches the words. No two positions may`,
-    `fall on the same thing.`,
+    `Give the centre of each, at most ${max}, in the order they should be clicked. Nothing else`,
+    `on the page is a target -- not an instruction, an example picture beside one, a caption or`,
+    `a button -- and no two positions may be on the same thing.`,
     "",
-    `Read each position off the labelled gridlines: work out which lines it sits between, then`,
-    `estimate within them. The figures are printed along all four edges, so use the ones`,
-    `nearest what you are measuring. Aim for the middle of the target, not its edge or its`,
-    `label. Order the ones to click as they should be clicked -- the order asked for above if`,
-    `one is given, otherwise top to bottom, left to right. Click at most ${max}, and only what`,
-    `you can actually see: a position you are unsure of is worse than a shorter list.`,
-    "",
-    'Reply with ONLY a JSON object: {"seen": [{"x": <number>, "y": <number>, "what": "<what',
-    'this one is>", "match": <true or false>}, ...], "points": [{"x": <number>, "y": <number>,',
-    '"what": "<what this one is>"}, ...]}, in the coordinates printed on the grid. "seen" is',
-    'every candidate, each named and judged; "points" is the ones to click, in order. Fill in',
-    '"seen" before "points", and let it decide "points". If nothing matches, reply with',
-    '"points": []. No explanation, no code fences.',
+    'Reply with ONLY a JSON object: {"points": [{"x": <number>, "y": <number>, "what": "<what',
+    'it is>"}, ...]}, or {"points": []} if there is nothing to click. No explanation, no code',
+    "fences.",
   ].join("\n");
 }
 
@@ -4220,20 +4205,18 @@ function buildWebPointsPrompt(
  */
 function buildWebRefinePrompt(hint: string | undefined, window: WebRect, gap: number): string {
   return [
-    `The screenshot is a close-up of one part of a web page: the region from x=${window.x} to`,
-    `x=${window.x + window.width}, y=${window.y} to y=${window.y + window.height}. A red grid`,
-    `every ${gap} pixels is drawn over it, labelled with those same page coordinates. The grid`,
-    `is an overlay for measuring only -- it is not part of the page.`,
+    `The screenshot is the close-up of a web page from x=${window.x} to`,
+    `x=${window.x + window.width}, y=${window.y} to y=${window.y + window.height}.`,
+    `A red grid every ${gap} pixels is drawn over it for measuring, and the figures along`,
+    `its edges are the page coordinates to answer in.`,
     "",
-    `Find this and give the position at its exact centre: ${webPointTarget(hint)}`,
+    `Click this: ${webPointTarget(hint)}`,
     "",
-    `Work it out from the labelled gridlines: which two lines it sits between on each axis,`,
-    `then where between them. A checkbox is small -- aim at the middle of the box itself, not`,
-    `at the words beside it and not at the edge of the panel holding it.`,
+    `Give the position at its exact centre -- the middle of the thing itself, not the words`,
+    `beside it and not the edge of the panel around it -- and say what is there.`,
     "",
-    'Reply with ONLY a JSON object: {"x": <number>, "y": <number>, "what": "<what is at that',
-    'position>"}, in the page coordinates printed on the grid. If the target is not in this',
-    'close-up at all, reply {"x": null, "y": null, "what": "not in view"}.',
+    'Reply with ONLY a JSON object: {"x": <number>, "y": <number>, "what": "<what is there>"},',
+    'or {"x": null, "y": null, "what": "not in view"} if it is not in this close-up.',
     "No explanation, no code fences.",
   ].join("\n");
 }

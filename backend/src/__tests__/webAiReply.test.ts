@@ -161,9 +161,9 @@ describe("parseWebAiPoints", () => {
     ).toEqual([{ x: 10, y: 20 }]);
   });
 
-  it("takes the chosen ones from a reply that lists the candidates it worked through", () => {
+  it("takes the list, not the working out a model volunteered beside it", () => {
     const reply = JSON.stringify({
-      seen: [
+      considered: [
         { x: 200, y: 400, what: "a dolphin", match: false },
         { x: 324, y: 574, what: "a koala", match: true },
       ],
@@ -172,11 +172,11 @@ describe("parseWebAiPoints", () => {
     expect(parseWebAiPoints(reply)).toEqual([{ x: 324, y: 574, what: "a koala" }]);
   });
 
-  it("clicks nothing when the candidates were all rejected, rather than clicking them all", () => {
-    // The rejected candidates are in the reply as well, and a fall-through to the looser
-    // reads would take them for the answer
+  it("clicks nothing when an empty list came with the candidates it turned down", () => {
+    // Those candidates are positions too, and a fall-through to the looser reads below would
+    // take the rejected ones for the answer and click every one of them
     const reply = JSON.stringify({
-      seen: [
+      considered: [
         { x: 200, y: 400, what: "a dolphin", match: false },
         { x: 260, y: 400, what: "a shark", match: false },
       ],

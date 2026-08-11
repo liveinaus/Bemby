@@ -368,7 +368,7 @@ describe.skipIf(!exe)("page steps in a real browser", () => {
       expect(run.logs[0].error).toBeUndefined();
       // The panel look answered outside the panel, so the page got its own look
       expect(prompts).toHaveLength(2);
-      expect(prompts[1]).toContain("The screenshot is a web page, 945 by 939");
+      expect(prompts[1]).toContain("The screenshot is a web page, 945 by 939.");
       expect(run.logs[0].outcome).toContain("the captcha panel look having found nothing");
       expect(
         await p.evaluate(() => (document.getElementById("a") as HTMLInputElement).checked),
