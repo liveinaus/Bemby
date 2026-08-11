@@ -7,12 +7,14 @@ import {
   cleanTelegramAccount,
   deletePasskeyForAccount,
   fetchAttributesForAccount,
+  hardenPrivacyForAccount,
   listPasskeysForAccount,
   registerPasskeyForAccount,
   terminateOtherSessionsForAccount,
   updateTwoFaForAccount,
   verifyStoredPasskeyForAccount,
 } from "./accountOps";
+import { describePrivacyResult } from "../tg/privacy";
 import { startManualJobRun } from "./manualRun";
 import { cancelJob } from "./cancellation";
 import {
@@ -240,6 +242,27 @@ export function startBulkPasskey(
       }
       await registerPasskeyForAccount(item.refId);
       return { data: { action: "added" } };
+    },
+  });
+}
+
+/**
+ * Hides everything the account can hide. A settings change rather than a message, so the gap
+ * between accounts is the shorter one: the calls are cheap and nothing is being sent anywhere.
+ */
+export function startBulkPrivacy(
+  ids: number[],
+  gapSeconds?: number,
+): StartBulkTaskResult {
+  const entries = accountTargets(ids);
+  if (!entries) return NO_ACCOUNTS;
+  return startBulkTask({
+    kind: "privacy",
+    entries,
+    gapSeconds: gapSeconds ?? DEFAULT_FETCH_GAP_SECONDS,
+    handler: async (item) => {
+      const result = await hardenPrivacyForAccount(item.refId);
+      return { message: describePrivacyResult(result), data: { ...result } };
     },
   });
 }

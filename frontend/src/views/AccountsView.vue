@@ -85,6 +85,10 @@
                 <i class="fa-solid fa-key"></i>
                 {{ t("accounts.bulkPasskey.btn") }}
               </button>
+              <button class="bulk-menu-item" @click="runBulk(openBulkPrivacy)">
+                <i class="fa-solid fa-eye-slash"></i>
+                {{ t("accounts.bulkPrivacy.btn") }}
+              </button>
               <button
                 class="bulk-menu-item danger"
                 @click="runBulk(openBulkClean)"
@@ -2431,6 +2435,85 @@
       </div>
     </div>
 
+    <!-- Bulk privacy lockdown modal -->
+    <div v-if="showBulkPrivacy" class="modal-backdrop">
+      <div class="modal modal-lg">
+        <h3 class="modal-title">
+          <i class="fa-solid fa-eye-slash" style="margin-right: 8px"></i>
+          {{ t("accounts.bulkPrivacy.title") }}
+        </h3>
+
+        <template v-if="!bulkPrivacyTask">
+          <div v-if="!bulkPrivacyTargets.length" class="warn-box">
+            {{ t("accounts.bulkPrivacy.noTargets") }}
+          </div>
+          <template v-else>
+            <p class="bulk-add-hint">
+              {{
+                t("accounts.bulkPrivacy.intro").replace(
+                  "{n}",
+                  String(bulkPrivacyTargets.length),
+                )
+              }}
+            </p>
+            <!-- Spelled out, since it is the account's own settings being rewritten -->
+            <ul class="bulk-privacy-list">
+              <li v-for="key in PRIVACY_KEYS" :key="key">
+                {{ t(`accounts.bulkPrivacy.key.${key}`) }} —
+                {{
+                  PRIVACY_CONTACTS_ONLY.includes(key)
+                    ? t("accounts.bulkPrivacy.toContacts")
+                    : t("accounts.bulkPrivacy.toNobody")
+                }}
+              </li>
+            </ul>
+            <div class="form-hint" style="margin-bottom: 10px">
+              {{ t("accounts.bulkPrivacy.note") }}
+            </div>
+            <div class="form-group">
+              <label class="form-label">{{ t("accounts.bulkGap.label") }}</label>
+              <input
+                v-model.number="bulkPrivacyGapSeconds"
+                type="number"
+                min="0"
+                class="form-input"
+              />
+              <div class="form-hint">{{ t("accounts.bulkGap.hint") }}</div>
+            </div>
+            <div class="bulk-clean-accounts">
+              <div
+                v-for="a in bulkPrivacyTargets"
+                :key="a.id"
+                class="bulk-clean-account"
+              >
+                <strong>{{ a.name }}</strong>
+                <span class="bulk-add-phone">{{ a.phoneNumber }}</span>
+              </div>
+            </div>
+          </template>
+          <div class="modal-footer">
+            <button class="btn btn-ghost" @click="closeBulkPrivacy">
+              <i class="fa-solid fa-xmark"></i> {{ t("common.cancel") }}
+            </button>
+            <button
+              v-if="bulkPrivacyTargets.length"
+              class="btn btn-primary"
+              @click="startBulkPrivacy"
+            >
+              <i class="fa-solid fa-eye-slash"></i>
+              {{ t("accounts.bulkPrivacy.start") }}
+            </button>
+          </div>
+        </template>
+
+        <BulkTaskProgress
+          v-else
+          :task="bulkPrivacyTask"
+          @close="closeBulkPrivacy"
+        />
+      </div>
+    </div>
+
     <!-- Bulk spam-check modal -->
     <div v-if="showBulkSpam" class="modal-backdrop">
       <div class="modal">
@@ -4366,6 +4449,56 @@ async function startBulkPasskey() {
   }
 }
 
+// ── Bulk privacy lockdown state ───────────────────────────────────────────────
+// The settings, in the order the server sets them, so the modal can say what it is about to
+// do rather than "the highest level". The two below are the ones Telegram will not take
+// "nobody" for -- being found by number cannot be switched off at all.
+const PRIVACY_KEYS = [
+  "phoneNumber",
+  "addedByPhone",
+  "lastSeen",
+  "profilePhoto",
+  "about",
+  "birthday",
+  "forwards",
+  "calls",
+  "callsP2P",
+  "giftsAutoSave",
+  "chatInvite",
+] as const;
+const PRIVACY_CONTACTS_ONLY: readonly string[] = ["addedByPhone", "chatInvite"];
+
+const showBulkPrivacy = ref(false);
+const bulkPrivacyTargets = ref<Account[]>([]);
+const bulkPrivacyGapSeconds = ref(5);
+const bulkPrivacyTaskId = ref<string | null>(null);
+const bulkPrivacyTask = computed(() => taskById(bulkPrivacyTaskId.value));
+
+function openBulkPrivacy() {
+  bulkPrivacyTargets.value = accounts.value.filter(
+    (a) => selectedIds.value.has(a.id) && a.authStatus === "authenticated",
+  );
+  bulkPrivacyTaskId.value = runningTaskOfKind("privacy")?.id ?? null;
+  showBulkPrivacy.value = true;
+}
+
+function closeBulkPrivacy() {
+  showBulkPrivacy.value = false;
+  bulkPrivacyTaskId.value = null;
+}
+
+async function startBulkPrivacy() {
+  const ids = bulkPrivacyTargets.value.map((a) => a.id);
+  if (!ids.length) return;
+  try {
+    const task = await bulkTasksApi.privacy(ids, bulkPrivacyGapSeconds.value);
+    trackStartedTask(task);
+    bulkPrivacyTaskId.value = task.id;
+  } catch (e: any) {
+    alert(e.response?.data?.error ?? t("bulkTasks.startFailed"));
+  }
+}
+
 // ── Bulk clean state ──────────────────────────────────────────────────────────
 const showBulkClean = ref(false);
 const bulkCleanConfirmChecked = ref(false);
@@ -5254,6 +5387,22 @@ async function verify2fa() {
 .account-search-count {
   font-size: 11px;
   color: #888;
+}
+
+/* What the lockdown is about to set, listed rather than summarised */
+.bulk-privacy-list {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #555;
+  columns: 2;
+}
+
+@media (max-width: 600px) {
+  .bulk-privacy-list {
+    columns: 1;
+  }
 }
 
 .device-model-preview {

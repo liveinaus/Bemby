@@ -41,6 +41,34 @@ function credentialsText(data: Record<string, any>): string {
   return parts.join(", ");
 }
 
+/** What the lockdown managed: how much is hidden outright, and what would not go that far. */
+function privacyText(data: Record<string, any>): string {
+  const parts = [
+    t("accounts.bulkPrivacy.result.hidden").replace("{n}", String(data.nobody ?? 0)),
+  ];
+  const contacts = Array.isArray(data.contacts) ? data.contacts : [];
+  if (contacts.length) {
+    parts.push(
+      t("accounts.bulkPrivacy.result.contacts").replace(
+        "{keys}",
+        contacts.map((key: string) => t(`accounts.bulkPrivacy.key.${key}`)).join("、"),
+      ),
+    );
+  }
+  const skipped = Array.isArray(data.skipped) ? data.skipped : [];
+  if (skipped.length) {
+    parts.push(
+      t("accounts.bulkPrivacy.result.skipped").replace(
+        "{keys}",
+        skipped
+          .map((s: { key: string }) => t(`accounts.bulkPrivacy.key.${s.key}`))
+          .join("、"),
+      ),
+    );
+  }
+  return parts.join(", ");
+}
+
 /** Localised outcome for a finished item; falls back to the server's own message. */
 export function bulkTaskItemText(task: BulkTask, item: BulkTaskItem): string {
   if (item.status !== "done" || !item.data) return item.message;
@@ -65,6 +93,8 @@ export function bulkTaskItemText(task: BulkTask, item: BulkTaskItem): string {
       return data.action === "skippedValid"
         ? t("accounts.bulkPasskey.result.skippedValid")
         : t("accounts.bulkPasskey.result.added");
+    case "privacy":
+      return privacyText(data);
     case "clean":
       return cleanText(data);
     default:

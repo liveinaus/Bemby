@@ -13,6 +13,7 @@ export type BulkTaskKind =
   | "login-email"
   | "credentials"
   | "passkey"
+  | "privacy"
   | "clean"
   | "run-jobs"
   // Run by their own older batch runners and surfaced through jobs/bulkTaskBridge
@@ -104,6 +105,7 @@ const KIND_LABELS: Record<BulkTaskKind, string> = {
   "login-email": "login email change",
   credentials: "credential change",
   passkey: "passkey",
+  privacy: "privacy lockdown",
   clean: "clean",
   "run-jobs": "job run",
   add: "bulk add",

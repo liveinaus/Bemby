@@ -33,6 +33,7 @@ import {
   savePasskeySecret,
   storedPasskeyIdsForAccount,
 } from "../tg/passkeyStore";
+import { hardenPrivacy, type PrivacyResult } from "../tg/privacy";
 import { parseAttributes, patchAttributes } from "../db/accountAttributes";
 import type { AuthStatus, TgProxy } from "../types";
 
@@ -435,6 +436,18 @@ export async function cleanTelegramAccount(
   const result = await cleanAccount(entry, accountId);
   syncDialogsInBackground(accountId).catch(() => undefined);
   return result;
+}
+
+/** Shuts every privacy setting as far as Telegram allows: nobody where it can, contacts where not. */
+export async function hardenPrivacyForAccount(
+  accountId: number,
+): Promise<PrivacyResult> {
+  const entry = await getLiveClient(accountId);
+  try {
+    return await hardenPrivacy(entry.client);
+  } catch (err) {
+    rethrowTracking(accountId, err);
+  }
 }
 
 /** Last known "the Telegram account has some passkey" flag, as recorded by a passkey listing. */

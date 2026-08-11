@@ -19,6 +19,7 @@ import {
   startBulkJobRuns,
   startBulkLoginEmail,
   startBulkPasskey,
+  startBulkPrivacy,
   startBulkSpamCheck,
 } from "../jobs/bulkOps";
 
@@ -160,6 +161,12 @@ router.post("/credentials", bulkMgmtGuard, (req, res) => {
 router.post("/passkey", bulkMgmtGuard, (req, res) => {
   const { ids, gapSeconds } = req.body as { ids?: number[]; gapSeconds?: number };
   respond(res, startBulkPasskey(numberList(ids), optionalSeconds(gapSeconds)));
+});
+
+// POST /privacy -- shut every privacy setting on the selected accounts as far as it goes
+router.post("/privacy", bulkMgmtGuard, (req, res) => {
+  const { ids, gapSeconds } = req.body as { ids?: number[]; gapSeconds?: number };
+  respond(res, startBulkPrivacy(numberList(ids), optionalSeconds(gapSeconds)));
 });
 
 router.post("/clean", bulkMgmtGuard, (req, res) => {

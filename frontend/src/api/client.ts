@@ -2709,6 +2709,7 @@ export type BulkTaskKind =
   | "login-email"
   | "credentials"
   | "passkey"
+  | "privacy"
   | "clean"
   | "run-jobs"
   /** Bulk add and bulk profile update: their own runners, surfaced in the same list. */
@@ -2792,6 +2793,10 @@ export const bulkTasksApi = {
   passkey: (ids: number[], gapSeconds?: number) =>
     api
       .post<BulkTask>("/bulk-tasks/passkey", { ids, gapSeconds })
+      .then((r) => r.data),
+  privacy: (ids: number[], gapSeconds?: number) =>
+    api
+      .post<BulkTask>("/bulk-tasks/privacy", { ids, gapSeconds })
       .then((r) => r.data),
   clean: (ids: number[], gapSeconds?: number) =>
     api.post<BulkTask>("/bulk-tasks/clean", { ids, gapSeconds }).then((r) => r.data),
