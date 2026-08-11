@@ -192,17 +192,82 @@
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label">{{ t("data.labelValue") }}</label>
-            <textarea
-              v-model="recordValue"
-              class="form-input"
-              rows="8"
-              style="font-family: monospace; font-size: 12px; resize: vertical"
-              :placeholder="t('data.valuePlaceholder')"
-            />
-            <div style="font-size: 11px; color: #aaa; margin-top: 3px">
-              {{ t("data.valueHint") }}
+            <div class="data-value-head">
+              <label class="form-label" style="margin: 0">{{ t("data.labelValue") }}</label>
+              <div class="data-mode-switch">
+                <button
+                  type="button"
+                  :class="['data-mode-btn', { 'is-on': valueMode === 'fields' }]"
+                  @click="switchValueMode('fields')"
+                >
+                  <i class="fa-solid fa-list-ul"></i> {{ t("data.modeFields") }}
+                </button>
+                <button
+                  type="button"
+                  :class="['data-mode-btn', { 'is-on': valueMode === 'raw' }]"
+                  @click="switchValueMode('raw')"
+                >
+                  <i class="fa-solid fa-code"></i> {{ t("data.modeRaw") }}
+                </button>
+              </div>
             </div>
+
+            <template v-if="valueMode === 'fields'">
+              <div v-for="(field, i) in valueFields" :key="i" class="data-field-row">
+                <input
+                  v-model="field.key"
+                  class="form-input"
+                  :placeholder="t('data.fieldKey')"
+                />
+                <input
+                  v-model="field.text"
+                  class="form-input"
+                  :class="{ 'data-field-json': field.json }"
+                  :placeholder="field.json ? t('data.fieldJsonValue') : t('data.fieldValue')"
+                />
+                <button
+                  type="button"
+                  :class="['btn', 'btn-icon', field.json ? 'btn-primary' : 'btn-ghost']"
+                  :title="t('data.fieldAsJson')"
+                  @click="field.json = !field.json"
+                >
+                  <span style="font-family: monospace; font-weight: 600">{}</span>
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-icon"
+                  :title="t('common.delete')"
+                  @click="valueFields.splice(i, 1)"
+                >
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              </div>
+              <div
+                v-if="!valueFields.length"
+                style="font-size: 12px; color: #aaa; padding: 4px 0"
+              >
+                {{ t("data.noFields") }}
+              </div>
+              <button class="btn btn-ghost btn-sm" @click="addValueField">
+                <i class="fa-solid fa-plus"></i> {{ t("data.addField") }}
+              </button>
+              <div style="font-size: 11px; color: #aaa; margin-top: 6px">
+                {{ t("data.fieldsHint") }}
+              </div>
+            </template>
+
+            <template v-else>
+              <textarea
+                v-model="recordValue"
+                class="form-input"
+                rows="8"
+                style="font-family: monospace; font-size: 12px; resize: vertical"
+                :placeholder="t('data.valuePlaceholder')"
+              />
+              <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+                {{ t("data.valueHint") }}
+              </div>
+            </template>
           </div>
           <div v-if="recordKey && selectedFolder" style="font-size: 11px; color: #aaa">
             {{ t("data.refHint") }}
@@ -340,6 +405,12 @@ const recordTarget = ref<DataRecord | null>(null);
 const recordKey = ref("");
 const recordValue = ref("");
 
+// A value is edited either as a row per field of the object -- what nearly every record is --
+// or as the raw text, which is the only way to reach a nested structure or a bare string.
+type ValueField = { key: string; text: string; json: boolean };
+const valueMode = ref<"fields" | "raw">("fields");
+const valueFields = ref<ValueField[]>([]);
+
 const deleteFolderTarget = ref<DataFolder | null>(null);
 const deleteRecordTarget = ref<DataRecord | null>(null);
 
@@ -444,6 +515,82 @@ async function doDeleteFolder() {
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A string field stays text; anything else is edited as the JSON of it, and marked as such. */
+function toValueFields(obj: Record<string, unknown>): ValueField[] {
+  return Object.entries(obj).map(([key, value]) =>
+    typeof value === "string"
+      ? { key, text: value, json: false }
+      : { key, text: JSON.stringify(value), json: true },
+  );
+}
+
+/** The object the rows stand for, or the row that will not parse. Blank keys are dropped. */
+function fieldsToObject():
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; error: string } {
+  const out: Record<string, unknown> = Object.create(null);
+  const seen = new Set<string>();
+  for (const field of valueFields.value) {
+    const key = field.key.trim();
+    if (!key) continue;
+    if (seen.has(key)) {
+      return { ok: false, error: t("data.fieldDupKey").replace("{key}", key) };
+    }
+    seen.add(key);
+    if (field.json) {
+      try {
+        out[key] = JSON.parse(field.text);
+      } catch {
+        return { ok: false, error: t("data.fieldBadJson").replace("{key}", key) };
+      }
+    } else {
+      out[key] = field.text;
+    }
+  }
+  return { ok: true, value: out };
+}
+
+function addValueField() {
+  valueFields.value.push({ key: "", text: "", json: false });
+}
+
+/** Each mode hands the value over to the other, so a switch never loses what was typed. */
+function switchValueMode(mode: "fields" | "raw") {
+  if (mode === valueMode.value) return;
+  if (mode === "raw") {
+    const built = fieldsToObject();
+    if (!built.ok) {
+      formError.value = built.error;
+      return;
+    }
+    recordValue.value = JSON.stringify(built.value, null, 2);
+  } else {
+    const text = recordValue.value.trim();
+    if (text) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        formError.value = t("data.notAnObject");
+        return;
+      }
+      if (!isPlainObject(parsed)) {
+        formError.value = t("data.notAnObject");
+        return;
+      }
+      valueFields.value = toValueFields(parsed);
+    } else {
+      valueFields.value = [];
+    }
+  }
+  formError.value = "";
+  valueMode.value = mode;
+}
+
 function openRecordForm(record: DataRecord | null) {
   recordTarget.value = record;
   recordKey.value = record?.key ?? "";
@@ -452,6 +599,11 @@ function openRecordForm(record: DataRecord | null) {
       ? record.value
       : JSON.stringify(record.value, null, 2)
     : "";
+  const asObject = record && isPlainObject(record.value) ? record.value : null;
+  valueFields.value = asObject ? toValueFields(asObject) : [];
+  // A record whose value is not an object -- a bare string, a number, a list -- opens as raw text
+  valueMode.value = !record || asObject ? "fields" : "raw";
+  if (!record) addValueField();
   formError.value = "";
   showRecordForm.value = true;
 }
@@ -459,19 +611,24 @@ function openRecordForm(record: DataRecord | null) {
 async function saveRecord() {
   if (selectedFolderId.value == null) return;
   formError.value = "";
+  let valueText = recordValue.value;
+  if (valueMode.value === "fields") {
+    const built = fieldsToObject();
+    if (!built.ok) {
+      formError.value = built.error;
+      return;
+    }
+    valueText = JSON.stringify(built.value);
+  }
   saving.value = true;
   try {
     if (recordTarget.value) {
       await dataStoreApi.updateRecord(recordTarget.value.id, {
         key: recordKey.value,
-        valueText: recordValue.value,
+        valueText,
       });
     } else {
-      await dataStoreApi.createRecord(
-        selectedFolderId.value,
-        recordKey.value,
-        recordValue.value,
-      );
+      await dataStoreApi.createRecord(selectedFolderId.value, recordKey.value, valueText);
     }
     showRecordForm.value = false;
     await loadFolders();
@@ -686,6 +843,50 @@ async function exportStore(folderId?: number) {
   gap: 8px;
   flex-wrap: wrap;
   padding: 4px 6px 8px;
+}
+
+.data-value-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.data-mode-switch {
+  display: flex;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.data-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: none;
+  background: #fff;
+  color: #666;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.data-mode-btn.is-on {
+  background: #4361ee;
+  color: #fff;
+}
+
+.data-field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto auto;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.data-field-json {
+  font-family: monospace;
+  font-size: 12px;
 }
 
 .data-value-cell {
