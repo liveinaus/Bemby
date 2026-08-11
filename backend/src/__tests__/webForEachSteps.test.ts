@@ -415,6 +415,48 @@ describe("web_set and web_notify", () => {
     expect(out.logs[0].outcome).toBe("{password} = hunter2");
   });
 
+  // What a signup asks for: a given name, a surname, and a username made of the two. One step
+  // per name would work as well; several rows in one is what the form is for.
+  it("sets several names in one step, each row seeing the rows above it", async () => {
+    const f = fakePage();
+    const out = await run(f.page, [
+      {
+        type: "web_set",
+        vars: [
+          { name: "fn", value: "{randomFirstName}" },
+          { name: "ln", value: "{randomLastName}" },
+          { name: "username", value: "{fn}_{ln}_{num:4}" },
+        ],
+      },
+      { type: "web_input", selector: "#user", text: "{username}" },
+    ]);
+
+    expect(out.ok).toBe(true);
+    const typed = f.calls.typed[0];
+    expect(typed).toMatch(/^[A-Za-z]+_[A-Za-z]+_\d{4}$/);
+    // Every pair reaches the log, the third of them built out of the two above it
+    const [fn, ln] = typed.split("_");
+    expect(out.logs[0].outcome).toBe(
+      `{fn} = ${fn}, {ln} = ${ln}, {username} = ${typed}`,
+    );
+  });
+
+  it("fails the step when a row has no name to hold its value under", async () => {
+    const f = fakePage();
+    const out = await run(f.page, [
+      { type: "web_set", vars: [{ name: "ok", value: "1" }, { name: " ", value: "2" }] },
+    ]);
+
+    expect(out.logs[0].error).toBe("no name given to hold the value under");
+  });
+
+  it("fails a step with no rows at all", async () => {
+    const f = fakePage();
+    const out = await run(f.page, [{ type: "web_set", vars: [] }]);
+
+    expect(out.logs[0].error).toBe("no name given to hold the value under");
+  });
+
   it("sends to the chat a step names, over the configured default", async () => {
     const f = fakePage();
     const sent: Array<{ text: string; target?: string }> = [];

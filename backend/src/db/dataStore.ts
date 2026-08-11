@@ -345,6 +345,24 @@ export function getRecordById(id: number): DataRecord | null {
   return row ? toRecord(row) : null;
 }
 
+/**
+ * The record sitting at `index` in a folder, oldest first, for a job working through one as a
+ * queue: the run takes number 0, deletes it once it is done with it, and the next run finds
+ * what had been number 1 in its place.
+ *
+ * Insertion order rather than the panel's alphabetical listing, so a record added part-way
+ * goes to the back of the queue instead of jumping it.
+ */
+export function recordAt(folderName: string, index: number): DataRecord | null {
+  if (!Number.isInteger(index) || index < 0) return null;
+  const folder = findFolderByName(folderName);
+  if (!folder) return null;
+  const row = db
+    .prepare("SELECT * FROM data_records WHERE folder_id = ? ORDER BY id LIMIT 1 OFFSET ?")
+    .get(folder.id, index) as RecordRow | undefined;
+  return row ? toRecord(row) : null;
+}
+
 export function getRecord(folderId: number, key: string): DataRecord | null {
   const row = db
     .prepare("SELECT * FROM data_records WHERE folder_id = ? AND key = ?")

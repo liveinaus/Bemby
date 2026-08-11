@@ -562,14 +562,24 @@ export type WebStep =
        * generated value straight into a field, where nothing afterwards can see what it was.
        */
       type: "web_set";
-      /** Name to hold it under. */
-      varName: string;
       /**
-       * What to hold. Takes the names already set (`{username}-{num:3}`) and the random
-       * tokens every other template takes (`{word:4}`, `{alpha:12}`, `{randomFirstName}`),
-       * drawn once here -- which is the point, since a name can then be used twice over.
+       * The names and their values, set in the order given: one may be built out of those
+       * above it (`{fn}_{ln}_{num:4}`), which is why a signup's handful of them belongs in
+       * one step rather than a step each.
        */
-      value: string;
+      vars?: Array<{
+        /** Name to hold it under. */
+        name: string;
+        /**
+         * What to hold. Takes the names already set (`{username}-{num:3}`) and the random
+         * tokens every other template takes (`{word:4}`, `{alpha:12}`, `{randomFirstName}`),
+         * drawn once here -- which is the point, since a name can then be used twice over.
+         */
+        value: string;
+      }>;
+      /** The one pair a config saved before `vars` carries. Read when `vars` is not there. */
+      varName?: string;
+      value?: string;
     }
   | {
       /**
@@ -588,6 +598,32 @@ export type WebStep =
       /** Name to hold what was read under. */
       varName: string;
       /** Carry on with nothing stored under that name, rather than failing the step. */
+      optional?: boolean;
+    }
+  | {
+      /**
+       * Take a record by its place in a folder rather than by its key, for a folder kept as a
+       * queue: the accounts to sign in as, the addresses to use up. The record's own key is
+       * held under a name -- which is the part `{data.folder.key}` cannot reach and the part a
+       * later `web_data_delete` needs, since deleting number 0 is what moves the queue on.
+       *
+       * Oldest first, so a record added part-way goes to the back of the queue.
+       */
+      type: "web_data_pick";
+      /** Folder to take from, e.g. `outlook`. */
+      folder: string;
+      /**
+       * Which one, counting from 0. Takes the round's names (`{i}`), so a loop may walk the
+       * folder without deleting as it goes. Blank means 0.
+       */
+      index?: string;
+      /** Name to hold the record's key under. */
+      varName: string;
+      /** Name to hold the record's value under. Blank reads the key alone. */
+      valueVar?: string;
+      /** Field inside the value, e.g. `password`. Blank takes the whole value. */
+      path?: string;
+      /** Carry on when the folder holds nothing there, rather than failing the step. */
       optional?: boolean;
     }
   | {

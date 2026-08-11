@@ -18,10 +18,14 @@ import { expandCommand } from "./placeholders";
 import {
   dataRefText,
   dataStoreOffReason,
+  dataValueToText,
   deleteDataValue,
   isDataStoreEnabled,
   parseDataValue,
   readDataValue,
+  recordAt,
+  splitDataPath,
+  valueAtPath,
   writeDataValue,
 } from "../db/dataStore";
 import { EMAIL_CODE_WAIT_MS } from "./emailCode";
@@ -3112,13 +3116,21 @@ async function runStepList(
         }
 
         case "web_set": {
-          const name = step.varName.trim();
-          if (!name) throw new Error("no name given to hold the value under");
-          // Drawn once, here: a value settled up front is one later steps can all use, which
-          // is the difference between this and putting `{alpha:12}` in the field itself
-          const value = fillContent(step.value ?? "", run.current);
-          run.current.set(name, value);
-          log.outcome = `{${name}} = ${oneLine(value).slice(0, 120)}`;
+          const pairs = setVarPairs(step);
+          if (!pairs.length) throw new Error("no name given to hold the value under");
+          const done: string[] = [];
+          for (const pair of pairs) {
+            const name = pair.name.trim();
+            if (!name) throw new Error("no name given to hold the value under");
+            // Drawn once, here: a value settled up front is one later steps can all use, which
+            // is the difference between this and putting `{alpha:12}` in the field itself. Each
+            // pair is filled against what is set so far, so `{fn}_{ln}` reads the two names
+            // this same step has just settled
+            const value = fillContent(pair.value ?? "", run.current);
+            run.current.set(name, value);
+            done.push(`{${name}} = ${oneLine(value).slice(0, 120)}`);
+          }
+          log.outcome = done.join(", ");
           break;
         }
 
@@ -3134,6 +3146,42 @@ async function runStepList(
           }
           run.current.set(name, value);
           log.outcome = `{${name}} = ${oneLine(value).slice(0, 120)} (from ${where.label})`;
+          break;
+        }
+
+        case "web_data_pick": {
+          if (!isDataStoreEnabled()) throw new Error(dataStoreOffReason());
+          const folder = fillVars(step.folder ?? "", run.current).trim();
+          if (!folder) throw new Error("no data folder given");
+          const name = step.varName.trim();
+          if (!name) throw new Error("no name given to hold the record's key under");
+          const indexText = fillVars(step.index ?? "", run.current).trim() || "0";
+          const index = Number(indexText);
+          if (!Number.isInteger(index) || index < 0) {
+            throw new Error(`\`${indexText}\` is not a position in the folder`);
+          }
+          const record = recordAt(folder, index);
+          if (!record) {
+            if (!step.optional) throw new Error(`${folder} holds nothing at position ${index}`);
+            log.outcome = `${folder} holds nothing at position ${index}; carried on`;
+            break;
+          }
+          run.current.set(name, record.key);
+          const held = [`{${name}} = ${oneLine(record.key).slice(0, 120)}`];
+          const valueName = step.valueVar?.trim();
+          if (valueName) {
+            const path = fillVars(step.path ?? "", run.current).trim();
+            const value = path
+              ? valueAtPath(record.value, splitDataPath(path))
+              : record.value;
+            if (value === undefined && !step.optional) {
+              throw new Error(`\`${record.key}\` holds nothing at \`${path}\``);
+            }
+            const text = dataValueToText(value);
+            run.current.set(valueName, text);
+            held.push(`{${valueName}} = ${oneLine(text).slice(0, 120)}`);
+          }
+          log.outcome = `${held.join(", ")} (position ${index} of ${folder})`;
           break;
         }
 
@@ -3933,6 +3981,17 @@ async function runStepList(
   return undefined;
 }
 
+/**
+ * The pairs a `web_set` holds: the list it carries, or the single `varName`/`value` of a
+ * config saved before one step could set several names.
+ */
+function setVarPairs(
+  step: Extract<WebStep, { type: "web_set" }>,
+): Array<{ name: string; value: string }> {
+  if (step.vars?.length) return step.vars;
+  return step.varName === undefined ? [] : [{ name: step.varName, value: step.value ?? "" }];
+}
+
 /** The reference a data step points at, for the log line, before the step has run. */
 function dataLabel(
   step: { folder?: string; key?: string; path?: string },
@@ -3977,10 +4036,18 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
         `${step.containsText?.trim() ? ` reading "${fill(step.containsText.trim())}"` : ""}` +
         ` into {${step.varName}}`
       );
-    case "web_set":
-      return `Set {${step.varName}}`;
+    case "web_set": {
+      const names = setVarPairs(step).map((pair) => `{${pair.name}}`);
+      return `Set ${names.join(", ") || "a variable"}`;
+    }
     case "web_data_read":
       return `Read ${dataLabel(step, fill)} into {${step.varName}}`;
+    case "web_data_pick":
+      return (
+        `Take record ${fill(step.index ?? "").trim() || "0"} of ` +
+        `\`${fill(step.folder ?? "")}\` into {${step.varName}}` +
+        `${step.valueVar?.trim() ? ` and {${step.valueVar.trim()}}` : ""}`
+      );
     case "web_data_save":
       return `Save to ${dataLabel(step, fill)}`;
     case "web_data_delete":

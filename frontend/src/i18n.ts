@@ -857,8 +857,9 @@ const zh = {
         web_collect: "收集全部元素（存为列表）",
         web_read: "读取页面文字（存为变量）",
         web_email_code: "从邮箱获取验证码（存为变量）",
-        web_set: "设置变量（自定义取值）",
+        web_set: "设置变量（自定义取值，可多个）",
         web_data_read: "读取数据（存为变量）",
+        web_data_pick: "按序号取记录（数据）",
         web_data_save: "保存到数据",
         web_data_delete: "删除数据",
         web_notify: "发送通知（Telegram 机器人）",
@@ -926,8 +927,9 @@ const zh = {
       setNamePlaceholder: "username",
       labelSetValue: "取值",
       setValuePlaceholder: "bemby_{word:6}",
+      addVar: "添加变量",
       setHint:
-        "把一个自定义取值存入变量，后续步骤即可用 {变量名} 引用。取值支持随机占位符（{word:6}、{alpha:12}、{num:4}、{uuid}、{randomFirstName}、{randomLastName}）与已有变量（如 {username}-{num:3}），且只在本步骤生成一次——这正是它与「直接在输入框里写 {alpha:12}」的区别：先定下来，注册表单填一次、通知里再发一次，前后是同一个值。取值会显示在运行日志中",
+        "把自定义取值存入变量，后续步骤即可用 {变量名} 引用。取值支持随机占位符（{word:6}、{alpha:12}、{num:4}、{uuid}、{randomFirstName}、{randomLastName}）与已有变量（如 {username}-{num:3}），且只在本步骤生成一次——这正是它与「直接在输入框里写 {alpha:12}」的区别：先定下来，注册表单填一次、通知里再发一次，前后是同一个值。多行按从上到下的顺序赋值，因此后一行可以引用前面几行（如 {fn}_{ln}_{num:4}）。每个取值都会显示在运行日志中",
       labelDataFolder: "数据文件夹",
       dataFolderPlaceholder: "example",
       labelDataKey: "记录键",
@@ -938,6 +940,16 @@ const zh = {
         "指向「数据」中的一条记录。文件夹名与记录键可使用除大括号和方括号以外的任意字符（邮箱地址这类含点的键也可以）；字段路径用于取记录值中的某个字段（如 password，嵌套用 login.password，数组用 items.0，字段名本身含点时用 [a.b]），留空表示整条记录。三个字段都支持 {变量名} 与随机占位符",
       dataReadHint:
         "把读到的值存入该变量，后续步骤即可用 {变量名} 引用。同一个值也可以直接写成 {data.example.email.password}（键含点时写 {data.example[me@example.com].password}）用在任意文本框里——需要用在选择器中，或希望「没有存过就直接失败」时，才用本步骤",
+      labelDataIndex: "序号",
+      dataIndexPlaceholder: "0",
+      dataPickTargetHint:
+        "按位置取该文件夹下的一条记录：序号从 0 开始，按添加顺序（先加的在前，与面板中按键名排序的显示顺序不同），因此删掉第 0 条后，原来的第 1 条就成了新的第 0 条。序号可写 {变量名}；字段路径用于从记录的取值里取某个字段（如 password，嵌套用 login.password），留空表示整个取值",
+      labelPickKeyVar: "键存入变量",
+      pickKeyVarPlaceholder: "un",
+      labelPickValueVar: "值存入变量（可选）",
+      pickValueVarPlaceholder: "pw",
+      dataPickHint:
+        "记录的「键」存入第一个变量——这正是 {data.文件夹.键} 取不到、而后续「删除数据」又需要的东西；把它填进「删除数据」的记录键即可用完就删，让队列前进一位。第二个变量可选，用于同时取出该记录的取值（配合字段路径取其中一项）。取不到时按下方开关处理",
       labelDataValue: "要保存的内容",
       dataValuePlaceholder: '{"password":"{password}","note":"{username}"}',
       dataSaveHint:
@@ -2773,8 +2785,9 @@ const en: typeof zh = {
         web_collect: "Collect every element (into a list)",
         web_read: "Read text off the page (into a name)",
         web_email_code: "Get a verification code from email (into a name)",
-        web_set: "Set a variable (a value of your own)",
+        web_set: "Set variables (values of your own)",
         web_data_read: "Read from Data (into a variable)",
+        web_data_pick: "Take a record by position (Data)",
         web_data_save: "Save to Data",
         web_data_delete: "Delete from Data",
         web_notify: "Send a notification (Telegram bot)",
@@ -2842,8 +2855,9 @@ const en: typeof zh = {
       setNamePlaceholder: "username",
       labelSetValue: "Value",
       setValuePlaceholder: "bemby_{word:6}",
+      addVar: "Add a variable",
       setHint:
-        "Holds a value of your own under the name, for later steps to use as {name}. It takes the random placeholders ({word:6}, {alpha:12}, {num:4}, {uuid}, {randomFirstName}, {randomLastName}) and the names already set ({username}-{num:3}), and is drawn once here -- which is the difference between this and putting {alpha:12} in the field itself: settled up front, the same value fills the signup form and goes out in the message afterwards. The value is shown in the run log",
+        "Holds values of your own under names, for later steps to use as {name}. A value takes the random placeholders ({word:6}, {alpha:12}, {num:4}, {uuid}, {randomFirstName}, {randomLastName}) and the names already set ({username}-{num:3}), and is drawn once here -- which is the difference between this and putting {alpha:12} in the field itself: settled up front, the same value fills the signup form and goes out in the message afterwards. Rows are set from the top down, so a row may be built out of the ones above it ({fn}_{ln}_{num:4}). Every value is shown in the run log",
       labelDataFolder: "Data folder",
       dataFolderPlaceholder: "example",
       labelDataKey: "Record key",
@@ -2854,6 +2868,16 @@ const en: typeof zh = {
         "Points at one record in Data. A folder name and a key may hold anything but a brace or a bracket, an email address as a key included. The field path reaches inside the record's value -- `password`, `login.password` for a nested one, `items.0` into a list, `[a.b]` for a field name that holds a dot -- and blank means the whole record. All three take {name} and the random placeholders",
       dataReadHint:
         "Holds what was read under the name, for later steps to use as {name}. The same value can be written straight into any text field as {data.example.email.password}, or {data.example[me@example.com].password} where the key holds a dot; reach for this step when the value has to go in a selector, or when nothing stored should stop the run",
+      labelDataIndex: "Position",
+      dataIndexPlaceholder: "0",
+      dataPickTargetHint:
+        "Takes one record of the folder by its place rather than its key. Counting starts at 0, oldest first -- the order records were added, not the panel's listing by key -- so deleting number 0 makes what had been number 1 the new number 0. The position takes {name}. The field path reaches inside that record's value (`password`, or `login.password` for a nested one), and blank takes the whole value",
+      labelPickKeyVar: "Hold the key as",
+      pickKeyVarPlaceholder: "un",
+      labelPickValueVar: "Hold the value as (optional)",
+      pickValueVarPlaceholder: "pw",
+      dataPickHint:
+        "The record's own key lands in the first name -- the part {data.folder.key} cannot reach, and the part a later Delete from Data step needs: put {name} in its record key and the queue moves on once the run is done with it. The second name is optional and holds that record's value, with the field path picking one field out of it. Nothing there is governed by the switch below",
       labelDataValue: "What to store",
       dataValuePlaceholder: '{"password":"{password}","note":"{username}"}',
       dataSaveHint:

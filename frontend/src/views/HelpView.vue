@@ -2004,6 +2004,19 @@
               class="card-section-title"
               style="margin-top: 16px; font-size: 11px"
             >
+              按序号取记录（把文件夹当队列用）
+            </div>
+            <p class="help-para">
+              引用与「读取数据」都要写出记录键，因此无法表示「第一条」。要按顺序逐条取用（例如一批待用的
+              账号），请添加网页步骤<strong>按序号取记录</strong>：填文件夹与序号（从 0 开始，按添加顺序，
+              先加的在前），记录的<strong>键</strong>会存入变量，取值可另存一个变量。
+              键正是引用取不到、而「删除数据」需要的东西：用完后以
+              <code>{{ "{变量名}" }}</code> 作为记录键删除该条，下次运行时原来的第 1 条就成了第 0 条。
+            </p>
+            <div
+              class="card-section-title"
+              style="margin-top: 16px; font-size: 11px"
+            >
               写入与删除
             </div>
             <p class="help-para">
@@ -2061,6 +2074,24 @@
               one was wrong. When the value has to reach a CSS selector, or
               nothing stored should stop the run, use the
               <strong>Read from Data</strong> page step instead.
+            </p>
+            <div
+              class="card-section-title"
+              style="margin-top: 16px; font-size: 11px"
+            >
+              Taking records in turn (a folder as a queue)
+            </div>
+            <p class="help-para">
+              A reference and the <strong>Read from Data</strong> step both spell
+              the record key out, so neither can say "the first one". To work
+              through a folder in order — a batch of accounts waiting to be used —
+              add the <strong>Take a record by position</strong> page step: a
+              folder and a position (counting from 0, oldest first). The record's
+              <strong>key</strong> lands in a variable, and its value can go in a
+              second one. That key is the part a reference cannot reach and the
+              part <strong>Delete from Data</strong> needs: delete the record with
+              <code>{{ "{name}" }}</code> as its key once you are done with it, and
+              the next run finds what had been number 1 as its number 0.
             </p>
             <div
               class="card-section-title"

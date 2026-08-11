@@ -200,6 +200,111 @@ describe("web_data_save", () => {
   });
 });
 
+// A folder kept as a queue: take number 0, use it, delete it, and the next run finds what had
+// been number 1 in its place. The key is the part that matters here -- an account name is the
+// record's key, which no `{data.folder.key}` reference can reach.
+describe("web_data_pick", () => {
+  /** Two accounts, added in this order, keyed the other way round on purpose. */
+  function seedQueue(): void {
+    const folderId = createFolder("outlook");
+    createRecord(folderId, "luckycee23", { password: "p2" });
+    createRecord(folderId, "jaclee324", { password: "p1" });
+  }
+
+  it("holds the key of the record at that position, oldest first", async () => {
+    seedQueue();
+    const { page, typed } = fakePage();
+    const result = await run(page, [
+      { type: "web_data_pick", folder: "outlook", varName: "un" },
+      { type: "web_input", selector: "#user", text: "{un}" },
+    ]);
+
+    expect(result.ok).toBe(true);
+    // Added first, though `luckycee23` is second by key: the panel's order is not this one
+    expect(typed.map((entry) => entry.text)).toEqual(["luckycee23"]);
+    expect(result.logs[0].outcome).toContain("{un} = luckycee23 (position 0 of outlook)");
+  });
+
+  it("holds a field of the value under a second name", async () => {
+    seedQueue();
+    const { page, typed } = fakePage();
+    const result = await run(page, [
+      {
+        type: "web_data_pick",
+        folder: "outlook",
+        index: "1",
+        varName: "un",
+        valueVar: "pw",
+        path: "password",
+      },
+      { type: "web_input", selector: "#user", text: "{un}" },
+      { type: "web_input", selector: "#pass", text: "{pw}" },
+    ]);
+
+    expect(result.ok).toBe(true);
+    expect(typed.map((entry) => entry.text)).toEqual(["jaclee324", "p1"]);
+  });
+
+  it("moves the queue on once the record it took is deleted", async () => {
+    seedQueue();
+    const { page, typed } = fakePage();
+    const first = await run(page, [
+      { type: "web_data_pick", folder: "outlook", varName: "un" },
+      { type: "web_data_delete", folder: "outlook", key: "{un}" },
+    ]);
+    expect(first.ok).toBe(true);
+    expect(readDataRef("outlook.luckycee23")).toBeNull();
+
+    const second = await run(page, [
+      { type: "web_data_pick", folder: "outlook", varName: "un" },
+      { type: "web_input", selector: "#user", text: "{un}" },
+    ]);
+    expect(second.ok).toBe(true);
+    expect(typed.map((entry) => entry.text)).toEqual(["jaclee324"]);
+  });
+
+  it("takes the position from a name the round set", async () => {
+    seedQueue();
+    const { page, typed } = fakePage();
+    const result = await run(page, [
+      { type: "web_set", vars: [{ name: "i", value: "1" }] },
+      { type: "web_data_pick", folder: "outlook", index: "{i}", varName: "un" },
+      { type: "web_input", selector: "#user", text: "{un}" },
+    ]);
+
+    expect(result.ok).toBe(true);
+    expect(typed.map((entry) => entry.text)).toEqual(["jaclee324"]);
+  });
+
+  it("fails on a position the folder has run out of, and carries on when optional", async () => {
+    seedQueue();
+    const { page } = fakePage();
+    const strict = await run(page, [
+      { type: "web_data_pick", folder: "outlook", index: "2", varName: "un" },
+    ]);
+    expect(strict.ok).toBe(false);
+    expect(strict.logs[0].error).toBe("outlook holds nothing at position 2");
+
+    const lenient = await run(page, [
+      { type: "web_data_pick", folder: "outlook", index: "2", varName: "un", optional: true },
+      { type: "web_delay", waitMs: 0 },
+    ]);
+    expect(lenient.ok).toBe(true);
+    expect(lenient.logs[0].outcome).toContain("carried on");
+  });
+
+  it("refuses a position that is not one", async () => {
+    seedQueue();
+    const { page } = fakePage();
+    const result = await run(page, [
+      { type: "web_data_pick", folder: "outlook", index: "first", varName: "un" },
+    ]);
+
+    expect(result.ok).toBe(false);
+    expect(result.logs[0].error).toContain("`first` is not a position in the folder");
+  });
+});
+
 describe("web_data_delete", () => {
   it("removes a field, and fails on one that was never there", async () => {
     seedExample();

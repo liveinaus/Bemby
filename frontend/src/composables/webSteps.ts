@@ -35,6 +35,8 @@ export type WebStepForm = {
   option: string;
   /** web_set / web_data_save: what to hold under the name, or store. */
   value: string;
+  /** web_set: a name and its value per row, set in the order shown. */
+  vars: Array<{ name: string; value: string }>;
   /** The data steps: which folder of the data store, e.g. `example`. */
   folder: string;
   /** The data steps: which record, e.g. `email`. */
@@ -43,6 +45,10 @@ export type WebStepForm = {
   path: string;
   /** The data steps: carry on when nothing is stored there. */
   optional: boolean;
+  /** web_data_pick: which record of the folder, counting from 0. */
+  index: string;
+  /** web_data_pick: name to hold the record's value under; blank takes the key alone. */
+  valueVar: string;
   /** web_notify: the chat to send to; blank uses the configured one. */
   target: string;
   /** web_email_code: the mailbox to read. */
@@ -105,6 +111,7 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "web_email_code",
   "web_set",
   "web_data_read",
+  "web_data_pick",
   "web_data_save",
   "web_data_delete",
   "web_notify",
@@ -130,6 +137,7 @@ export const AI_WEB_STEP_TYPES: WebStepType[] = [
 /** Types that reach the data store, so the editor can hide them while it is switched off. */
 export const DATA_WEB_STEP_TYPES: WebStepType[] = [
   "web_data_read",
+  "web_data_pick",
   "web_data_save",
   "web_data_delete",
 ];
@@ -184,10 +192,13 @@ export function defaultWebStep(): WebStepForm {
     key: "Enter",
     option: "",
     value: "",
+    vars: [{ name: "", value: "" }],
     folder: "",
     recordKey: "",
     path: "",
     optional: false,
+    index: "0",
+    valueVar: "",
     target: "",
     email: "",
     appPassword: "{gmailAppPassword}",
@@ -273,13 +284,29 @@ export function webStepToConfig(s: WebStepForm): WebStep {
         ...(s.skipUsed ? { skipUsed: true } : {}),
       };
     case "web_set":
-      return { type: "web_set", varName: s.varName.trim(), value: s.value };
+      return {
+        type: "web_set",
+        // A row with no name is one the person has not filled in yet, not a variable
+        vars: s.vars
+          .filter((v) => v.name.trim())
+          .map((v) => ({ name: v.name.trim(), value: v.value })),
+      };
     case "web_data_read":
       return {
         type: "web_data_read",
         folder: s.folder.trim(),
         key: s.recordKey.trim(),
         varName: s.varName.trim(),
+        ...(s.path.trim() ? { path: s.path.trim() } : {}),
+        ...(s.optional ? { optional: true } : {}),
+      };
+    case "web_data_pick":
+      return {
+        type: "web_data_pick",
+        folder: s.folder.trim(),
+        varName: s.varName.trim(),
+        ...(s.index.trim() && s.index.trim() !== "0" ? { index: s.index.trim() } : {}),
+        ...(s.valueVar.trim() ? { valueVar: s.valueVar.trim() } : {}),
         ...(s.path.trim() ? { path: s.path.trim() } : {}),
         ...(s.optional ? { optional: true } : {}),
       };
@@ -466,7 +493,14 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
         skipUsed: s.skipUsed ?? false,
       };
     case "web_set":
-      return { ...base, type: s.type, varName: s.varName, value: s.value };
+      return {
+        ...base,
+        type: s.type,
+        // A config saved before one step could set several names carries the single pair
+        vars: s.vars?.length
+          ? s.vars.map((v) => ({ name: v.name, value: v.value }))
+          : [{ name: s.varName ?? "", value: s.value ?? "" }],
+      };
     case "web_data_read":
       return {
         ...base,
@@ -475,6 +509,17 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
         recordKey: s.key,
         path: s.path ?? "",
         varName: s.varName,
+        optional: s.optional ?? false,
+      };
+    case "web_data_pick":
+      return {
+        ...base,
+        type: s.type,
+        folder: s.folder,
+        varName: s.varName,
+        index: s.index ?? "0",
+        valueVar: s.valueVar ?? "",
+        path: s.path ?? "",
         optional: s.optional ?? false,
       };
     case "web_data_save":

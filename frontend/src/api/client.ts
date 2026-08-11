@@ -598,10 +598,13 @@ export type WebStep =
       skipUsed?: boolean;
     }
   | {
-      /** Hold a value of your own under a name, for later steps to use as {name}. */
+      /** Hold values of your own under names, for later steps to use as {name}. */
       type: "web_set";
-      varName: string;
-      value: string;
+      /** Set in order, so one may be built out of those above it. */
+      vars?: Array<{ name: string; value: string }>;
+      /** The one pair a config saved before `vars` carries. */
+      varName?: string;
+      value?: string;
     }
   | {
       /** Send a message through the notification bot mid-run, with {name} filled in. */
@@ -624,6 +627,24 @@ export type WebStep =
       path?: string;
       varName: string;
       /** Carry on with nothing stored, rather than failing the step. */
+      optional?: boolean;
+    }
+  | {
+      /**
+       * Take a record by its place in a folder, oldest first, rather than by its key: a folder
+       * kept as a queue. The record's own key lands in a name, which is what a later delete
+       * step needs to move the queue on.
+       */
+      type: "web_data_pick";
+      folder: string;
+      /** Which one, counting from 0. Takes {name}. Blank means 0. */
+      index?: string;
+      /** Name to hold the record's key under. */
+      varName: string;
+      /** Name to hold its value under. Blank reads the key alone. */
+      valueVar?: string;
+      /** Field inside the value. Blank takes the whole value. */
+      path?: string;
       optional?: boolean;
     }
   | {

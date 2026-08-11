@@ -73,27 +73,43 @@
         </div>
       </div>
 
-      <!-- Set a value of your own, for the steps after it to use -->
+      <!-- Values of your own, for the steps after them to use. Several in one step, since a
+           later one is often built out of the ones above it -->
       <div v-if="s.type === 'web_set'">
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">{{ t("jobs.web.labelVarName") }}</label>
-            <input
-              v-model.trim="s.varName"
-              class="form-input"
-              :placeholder="t('jobs.web.setNamePlaceholder')"
-            />
-          </div>
-          <div class="form-group">
-            <label class="form-label">{{ t("jobs.web.labelSetValue") }}</label>
-            <input
-              v-model="s.value"
-              class="form-input"
-              :placeholder="t('jobs.web.setValuePlaceholder')"
+        <div class="web-var-row web-var-head">
+          <label class="form-label" style="margin: 0">{{ t("jobs.web.labelVarName") }}</label>
+          <label class="form-label" style="margin: 0">{{ t("jobs.web.labelSetValue") }}</label>
+          <span></span>
+        </div>
+        <div v-for="(v, vi) in s.vars" :key="vi" class="web-var-row">
+          <input
+            v-model.trim="v.name"
+            class="form-input"
+            :placeholder="t('jobs.web.setNamePlaceholder')"
+          />
+          <input
+            v-model="v.value"
+            class="form-input"
+            :placeholder="t('jobs.web.setValuePlaceholder')"
+          />
+          <div class="web-var-controls">
+            <RowControls
+              :index="vi"
+              :count="s.vars.length"
+              @move="moveVar(s, vi, $event)"
+              @insert="s.vars.splice(vi + 1, 0, { name: '', value: '' })"
+              @remove="s.vars.splice(vi, 1)"
             />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm"
+          @click="s.vars.push({ name: '', value: '' })"
+        >
+          <i class="fa-solid fa-plus"></i> {{ t("jobs.web.addVar") }}
+        </button>
+        <div style="font-size: 11px; color: #aaa; margin-top: 6px">
           {{ t("jobs.web.setHint") }}
         </div>
       </div>
@@ -110,7 +126,16 @@
               :placeholder="t('jobs.web.dataFolderPlaceholder')"
             />
           </div>
-          <div class="form-group">
+          <!-- The pick step takes a place in the folder; the key is what it hands back -->
+          <div v-if="s.type === 'web_data_pick'" class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataIndex") }}</label>
+            <input
+              v-model.trim="s.index"
+              class="form-input"
+              :placeholder="t('jobs.web.dataIndexPlaceholder')"
+            />
+          </div>
+          <div v-else class="form-group">
             <label class="form-label">{{ t("jobs.web.labelDataKey") }}</label>
             <input
               v-model.trim="s.recordKey"
@@ -128,7 +153,11 @@
           </div>
         </div>
         <div style="font-size: 11px; color: #aaa; margin-top: 3px">
-          {{ t("jobs.web.dataTargetHint") }}
+          {{
+            s.type === "web_data_pick"
+              ? t("jobs.web.dataPickTargetHint")
+              : t("jobs.web.dataTargetHint")
+          }}
         </div>
 
         <div v-if="s.type === 'web_data_read'" class="form-group" style="margin-top: 8px">
@@ -140,6 +169,31 @@
           />
           <div style="font-size: 11px; color: #aaa; margin-top: 3px">
             {{ t("jobs.web.dataReadHint") }}
+          </div>
+        </div>
+
+        <!-- What the pick hands back: the record's key, and its value if a name is given -->
+        <div v-if="s.type === 'web_data_pick'" style="margin-top: 8px">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">{{ t("jobs.web.labelPickKeyVar") }}</label>
+              <input
+                v-model.trim="s.varName"
+                class="form-input"
+                :placeholder="t('jobs.web.pickKeyVarPlaceholder')"
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">{{ t("jobs.web.labelPickValueVar") }}</label>
+              <input
+                v-model.trim="s.valueVar"
+                class="form-input"
+                :placeholder="t('jobs.web.pickValueVarPlaceholder')"
+              />
+            </div>
+          </div>
+          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            {{ t("jobs.web.dataPickHint") }}
           </div>
         </div>
 
@@ -912,6 +966,14 @@ function move(i: number, by: number) {
   const [item] = props.steps.splice(i, 1);
   props.steps.splice(to, 0, item);
 }
+
+// Order is not cosmetic here: a `web_set` row may be built out of the rows above it
+function moveVar(step: WebStepForm, i: number, by: number) {
+  const to = i + by;
+  if (to < 0 || to >= step.vars.length) return;
+  const [item] = step.vars.splice(i, 1);
+  step.vars.splice(to, 0, item);
+}
 </script>
 
 <style scoped>
@@ -969,5 +1031,23 @@ function move(i: number, by: number) {
 .web-step-type {
   flex: 1;
   min-width: 0;
+}
+
+/* A name and its value per row, with the four controls: the order they sit in is the order
+   they are set in, so moving one up is a real edit rather than tidying */
+.web-var-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) auto;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.web-var-head {
+  margin-bottom: 2px;
+}
+
+.web-var-controls {
+  display: flex;
+  gap: 2px;
 }
 </style>
