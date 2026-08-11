@@ -5,6 +5,7 @@ import {
   FALLBACK_TIMEZONE,
 } from "./db/database";
 import { decryptSecret } from "./db/secretColumns";
+import { iconFromConfig } from "./jobs/configIcon";
 import { runJob, type JobDetailLog } from "./jobs/runner";
 import { manualSessionJobId } from "./jobs/manualBrowser";
 import {
@@ -233,6 +234,7 @@ export function loadEligibleJobs(): Array<{
       checkinButton: row.checkin_button || "签到",
       runEveryDays: row.run_every_days ?? 1,
       runEveryDaysMax: row.run_every_days_max ?? null,
+      icon: iconFromConfig(row.config),
     } as Job,
     account:
       row.account_id != null
@@ -541,12 +543,15 @@ export function getSchedulerStatus(): Array<{
   jobName: string;
   jobType: string;
   nextRun: string;
+  icon: string | null;
 }> {
   return Array.from(schedule.values()).map(({ job, nextRun }) => ({
     jobId: job.id,
     jobName: job.name,
     jobType: job.jobType,
     nextRun: nextRun.toISOString(),
+    // Carried so the schedule chips can show the job's own icon rather than its type's
+    icon: job.icon ?? null,
   }));
 }
 

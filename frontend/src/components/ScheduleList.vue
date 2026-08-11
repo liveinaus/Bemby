@@ -54,6 +54,7 @@ import { statusApi, type ScheduleStatus } from '../api/client';
 import { t, locale } from '../i18n';
 import { usePersistedRef } from '../composables/usePersistedRef';
 import ScheduleBody from './ScheduleBody.vue';
+import { loadJobIcons } from '../composables/jobIcons';
 
 // Upcoming scheduled runs. Rendered either as the collapsible card on the jobs page or as a
 // page of its own (see the schedulePage setting), so both stay in step from one place.
@@ -137,7 +138,11 @@ async function skip(jobId: number) {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  // The chips draw uploaded icons, which are fetched once and shared
+  void loadJobIcons();
+  return load();
+});
 defineExpose({ reload: load });
 </script>
 

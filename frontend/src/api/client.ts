@@ -874,6 +874,8 @@ export type Job = {
   retired?: string | null;
   /** ISO timestamp of the last successful run; null when it has never succeeded */
   lastSuccessAt?: string | null;
+  /** Icon-font class name, or "custom:<file>" for an uploaded one; null uses the default. */
+  icon?: string | null;
 };
 
 export type JobTemplate = {
@@ -892,6 +894,15 @@ export type JobTemplate = {
   linkedJobCount?: number;
   runEveryDays: number;
   runEveryDaysMax?: number | null;
+  /** Icon jobs created from this template start with; see Job.icon. */
+  icon?: string | null;
+};
+
+/** A custom icon an operator uploaded, ready to render. */
+export type JobIcon = {
+  name: string;
+  size: number;
+  dataUrl: string;
 };
 
 // Why Real Watch pulled no bytes, when the toggle was on.
@@ -968,6 +979,8 @@ export type ScheduleStatus = {
   /** checkin | embywatch | custom | autoreg -- drives the icon and colour on the chip. */
   jobType: string;
   nextRun: string;
+  /** The job's own icon; null falls back to the type glyph. */
+  icon?: string | null;
 };
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -1306,6 +1319,25 @@ export type AvailableAccount = {
   phoneNumber: string;
   authStatus: AuthStatus;
   tgDisplayName: string | null;
+};
+
+// Custom job icons come back as data URLs: the API sits behind a bearer-token guard and
+// an <img> cannot send the header, so file URLs would not render.
+export const jobIconsApi = {
+  list: () =>
+    api
+      .get<{ dir: string; icons: JobIcon[] }>("/job-icons")
+      .then((r) => r.data),
+  upload: (file: File) =>
+    api
+      .post<JobIcon>("/job-icons", file, {
+        headers: { "Content-Type": "application/octet-stream" },
+      })
+      .then((r) => r.data),
+  remove: (name: string) =>
+    api
+      .delete<{ deleted: boolean }>(`/job-icons/${encodeURIComponent(name)}`)
+      .then((r) => r.data),
 };
 
 export const templatesApi = {

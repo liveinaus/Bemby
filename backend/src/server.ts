@@ -24,6 +24,7 @@ import debugRouter from "./routes/debug";
 import aiSuppliersRouter from "./routes/ai-suppliers";
 import templatesRouter from "./routes/templates";
 import bulkTasksRouter from "./routes/bulk-tasks";
+import jobIconsRouter from "./routes/job-icons";
 import tgClientRouter, { mediaRouter as tgClientMediaRouter } from "./routes/tgClient";
 import webviewProxyRouter from "./routes/webviewProxy";
 import webviewSiteRouter from "./routes/webviewSite";
@@ -172,6 +173,7 @@ app.use("/api/debug", requireAuth, debugRouter);
 app.use("/api/ai-suppliers", requireAuth, aiSuppliersRouter);
 app.use("/api/templates", requireAuth, templatesRouter);
 app.use("/api/bulk-tasks", requireAuth, bulkTasksRouter);
+app.use("/api/job-icons", requireAuth, jobIconsRouter);
 // Inline chat media is loaded straight by the browser, which cannot set an Authorization
 // header, so it authenticates with a short-lived media ticket instead. Mounted ahead of
 // `requireAuth` because that guard would otherwise refuse the request before the ticket was

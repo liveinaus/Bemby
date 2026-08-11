@@ -1,4 +1,5 @@
 import { getDefaultTgApiCredentials } from "../db/database";
+import { iconFromConfig } from "./configIcon";
 import type { Job, TgAccount } from "../types";
 
 // Row shapes and row-to-domain mappers for jobs, shared by the job routes and
@@ -87,5 +88,7 @@ export function rowToJob(row: JobRow): Job & { accountName?: string } {
     runEveryDaysMax: row.run_every_days_max ?? null,
     retired: row.retired ?? null,
     lastSuccessAt: row.last_success_at ?? null,
+    // Stored inside config; surfaced as its own field so callers never touch the JSON
+    icon: iconFromConfig(row.config),
   };
 }

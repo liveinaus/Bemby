@@ -12,7 +12,10 @@
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t('templates.labelName') }} <span style="color:#e63946">*</span></label>
-            <input v-model.trim="form.name" class="form-input" placeholder="My Template" />
+            <div class="name-with-icon">
+              <JobIconPicker v-model="form.icon" />
+              <input v-model.trim="form.name" class="form-input" placeholder="My Template" />
+            </div>
           </div>
           <div class="form-group">
             <label class="form-label">{{ t('jobs.labelType') }}</label>
@@ -840,6 +843,7 @@ import { webStepsFromConfig, webStepsToConfig, type WebStepForm } from '../compo
 import { appButtonsOf } from '../composables/miniAppSteps';
 import { proxyFields } from '../composables/proxyPick';
 import ProxyPicker from './ProxyPicker.vue';
+import JobIconPicker from './JobIconPicker.vue';
 
 type CustomActionForm = {
   type: 'send_command' | 'send_contact_message' | 'wait_reply' | 'delay' | 'click_button' | 'click_message_button' | 'ai_multiple_btn' | 'enter_captcha' | 'join_group' | 'subscribe_channel' | 'open_mini_app' | 'open_mini_app_url' | 'open_bot_menu_app' | 'open_url';
@@ -927,6 +931,7 @@ const form = reactive({
   retryMax: 5,
   runEveryDays: 1,
   runEveryDaysMax: null as number | null,
+  icon: null as string | null,
 });
 
 // "Run every days" accepts a single number (7) or a range (7-15). Stored as
@@ -1319,6 +1324,7 @@ function resetForm() {
     retryMax: Number(settings.value?.default_max_retry ?? 5),
     runEveryDays: 1,
     runEveryDaysMax: null,
+    icon: null,
   });
   runEveryDaysText.value = '1';
   Object.assign(embyCfg, { username: '', password: '', playDuration: '', userAgent: '', markWatched: true, verifyPlayable: true, realWatch: false, sequencePlay: false, library: '', ignoreSslErrors: false });
@@ -1345,6 +1351,7 @@ function loadFromTemplate(tpl: JobTemplate) {
     retryMax: tpl.retryMax,
     runEveryDays: tpl.runEveryDays ?? 1,
     runEveryDaysMax: tpl.runEveryDaysMax ?? null,
+    icon: tpl.icon ?? null,
   });
   runEveryDaysText.value = formatRunEvery(tpl.runEveryDays ?? 1, tpl.runEveryDaysMax);
   setCmdState(tpl.startCommand === '/start' ? '' : (tpl.startCommand ?? ''));
@@ -1582,6 +1589,24 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.name-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.name-with-icon .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.job-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #6b7280;
+}
+
 .custom-action-card {
   border: 1px solid #e5e7eb;
   border-radius: 8px;

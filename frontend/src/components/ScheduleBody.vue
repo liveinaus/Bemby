@@ -20,7 +20,13 @@
             :class="[`sched-type-${s.jobType}`, { 'sched-chip-next': s.jobId === nextJobId }]"
             :title="`${s.jobName} · ${typeLabel(s.jobType)}`"
           >
-            <i class="sched-type-icon" :class="typeIcon(s.jobType)"></i>
+            <JobIcon
+              v-if="s.icon"
+              class="sched-type-icon"
+              :icon="s.icon"
+              :size="13"
+            />
+            <i v-else class="sched-type-icon" :class="typeIcon(s.jobType)"></i>
             <span class="sched-time">{{ fmtTime(s.nextRun) }}</span>
             <span class="sched-name">{{ s.jobName }}</span>
             <button
@@ -47,6 +53,7 @@
 
 <script setup lang="ts">
 import { t, locale } from '../i18n';
+import JobIcon from './JobIcon.vue';
 import type { ScheduleStatus } from '../api/client';
 
 // The chips themselves, shared by the card and the full page so a change lands in both.

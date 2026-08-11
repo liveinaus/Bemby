@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/database';
 import { refreshScheduler } from '../scheduler';
 import { parsePaging, parseSort, textParam } from './list-query';
+import { iconFromConfig, mergeIconIntoConfig } from '../jobs/configIcon';
 import type { JobTemplate } from '../types';
 
 const router = Router();
@@ -48,6 +49,8 @@ function rowToTemplate(row: TemplateRow): JobTemplate {
     createdAt: row.created_at,
     runEveryDays: row.run_every_days ?? 1,
     runEveryDaysMax: row.run_every_days_max ?? null,
+    // Stored inside config; surfaced separately so callers never touch the JSON
+    icon: iconFromConfig(row.config),
   };
 }
 
@@ -64,12 +67,14 @@ function parseConfig(raw: string | null): Record<string, unknown> {
 
 /**
  * Config settings a job owns, which a template sync must leave alone: its proxy override
- * (blank means it follows the template's, resolved at run time) and, for Emby Watch, the
- * credentials that were never the template's to hold.
+ * (blank means it follows the template's, resolved at run time), its icon if it was given
+ * one of its own, and, for Emby Watch, the credentials that were never the template's to
+ * hold. A job with no icon of its own has none here, so it picks the template's up on sync.
  */
 function jobOwnedConfig(jobCfg: Record<string, unknown>, jobType: string): Record<string, unknown> {
   const own: Record<string, unknown> = {};
   if (typeof jobCfg.proxyId === 'string' && jobCfg.proxyId) own.proxyId = jobCfg.proxyId;
+  if (typeof jobCfg.icon === 'string' && jobCfg.icon) own.icon = jobCfg.icon;
   if (jobType === 'embywatch') {
     own.username = jobCfg.username;
     own.password = jobCfg.password;
@@ -215,6 +220,7 @@ router.post('/', (req, res) => {
     checkinButton,
     runEveryDays,
     runEveryDaysMax,
+    icon,
   } = req.body as Record<string, any>;
 
   if (!name) {
@@ -234,7 +240,7 @@ router.post('/', (req, res) => {
     timezone ?? '',
     Number(replyTimeoutMs ?? 40000),
     Number(retryMax ?? 5),
-    config != null ? JSON.stringify(config) : null,
+    mergeIconIntoConfig(config ?? undefined, null, icon),
     (startCommand as string | undefined)?.trim() || '/start',
     (checkinButton as string | undefined)?.trim() || '签到',
     runEvery.min,
@@ -310,6 +316,7 @@ router.put('/:id', (req, res) => {
     checkinButton,
     runEveryDays,
     runEveryDaysMax,
+    icon,
   } = req.body as Record<string, any>;
 
   const runEvery = normalizeRunEvery(
@@ -325,9 +332,9 @@ router.put('/:id', (req, res) => {
     reply_timeout_ms: Number(replyTimeoutMs ?? existing.reply_timeout_ms),
     retry_max: Number(retryMax ?? existing.retry_max),
     enabled: enabled !== undefined ? (enabled ? 1 : 0) : existing.enabled,
-    config: config !== undefined
-      ? (config != null ? JSON.stringify(config) : null)
-      : existing.config,
+    // The icon lives in this column too, so it is merged rather than overwritten: a form
+    // that says nothing about icons must not clear the one already set.
+    config: mergeIconIntoConfig(config, existing.config, icon),
     start_command: startCommand !== undefined
       ? ((startCommand as string).trim() || '/start')
       : existing.start_command,

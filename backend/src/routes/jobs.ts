@@ -5,6 +5,7 @@ import { startManualJobRun } from "../jobs/manualRun";
 import { rowToJob, type JobRow } from "../jobs/jobRows";
 import { testEmbyConnection } from "../jobs/embywatch";
 import { parsePaging, parseSort, textParam, escapeLike } from "./list-query";
+import { mergeIconIntoConfig } from "../jobs/configIcon";
 
 const router = Router();
 
@@ -184,6 +185,7 @@ router.post("/", (req, res) => {
     templateId,
     runEveryDays,
     runEveryDaysMax,
+    icon,
   } = req.body as Record<string, any>;
 
   const resolvedType = jobType ?? "checkin";
@@ -223,7 +225,7 @@ router.post("/", (req, res) => {
       Number(replyTimeoutMs ?? 40000),
       Number(retryMax ?? 5),
       enabled !== false ? 1 : 0,
-      config != null ? JSON.stringify(config) : null,
+      mergeIconIntoConfig(config ?? undefined, null, icon),
       (startCommand as string | undefined)?.trim() || "/start",
       (checkinButton as string | undefined)?.trim() || "签到",
       templateId ? Number(templateId) : null,
@@ -266,6 +268,7 @@ router.put("/:id", (req, res) => {
     templateId,
     runEveryDays,
     runEveryDaysMax,
+    icon,
   } = req.body as Record<string, any>;
 
   // When linked to a template, template-controlled fields are read-only
@@ -299,12 +302,14 @@ router.put("/:id", (req, res) => {
     isLinked ? existing.reply_timeout_ms : Number(replyTimeoutMs ?? existing.reply_timeout_ms),
     isLinked ? existing.retry_max : Number(retryMax ?? existing.retry_max),
     enabled !== undefined ? (enabled ? 1 : 0) : existing.enabled,
-    // embywatch template-linked jobs store credentials in the job; allow config updates
-    (isLinked && existing.job_type !== 'embywatch') ? existing.config : (config !== undefined
-      ? config != null
-        ? JSON.stringify(config)
-        : null
-      : existing.config),
+    // embywatch template-linked jobs store credentials in the job; allow config updates.
+    // The icon rides in the same column but is cosmetic, so it stays editable even where
+    // the rest of the config is frozen, and survives a save that says nothing about it.
+    mergeIconIntoConfig(
+      (isLinked && existing.job_type !== "embywatch") ? undefined : config,
+      existing.config,
+      icon,
+    ),
     isLinked ? existing.start_command : (startCommand !== undefined ? ((startCommand as string).trim() || "/start") : existing.start_command),
     isLinked ? existing.checkin_button : (checkinButton !== undefined ? ((checkinButton as string).trim() || "签到") : existing.checkin_button),
     resolvedTemplateId,

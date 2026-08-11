@@ -76,7 +76,12 @@
               :class="selectedJobIds.includes(j.id) ? 'row-selected' : ''"
               @click="toggleJobSelect(j.id, idx, $event)"
             >
-              <td>{{ j.name }}</td>
+              <td>
+                <span class="job-name-cell">
+                  <JobIcon :icon="j.icon" :size="15" />
+                  {{ j.name }}
+                </span>
+              </td>
               <td>{{ jobAccountLabel(j) }}</td>
               <td><span :class="jobTypeBadge(j.jobType)">{{ t(`logs.jobType.${j.jobType}`) }}</span></td>
               <td class="col-hide-mobile">
@@ -198,7 +203,10 @@
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t('jobs.labelName') }} <span style="color:#e63946">*</span></label>
-            <input v-model.trim="form.name" class="form-input" placeholder="Xxemby" />
+            <div class="name-with-icon">
+              <JobIconPicker v-model="form.icon" />
+              <input v-model.trim="form.name" class="form-input" placeholder="Xxemby" />
+            </div>
           </div>
           <div v-if="!form.templateId" class="form-group">
             <label class="form-label">{{ t('jobs.labelType') }}</label>
@@ -1213,6 +1221,9 @@ import { webStepsFromConfig, webStepsToConfig, type WebStepForm } from '../compo
 import { appButtonsOf } from '../composables/miniAppSteps';
 import { proxyFields } from '../composables/proxyPick';
 import ProxyPicker from '../components/ProxyPicker.vue';
+import JobIconPicker from '../components/JobIconPicker.vue';
+import JobIcon from '../components/JobIcon.vue';
+import { loadJobIcons } from '../composables/jobIcons';
 import ManualBrowser from '../components/ManualBrowser.vue';
 import {
   onBulkTaskFinished,
@@ -1390,6 +1401,7 @@ const form = reactive({
   templateId: null as number | null,
   runEveryDays: 1,
   runEveryDaysMax: null as number | null,
+  icon: null as string | null,
 });
 
 const linkedTemplate = computed(() => templates.value.find(t => t.id === form.templateId) ?? null);
@@ -1632,6 +1644,8 @@ onMounted(async () => {
   loadAccountDisplaySetting();
   loadSchedulePageSetting();
   loadTemplateEditButtonSetting();
+  // Custom icons are shared across every list that draws a job, and fetched once
+  void loadJobIcons();
   await Promise.all([loadJobs(), loadAccounts(), loadStatus(), loadSettings(), loadTemplates()]);
   pollLiveRuns();
 });
@@ -1890,6 +1904,7 @@ function openAdd() {
     templateId: null,
     runEveryDays: 1,
     runEveryDaysMax: null,
+    icon: null,
   });
   runEveryDaysText.value = '1';
   Object.assign(embyCfg, { username: '', password: '', playDuration: '', userAgent: '', markWatched: true, verifyPlayable: true, realWatch: false, sequencePlay: false, library: '', ignoreSslErrors: false });
@@ -1920,6 +1935,7 @@ function openEdit(j: Job) {
     templateId: j.templateId ?? null,
     runEveryDays: j.runEveryDays ?? 1,
     runEveryDaysMax: j.runEveryDaysMax ?? null,
+    icon: j.icon ?? null,
   });
   runEveryDaysText.value = formatRunEvery(j.runEveryDays ?? 1, j.runEveryDaysMax);
   setCmdState(j.startCommand === '/start' ? '' : (j.startCommand ?? ''));
@@ -2645,6 +2661,24 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.name-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.name-with-icon .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.job-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #6b7280;
+}
+
 .custom-action-card {
   border: 1px solid #e5e7eb;
   border-radius: 8px;

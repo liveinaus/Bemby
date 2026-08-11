@@ -60,6 +60,8 @@ export type Job = {
   retired?: string | null;
   /** ISO timestamp of the last successful run; persisted so log purges don't lose it. */
   lastSuccessAt?: string | null;
+  /** Icon-font class name, or "custom:<file>" for an uploaded one; null uses the default. */
+  icon?: string | null;
 };
 
 export type JobTemplate = {
@@ -80,6 +82,8 @@ export type JobTemplate = {
   runEveryDays: number;
   /** Upper bound of the run-every-days range; null means a fixed interval. */
   runEveryDaysMax?: number | null;
+  /** Icon jobs created from this template start with; see Job.icon. */
+  icon?: string | null;
 };
 
 export type CustomAction =
