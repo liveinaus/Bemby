@@ -11,6 +11,8 @@ import {
   updateProfile,
   getProfilePhoto,
   setProfilePhoto,
+  updateUsername,
+  checkUsername,
   getSessions,
   terminateSession,
   getPasswordInfo,
@@ -51,6 +53,7 @@ import {
   avatarPoolStatus,
   MAX_AVATAR_BYTES,
 } from "../tg/avatarSource";
+import { normaliseUsername, usernameError } from "../tg/usernames";
 import {
   startBulkProfile,
   getBulkProfileStatus,
@@ -930,6 +933,94 @@ router.post("/:id/update-profile", async (req, res) => {
   } catch (err: any) {
     if (isAuthError(err?.message ?? "")) markSessionExpired(account.id);
     internalError(res, err, "update-profile");
+  }
+});
+
+// POST /:id/update-username -- set or clear the account's public @handle.
+// An empty string removes it, matching Telegram's own semantics.
+router.post("/:id/update-username", async (req, res) => {
+  const account = loadAccount(req.params.id) as AccountRow | undefined;
+  if (!account) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  if (!account.session_string) {
+    res.status(400).json({ error: "Account not authenticated" });
+    return;
+  }
+  const raw = String((req.body as { username?: string })?.username ?? "");
+  const username = normaliseUsername(raw);
+  if (username) {
+    const problem = usernameError(username);
+    if (problem) {
+      res.status(400).json({ error: problem });
+      return;
+    }
+  }
+  try {
+    const { apiId, apiHash } = resolveApiCredentials(account);
+    const proxy = parseTgProxy(resolveProxyUrl(account.proxy_id));
+    const deviceParams = resolveAppClientParams(account.id, account.app_client_id);
+    const applied = await updateUsername(
+      apiId,
+      apiHash,
+      account.session_string,
+      username,
+      proxy,
+      deviceParams,
+    );
+    // Keep the cached handle in sync so the accounts table does not go stale
+    db.prepare("UPDATE tg_accounts SET tg_username = ? WHERE id = ?").run(
+      applied || null,
+      account.id,
+    );
+    res.json({ username: applied });
+  } catch (err: any) {
+    if (rpcBadRequest(res, err, "update-username")) return;
+    if (isAuthError(err?.message ?? "")) markSessionExpired(account.id);
+    internalError(res, err, "update-username");
+  }
+});
+
+// GET /:id/check-username?username=... -- is the handle free, without claiming it
+router.get("/:id/check-username", async (req, res) => {
+  const account = loadAccount(req.params.id) as AccountRow | undefined;
+  if (!account) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  if (!account.session_string) {
+    res.status(400).json({ error: "Account not authenticated" });
+    return;
+  }
+  const username = normaliseUsername(String(req.query.username ?? ""));
+  const problem = usernameError(username);
+  if (problem) {
+    res.json({ available: false, reason: problem });
+    return;
+  }
+  try {
+    const { apiId, apiHash } = resolveApiCredentials(account);
+    const proxy = parseTgProxy(resolveProxyUrl(account.proxy_id));
+    const deviceParams = resolveAppClientParams(account.id, account.app_client_id);
+    const available = await checkUsername(
+      apiId,
+      apiHash,
+      account.session_string,
+      username,
+      proxy,
+      deviceParams,
+    );
+    res.json({ available, reason: null });
+  } catch (err: any) {
+    // Telegram answers a refusal with an RPC error rather than false, and each one
+    // says something different to the operator (taken, reserved, buyable)
+    if (typeof err?.errorMessage === "string") {
+      res.json({ available: false, reason: err.errorMessage });
+      return;
+    }
+    if (isAuthError(err?.message ?? "")) markSessionExpired(account.id);
+    internalError(res, err, "check-username");
   }
 });
 

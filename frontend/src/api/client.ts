@@ -210,11 +210,12 @@ export type BulkProfileItemStatus =
 
 export type BulkProfileEntry = {
   accountId: number;
-  // Optional only when the batch is setting avatars: there is then nothing to
-  // write to the name fields, and Telegram rejects a blank first name.
+  // Optional only when the batch is setting avatars or usernames: there is then
+  // nothing to write to the name fields, and Telegram rejects a blank first name.
   firstName?: string;
   lastName?: string;
   about?: string;
+  username?: string;
 };
 
 /** Where a random profile photo is drawn from; "any" prefers the pool. */
@@ -234,6 +235,7 @@ export type BulkProfileItem = {
   firstName: string;
   lastName: string;
   about: string;
+  username: string;
   attempts: number;
   status: BulkProfileItemStatus;
   message: string;
@@ -262,6 +264,7 @@ export type TgOwnProfile = {
   firstName: string;
   lastName: string;
   about: string;
+  username: string;
 };
 
 export type PasswordInfo = {
@@ -1075,6 +1078,18 @@ export const accountsApi = {
       .post<TgOwnProfile & { tgDisplayName: string | null }>(
         `/accounts/${id}/update-profile`,
         data,
+      )
+      .then((r) => r.data),
+  /** Sets the public @handle; an empty string removes it. */
+  updateUsername: (id: number, username: string) =>
+    api
+      .post<{ username: string }>(`/accounts/${id}/update-username`, { username })
+      .then((r) => r.data),
+  checkUsername: (id: number, username: string) =>
+    api
+      .get<{ available: boolean; reason: string | null }>(
+        `/accounts/${id}/check-username`,
+        { params: { username } },
       )
       .then((r) => r.data),
   /** Current profile photo as a data URL, or null when the account has none. */

@@ -1,7 +1,8 @@
 import crypto from "crypto";
 import { db, getDefaultTgApiCredentials } from "../db/database";
 import { decryptAccountRow } from "../db/secretColumns";
-import { updateProfile, setProfilePhoto } from "../auth/tgAuth";
+import { updateProfile, setProfilePhoto, updateUsername } from "../auth/tgAuth";
+import { normaliseUsername, usernameError } from "../tg/usernames";
 import { parseTgProxy } from "./runner";
 import { resolveAppClientParams } from "../tg/appClient";
 import { isAuthError, markSessionExpired } from "../tg/liveClient";
@@ -31,6 +32,8 @@ export type BulkProfileItem = {
   firstName: string;
   lastName: string;
   about: string;
+  /** Target @handle, or "" to leave the current one alone. */
+  username: string;
   attempts: number;
   status: BulkProfileItemStatus;
   message: string;
@@ -56,6 +59,8 @@ export type BulkProfileEntry = {
   firstName?: string;
   lastName?: string;
   about?: string;
+  /** Target @handle; omitted or empty leaves the account's current one. */
+  username?: string;
 };
 
 export type BulkProfileOptions = {
@@ -206,6 +211,23 @@ async function updateOne(
     ).run(displayName, account.id);
   }
 
+  // Before the photo, because a rejected handle is the likeliest failure of the three and
+  // there is no sense spending an upload on an account whose row is going to fail anyway.
+  if (item.username) {
+    const applied = await updateUsername(
+      creds.apiId,
+      creds.apiHash,
+      account.session_string,
+      item.username,
+      proxy,
+      deviceParams,
+    );
+    db.prepare("UPDATE tg_accounts SET tg_username = ? WHERE id = ?").run(
+      applied || null,
+      account.id,
+    );
+  }
+
   if (config.avatarSource) {
     const pick = await pickRandomAvatar(config.avatarSource, usedAvatars);
     await setProfilePhoto(
@@ -218,6 +240,29 @@ async function updateOne(
     );
     item.avatar = pick.source;
   }
+}
+
+/**
+ * Verdicts a retry cannot change. A handle someone else owns is still theirs a minute later,
+ * so retrying only spends the gap and asks Telegram the same question again.
+ */
+const PERMANENT_FAILURES = [
+  "USERNAME_OCCUPIED",
+  "USERNAME_INVALID",
+  "USERNAME_PURCHASE_AVAILABLE",
+];
+
+function isPermanentFailure(reason: string): boolean {
+  return PERMANENT_FAILURES.some((code) => reason.includes(code));
+}
+
+/** What actually changed on this account, for the row's final line. */
+function describeApplied(item: BulkProfileItem): string {
+  const parts: string[] = [];
+  if (item.firstName) parts.push("profile");
+  if (item.username) parts.push(`@${item.username}`);
+  if (item.avatar) parts.push(`avatar (${item.avatar})`);
+  return parts.length ? `Updated ${parts.join(", ")}` : "Nothing to update";
 }
 
 type QueueEntry = { item: BulkProfileItem; readyAt: number };
@@ -260,20 +305,20 @@ async function runBatch(
 
       item.attempts++;
       item.status = "updating";
-      item.message = item.firstName ? "Updating profile" : "Setting avatar";
+      item.message = item.firstName ? "Updating profile" : "Applying changes";
       try {
         await updateOne(item, config, usedAvatars);
         item.status = "done";
-        item.message = item.avatar
-          ? item.firstName
-            ? `Profile and avatar updated (${item.avatar})`
-            : `Avatar updated (${item.avatar})`
-          : "Profile updated";
+        item.message = describeApplied(item);
         item.error = null;
       } catch (err: any) {
-        const reason = err?.message ?? String(err);
+        const reason = err?.errorMessage ?? err?.message ?? String(err);
         if (isAuthError(reason)) markSessionExpired(item.accountId);
-        if (item.attempts <= config.maxRetries && !batch.cancelled) {
+        if (
+          item.attempts <= config.maxRetries &&
+          !batch.cancelled &&
+          !isPermanentFailure(reason)
+        ) {
           entry.readyAt = Date.now() + config.retryDelayMs;
           item.status = "retrying";
           item.error = null;
@@ -315,8 +360,15 @@ export function startBulkProfile(
     if (!Number.isInteger(accountId) || accountId <= 0) {
       return { ok: false, error: `Invalid account id on row ${index + 1}` };
     }
+    const username = normaliseUsername(String(entry?.username ?? ""));
+    if (username) {
+      const problem = usernameError(username);
+      if (problem) {
+        return { ok: false, error: `Row ${index + 1}: ${problem}` };
+      }
+    }
     // Without a name there has to be something else to do, or the row is a no-op.
-    if (!firstName && !config.avatarSource) {
+    if (!firstName && !config.avatarSource && !username) {
       return { ok: false, error: `First name is required on row ${index + 1}` };
     }
     const row = db
@@ -332,6 +384,7 @@ export function startBulkProfile(
       firstName,
       lastName: String(entry?.lastName ?? "").trim(),
       about: String(entry?.about ?? "").trim(),
+      username,
       attempts: 0,
       status: "pending",
       message: "",

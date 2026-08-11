@@ -872,6 +872,66 @@
               <i class="fa-solid fa-floppy-disk"></i>
               {{ profileBusy ? t("common.saving") : t("common.save") }}
             </button>
+
+            <!-- Username: its own Telegram call, so its own save and errors -->
+            <div class="form-section-label" style="margin: 22px 0 12px">
+              {{ t("accounts.usernameSection") }}
+            </div>
+            <div class="form-group">
+              <label class="form-label">{{ t("accounts.usernameLabel") }}</label>
+              <div class="username-row">
+                <span class="username-at">@</span>
+                <input
+                  v-model.trim="usernameValue"
+                  class="form-input"
+                  maxlength="32"
+                  :placeholder="t('accounts.usernamePlaceholder')"
+                  @input="usernameAvailable = null; usernameError = ''"
+                />
+                <button
+                  class="btn btn-secondary btn-sm"
+                  :disabled="
+                    usernameChecking || !usernameLooksValid || !usernameChanged
+                  "
+                  @click="checkUsernameAvailable"
+                >
+                  <i
+                    :class="
+                      usernameChecking
+                        ? 'fa-solid fa-spinner fa-spin'
+                        : 'fa-solid fa-magnifying-glass'
+                    "
+                  ></i>
+                  {{ t("accounts.usernameCheck") }}
+                </button>
+              </div>
+              <div class="form-hint">{{ t("accounts.usernameHint") }}</div>
+            </div>
+
+            <div v-if="usernameAvailable === true" class="success-msg">
+              {{ t("accounts.usernameFree") }}
+            </div>
+            <div v-if="usernameError" class="error-msg">{{ usernameError }}</div>
+            <div v-if="usernameMsg" class="success-msg">{{ usernameMsg }}</div>
+
+            <button
+              class="btn btn-primary btn-inline"
+              :disabled="
+                usernameBusy ||
+                !usernameChanged ||
+                (usernameNormalised !== '' && !usernameLooksValid)
+              "
+              @click="doUpdateUsername"
+            >
+              <i class="fa-solid fa-at"></i>
+              {{
+                usernameBusy
+                  ? t("common.saving")
+                  : usernameNormalised
+                    ? t("accounts.usernameSave")
+                    : t("accounts.usernameClear")
+              }}
+            </button>
           </template>
         </div>
 
@@ -1761,10 +1821,87 @@
                 <input
                   v-model="bulkTgRenameNamesToo"
                   type="checkbox"
-                  :disabled="!bulkTgRenameAvatar"
+                  :disabled="!bulkTgRenameAvatar && !bulkTgUsername"
                 />
                 <span>{{ t("accounts.bulkTgRename.namesToo") }}</span>
               </label>
+            </div>
+
+            <!-- Username assignment -->
+            <div class="form-group">
+              <label class="form-check">
+                <input v-model="bulkTgUsername" type="checkbox" />
+                <span>{{ t("accounts.bulkTgRename.usernameLabel") }}</span>
+              </label>
+              <template v-if="bulkTgUsername">
+                <div class="bulk-add-options-row" style="margin-top: 6px">
+                  <div class="form-group">
+                    <label class="form-label">{{
+                      t("accounts.bulkTgRename.usernameFormat")
+                    }}</label>
+                    <input
+                      v-model.trim="bulkTgUsernameForm.format"
+                      class="form-input"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">{{
+                      t("accounts.bulkRename.startLabel")
+                    }}</label>
+                    <input
+                      v-model.number="bulkTgUsernameForm.startIndex"
+                      type="number"
+                      class="form-input"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">{{
+                      t("accounts.bulkRename.digitsLabel")
+                    }}</label>
+                    <input
+                      v-model.number="bulkTgUsernameForm.indexDigits"
+                      type="number"
+                      min="0"
+                      max="9"
+                      class="form-input"
+                    />
+                  </div>
+                </div>
+                <div class="form-hint">
+                  {{ t("accounts.bulkTgRename.usernameHint") }}
+                </div>
+                <div class="bulk-tgrename-toolbar" style="margin-top: 6px">
+                  <button
+                    class="btn btn-secondary btn-sm"
+                    @click="regenerateBulkUsernames"
+                  >
+                    <i class="fa-solid fa-rotate"></i>
+                    {{ t("accounts.bulkTgRename.usernameReroll") }}
+                  </button>
+                </div>
+                <div v-if="bulkTgUsernameList.length" class="bulk-rename-preview">
+                  <div
+                    v-for="(u, i) in bulkTgUsernameList.slice(0, 5)"
+                    :key="i"
+                    class="bulk-rename-preview-row"
+                  >
+                    <span class="bulk-rename-old">{{
+                      bulkTgRenameTargets[i]?.name
+                    }}</span>
+                    <i class="fa-solid fa-arrow-right"></i>
+                    <span class="bulk-rename-new">@{{ u }}</span>
+                  </div>
+                  <div
+                    v-if="bulkTgUsernameList.length > 5"
+                    class="form-hint"
+                  >
+                    …{{ bulkTgUsernameList.length - 5 }}
+                  </div>
+                </div>
+                <div v-if="!bulkTgUsernameValid" class="warn-box" style="margin-top: 6px">
+                  {{ t("accounts.bulkTgRename.usernameInvalid") }}
+                </div>
+              </template>
             </div>
 
             <div v-show="bulkTgRenameNamesToo" class="form-group">
@@ -2913,6 +3050,17 @@ const twoFaMsg = ref("");
 
 // ── Profile state ─────────────────────────────────────────────────────────────
 const profileForm = reactive({ firstName: "", lastName: "", about: "" });
+
+// ── Username state ────────────────────────────────────────────────────────────
+// Kept apart from profileForm: account.updateUsername is a separate Telegram call
+// with its own failure modes (taken, reserved, purchasable), so it saves on its own.
+const usernameValue = ref("");
+const usernameOriginal = ref("");
+const usernameBusy = ref(false);
+const usernameChecking = ref(false);
+const usernameError = ref("");
+const usernameMsg = ref("");
+const usernameAvailable = ref<boolean | null>(null);
 const profileLoaded = ref(false);
 const profileLoading = ref(false);
 const profileBusy = ref(false);
@@ -3639,6 +3787,15 @@ const bulkTgRenameAvatar = ref(false);
 const bulkTgRenameAvatarSource = ref<AvatarSourceMode>("any");
 const bulkTgRenameNamesToo = ref(true);
 const avatarPool = ref<AvatarPoolStatus | null>(null);
+
+// Bulk usernames. Unlike names, a handle is globally unique, so the pattern carries a
+// {rand} suffix by default -- a plain counter collides with handles already taken.
+const bulkTgUsername = ref(false);
+const bulkTgUsernameForm = reactive({
+  format: "user_{index}{rand}",
+  startIndex: 1,
+  indexDigits: 0,
+});
 let bulkTgRenamePollTimer: ReturnType<typeof setTimeout> | null = null;
 
 const bulkTgRenamePlaceholder =
@@ -3668,11 +3825,73 @@ const bulkTgRenameParsed = computed(() =>
     }),
 );
 
+function randomHandleSuffix(length = 4): string {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+  let out = "";
+  for (let i = 0; i < length; i++) {
+    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return out;
+}
+
+// Held rather than computed: a computed would re-roll {rand} on every render, so the
+// preview would show handles other than the ones actually sent.
+const bulkTgUsernameList = ref<string[]>([]);
+
+function regenerateBulkUsernames() {
+  const count = bulkTgRenameTargets.value.length;
+  const start = Number(bulkTgUsernameForm.startIndex) || 0;
+  const digits = Math.max(0, Math.min(9, Number(bulkTgUsernameForm.indexDigits) || 0));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const index = start + i;
+    const indexStr = digits > 0 ? String(index).padStart(digits, "0") : String(index);
+    const build = () =>
+      (bulkTgUsernameForm.format || "user_{index}{rand}")
+        .replace(/\{index\}/g, indexStr)
+        .replace(/\{rand\}/g, () => randomHandleSuffix());
+    let candidate = build();
+    // A pattern with neither placeholder is the same handle every time, and every
+    // account after the first would come back occupied
+    for (let attempt = 0; seen.has(candidate.toLowerCase()) && attempt < 20; attempt++) {
+      candidate = `${build()}${randomHandleSuffix(2)}`;
+    }
+    seen.add(candidate.toLowerCase());
+    out.push(candidate);
+  }
+  bulkTgUsernameList.value = out;
+}
+
+watch(
+  [
+    () => bulkTgUsernameForm.format,
+    () => bulkTgUsernameForm.startIndex,
+    () => bulkTgUsernameForm.indexDigits,
+    () => bulkTgRenameTargets.value.length,
+    bulkTgUsername,
+  ],
+  () => {
+    if (bulkTgUsername.value) regenerateBulkUsernames();
+  },
+  { immediate: true },
+);
+
+const HANDLE_RE = /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
+const bulkTgUsernameValid = computed(
+  () =>
+    bulkTgUsernameList.value.length === bulkTgRenameTargets.value.length &&
+    bulkTgUsernameList.value.every((u) => HANDLE_RE.test(u)),
+);
+
 // Names are only required when the batch is actually writing them. An avatar-only
 // run leaves the text box out of it entirely.
 const bulkTgRenameValid = computed(() => {
   if (!bulkTgRenameTargets.value.length) return false;
-  if (!bulkTgRenameNamesToo.value) return bulkTgRenameAvatar.value;
+  if (bulkTgUsername.value && !bulkTgUsernameValid.value) return false;
+  if (!bulkTgRenameNamesToo.value) {
+    return bulkTgRenameAvatar.value || bulkTgUsername.value;
+  }
   return (
     bulkTgRenameParsed.value.length === bulkTgRenameTargets.value.length &&
     bulkTgRenameParsed.value.every((p) => p.firstName.length > 0)
@@ -3723,8 +3942,8 @@ async function generateBulkTgRenameWithAi() {
 }
 
 // Names can only be skipped when avatars are being set, or the batch would do nothing.
-watch(bulkTgRenameAvatar, (on) => {
-  if (!on) bulkTgRenameNamesToo.value = true;
+watch([bulkTgRenameAvatar, bulkTgUsername], ([avatar, username]) => {
+  if (!avatar && !username) bulkTgRenameNamesToo.value = true;
 });
 
 function openBulkTgRename() {
@@ -3779,11 +3998,13 @@ async function startBulkTgRename() {
   bulkTgRenameError.value = "";
   const parsed = bulkTgRenameParsed.value;
   const withNames = bulkTgRenameNamesToo.value;
+  const handles = bulkTgUsername.value ? bulkTgUsernameList.value : [];
   const entries: BulkProfileEntry[] = bulkTgRenameTargets.value.map((a, i) => ({
     accountId: a.id,
     firstName: withNames ? (parsed[i]?.firstName ?? "") : "",
     lastName: withNames ? (parsed[i]?.lastName ?? "") : "",
     about: withNames ? (parsed[i]?.about ?? "") : "",
+    username: handles[i] ?? "",
   }));
   bulkTgRenameBusy.value = true;
   try {
@@ -4277,6 +4498,13 @@ function openEdit(a: Account) {
   profileBusy.value = false;
   profileError.value = "";
   profileMsg.value = "";
+  usernameValue.value = "";
+  usernameOriginal.value = "";
+  usernameBusy.value = false;
+  usernameChecking.value = false;
+  usernameError.value = "";
+  usernameMsg.value = "";
+  usernameAvailable.value = null;
   avatarUrl.value = null;
   avatarLoading.value = false;
   avatarBusy.value = false;
@@ -4408,6 +4636,8 @@ async function loadProfile() {
       lastName: p.lastName,
       about: p.about,
     });
+    usernameValue.value = p.username;
+    usernameOriginal.value = p.username;
     profileLoaded.value = true;
   } catch (err: any) {
     profileError.value = err.response?.data?.error ?? err.message;
@@ -4435,6 +4665,65 @@ async function doUpdateProfile() {
     profileError.value = err.response?.data?.error ?? err.message;
   } finally {
     profileBusy.value = false;
+  }
+}
+
+// ── Username ──────────────────────────────────────────────────────────────────
+const usernameNormalised = computed(() =>
+  usernameValue.value.trim().replace(/^@+/, ""),
+);
+const usernameChanged = computed(
+  () => usernameNormalised.value !== usernameOriginal.value,
+);
+// Mirrors the backend rule so an obviously bad handle never costs a round trip
+const usernameLooksValid = computed(() =>
+  /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(usernameNormalised.value),
+);
+
+async function checkUsernameAvailable() {
+  if (!editTarget.value || !usernameLooksValid.value) return;
+  usernameChecking.value = true;
+  usernameError.value = "";
+  usernameMsg.value = "";
+  usernameAvailable.value = null;
+  try {
+    const res = await accountsApi.checkUsername(
+      editTarget.value.id,
+      usernameNormalised.value,
+    );
+    usernameAvailable.value = res.available;
+    if (!res.available && res.reason) usernameError.value = res.reason;
+  } catch (err: any) {
+    usernameError.value = err.response?.data?.error ?? err.message;
+  } finally {
+    usernameChecking.value = false;
+  }
+}
+
+async function doUpdateUsername() {
+  if (!editTarget.value || !usernameChanged.value) return;
+  // An empty box clears the handle, which Telegram accepts and the length rule does not
+  if (usernameNormalised.value && !usernameLooksValid.value) return;
+  usernameBusy.value = true;
+  usernameError.value = "";
+  usernameMsg.value = "";
+  try {
+    const res = await accountsApi.updateUsername(
+      editTarget.value.id,
+      usernameNormalised.value,
+    );
+    usernameOriginal.value = res.username;
+    usernameValue.value = res.username;
+    usernameAvailable.value = null;
+    usernameMsg.value = res.username
+      ? t("accounts.usernameUpdated")
+      : t("accounts.usernameCleared");
+    const target = accounts.value.find((a) => a.id === editTarget.value!.id);
+    if (target) target.tgUsername = res.username || null;
+  } catch (err: any) {
+    usernameError.value = err.response?.data?.error ?? err.message;
+  } finally {
+    usernameBusy.value = false;
   }
 }
 
@@ -5111,6 +5400,22 @@ tr:hover .tg-name-refresh {
   font-size: 11px;
   color: #9ca3af;
   margin: 0 0 4px;
+}
+
+.username-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.username-row .form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.username-at {
+  color: #9ca3af;
+  font-size: 15px;
 }
 
 .avatar-row {

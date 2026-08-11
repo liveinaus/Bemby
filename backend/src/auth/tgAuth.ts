@@ -355,9 +355,11 @@ export type TgOwnProfile = {
   firstName: string;
   lastName: string;
   about: string;
+  /** Public @handle, or "" when the account has none. */
+  username: string;
 };
 
-// Read the account's own Telegram profile (first/last name + bio).
+// Read the account's own Telegram profile (first/last name + bio + username).
 export async function getProfile(
   apiId: number,
   apiHash: string,
@@ -376,7 +378,54 @@ export async function getProfile(
       firstName: me?.firstName ?? "",
       lastName: me?.lastName ?? "",
       about: full.fullUser.about ?? "",
+      username: me?.username ?? "",
     };
+  } finally {
+    await client.destroy().catch(() => undefined);
+  }
+}
+
+/**
+ * Sets or clears the account's public @handle. An empty string removes it, which is how the
+ * official clients do it too. Telegram owns the verdict on whether a handle may be taken --
+ * USERNAME_OCCUPIED, USERNAME_INVALID and USERNAME_PURCHASE_AVAILABLE all come back from
+ * here as RPC errors and are worth showing verbatim, since each needs a different response.
+ */
+export async function updateUsername(
+  apiId: number,
+  apiHash: string,
+  sessionString: string,
+  username: string,
+  proxy?: TgProxy,
+  deviceParams?: TgDeviceParams,
+): Promise<string> {
+  const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
+  try {
+    await client.connect();
+    const user = (await client.invoke(
+      new Api.account.UpdateUsername({ username }),
+    )) as Api.User;
+    return user?.username ?? "";
+  } finally {
+    await client.destroy().catch(() => undefined);
+  }
+}
+
+/** Whether a handle is free, without claiming it. */
+export async function checkUsername(
+  apiId: number,
+  apiHash: string,
+  sessionString: string,
+  username: string,
+  proxy?: TgProxy,
+  deviceParams?: TgDeviceParams,
+): Promise<boolean> {
+  const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
+  try {
+    await client.connect();
+    return Boolean(
+      await client.invoke(new Api.account.CheckUsername({ username })),
+    );
   } finally {
     await client.destroy().catch(() => undefined);
   }
@@ -460,6 +509,7 @@ export async function updateProfile(
       firstName: me?.firstName ?? "",
       lastName: me?.lastName ?? "",
       about: opts.about ?? "",
+      username: me?.username ?? "",
     };
   } finally {
     await client.destroy().catch(() => undefined);
