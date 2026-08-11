@@ -1,5 +1,9 @@
-import { cancelBulkAdd, getBulkAddStatus } from "./bulkAdd";
-import { cancelBulkProfile, getBulkProfileStatus } from "./bulkProfile";
+import { cancelBulkAdd, clearBulkAdd, getBulkAddStatus } from "./bulkAdd";
+import {
+  cancelBulkProfile,
+  clearBulkProfile,
+  getBulkProfileStatus,
+} from "./bulkProfile";
 import type { BulkTask, BulkTaskItem, BulkTaskItemStatus } from "./bulkTasks";
 
 // The bulk-add and bulk-profile batches predate the generic task runner and keep
@@ -81,5 +85,12 @@ export function legacyBulkTasks(): BulkTask[] {
 export function cancelLegacyBulkTask(id: string): boolean {
   if (getBulkAddStatus()?.id === id) return cancelBulkAdd();
   if (getBulkProfileStatus()?.id === id) return cancelBulkProfile();
+  return false;
+}
+
+/** True when the id belonged to a finished legacy batch and it was forgotten. */
+export function dismissLegacyBulkTask(id: string): boolean {
+  if (getBulkAddStatus()?.id === id) return clearBulkAdd();
+  if (getBulkProfileStatus()?.id === id) return clearBulkProfile();
   return false;
 }

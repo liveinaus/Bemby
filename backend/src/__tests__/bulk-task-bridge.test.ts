@@ -5,22 +5,30 @@
 const mocks = vi.hoisted(() => ({
   getBulkAddStatus: vi.fn(),
   cancelBulkAdd: vi.fn(() => true),
+  clearBulkAdd: vi.fn(() => true),
   getBulkProfileStatus: vi.fn(),
   cancelBulkProfile: vi.fn(() => true),
+  clearBulkProfile: vi.fn(() => true),
 }));
 
 vi.mock("../jobs/bulkAdd", () => ({
   getBulkAddStatus: mocks.getBulkAddStatus,
   cancelBulkAdd: mocks.cancelBulkAdd,
+  clearBulkAdd: mocks.clearBulkAdd,
   isBulkAccountManagementEnabled: () => true,
 }));
 vi.mock("../jobs/bulkProfile", () => ({
   getBulkProfileStatus: mocks.getBulkProfileStatus,
   cancelBulkProfile: mocks.cancelBulkProfile,
+  clearBulkProfile: mocks.clearBulkProfile,
 }));
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { cancelLegacyBulkTask, legacyBulkTasks } from "../jobs/bulkTaskBridge";
+import {
+  cancelLegacyBulkTask,
+  dismissLegacyBulkTask,
+  legacyBulkTasks,
+} from "../jobs/bulkTaskBridge";
 
 const addBatch = {
   id: "add-1",
@@ -109,6 +117,31 @@ describe("legacyBulkTasks", () => {
     mocks.getBulkAddStatus.mockReturnValue(addBatch);
     mocks.getBulkProfileStatus.mockReturnValue(profileBatch);
     expect(legacyBulkTasks().map((t) => t.kind)).toEqual(["add", "profile"]);
+  });
+});
+
+// A finished batch used to have no way out of the list: the panel cleared only its own
+// view, and the next poll handed the same batch straight back.
+describe("dismissLegacyBulkTask", () => {
+  it("forgets the batch the id belongs to, and only that one", () => {
+    mocks.getBulkAddStatus.mockReturnValue(addBatch);
+    mocks.getBulkProfileStatus.mockReturnValue(profileBatch);
+
+    expect(dismissLegacyBulkTask("profile-1")).toBe(true);
+    expect(mocks.clearBulkProfile).toHaveBeenCalledTimes(1);
+    expect(mocks.clearBulkAdd).not.toHaveBeenCalled();
+  });
+
+  it("passes on an id that belongs to neither, so the generic tasks get a turn", () => {
+    mocks.getBulkAddStatus.mockReturnValue(addBatch);
+    expect(dismissLegacyBulkTask("some-generic-task")).toBe(false);
+    expect(mocks.clearBulkAdd).not.toHaveBeenCalled();
+  });
+
+  it("reports the runner's refusal to clear a batch still running", () => {
+    mocks.getBulkAddStatus.mockReturnValue(addBatch);
+    mocks.clearBulkAdd.mockReturnValueOnce(false);
+    expect(dismissLegacyBulkTask("add-1")).toBe(false);
   });
 });
 

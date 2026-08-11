@@ -122,6 +122,13 @@ export function cancelBulkProfile(): boolean {
   return true;
 }
 
+/** Forgets a finished batch, so the task dock stops listing it. See clearBulkAdd. */
+export function clearBulkProfile(): boolean {
+  if (!current || current.running) return false;
+  current = null;
+  return true;
+}
+
 function resolveProxyUrl(proxyId: string | null): string | undefined {
   if (!proxyId) return undefined;
   const row = db

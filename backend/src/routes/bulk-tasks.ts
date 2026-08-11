@@ -9,6 +9,7 @@ import {
 } from "../jobs/bulkTasks";
 import {
   cancelLegacyBulkTask,
+  dismissLegacyBulkTask,
   legacyBulkTasks,
 } from "../jobs/bulkTaskBridge";
 import {
@@ -74,7 +75,9 @@ router.post("/:id/cancel", (req, res) => {
 
 // DELETE /:id -- drop a finished task from the list
 router.delete("/:id", (req, res) => {
-  res.json({ dismissed: dismissBulkTask(req.params.id) });
+  const dismissed =
+    dismissBulkTask(req.params.id) || dismissLegacyBulkTask(req.params.id);
+  res.json({ dismissed });
 });
 
 router.post("/spam-check", (req, res) => {

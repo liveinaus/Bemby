@@ -144,9 +144,9 @@ function currentItem(task: BulkTask) {
   );
 }
 
-/** Bulk add and bulk profile are owned by their own modals, which clear them. */
+/** Anything that has stopped can be cleared away; a running task is terminated first. */
 function dismissable(task: BulkTask): boolean {
-  return task.kind !== "add" && task.kind !== "profile";
+  return task.state !== "running";
 }
 
 function toggleDetail(id: string) {

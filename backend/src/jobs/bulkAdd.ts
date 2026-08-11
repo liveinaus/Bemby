@@ -260,6 +260,17 @@ export function cancelBulkAdd(): boolean {
   return true;
 }
 
+/**
+ * Forgets a finished batch, so the task dock stops listing it. Only the panel clearing its
+ * own view used to happen, which left this batch here for the next poll to hand straight
+ * back -- the card could not be got rid of short of restarting the backend.
+ */
+export function clearBulkAdd(): boolean {
+  if (!current || current.running) return false;
+  current = null;
+  return true;
+}
+
 function readSettingList<T>(key: string): T[] {
   const row = db
     .prepare("SELECT value FROM settings WHERE key = ?")
