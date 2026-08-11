@@ -909,9 +909,14 @@
             </div>
 
             <div v-if="usernameAvailable === true" class="success-msg">
-              {{ t("accounts.usernameFree") }}
+              <i class="fa-solid fa-check"></i> {{ t("accounts.usernameFree") }}
             </div>
-            <div v-if="usernameError" class="error-msg">{{ usernameError }}</div>
+            <!-- Telegram answers a taken handle with a plain false and no reason, so
+                 this case needs a message of its own or the check looks like it did nothing -->
+            <div v-else-if="usernameAvailable === false" class="error-msg">
+              {{ usernameError || t("accounts.usernameTaken") }}
+            </div>
+            <div v-else-if="usernameError" class="error-msg">{{ usernameError }}</div>
             <div v-if="usernameMsg" class="success-msg">{{ usernameMsg }}</div>
 
             <button
@@ -4680,6 +4685,19 @@ const usernameLooksValid = computed(() =>
   /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(usernameNormalised.value),
 );
 
+// Telegram answers with raw codes; each means something different to whoever is looking
+// at the box, so they are worth spelling out rather than showing verbatim.
+function friendlyUsernameError(raw: string): string {
+  if (raw.includes("USERNAME_OCCUPIED")) return t("accounts.usernameTaken");
+  if (raw.includes("USERNAME_PURCHASE_AVAILABLE")) {
+    return t("accounts.usernameForSale");
+  }
+  if (raw.includes("USERNAME_INVALID")) return t("accounts.usernameRejected");
+  if (raw.includes("USERNAME_NOT_MODIFIED")) return t("accounts.usernameSame");
+  if (raw.includes("FLOOD_WAIT")) return t("accounts.usernameFlood");
+  return raw;
+}
+
 async function checkUsernameAvailable() {
   if (!editTarget.value || !usernameLooksValid.value) return;
   usernameChecking.value = true;
@@ -4692,9 +4710,13 @@ async function checkUsernameAvailable() {
       usernameNormalised.value,
     );
     usernameAvailable.value = res.available;
-    if (!res.available && res.reason) usernameError.value = res.reason;
+    if (!res.available && res.reason) {
+      usernameError.value = friendlyUsernameError(res.reason);
+    }
   } catch (err: any) {
-    usernameError.value = err.response?.data?.error ?? err.message;
+    usernameError.value = friendlyUsernameError(
+      err.response?.data?.error ?? err.message,
+    );
   } finally {
     usernameChecking.value = false;
   }
@@ -4721,7 +4743,9 @@ async function doUpdateUsername() {
     const target = accounts.value.find((a) => a.id === editTarget.value!.id);
     if (target) target.tgUsername = res.username || null;
   } catch (err: any) {
-    usernameError.value = err.response?.data?.error ?? err.message;
+    usernameError.value = friendlyUsernameError(
+      err.response?.data?.error ?? err.message,
+    );
   } finally {
     usernameBusy.value = false;
   }
