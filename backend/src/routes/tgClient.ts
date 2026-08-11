@@ -13,6 +13,7 @@ import {
   getMessages,
   sendMessage,
   sendFile,
+  sharePhoneNumber,
   getContacts,
   addContact,
   editContact,
@@ -313,6 +314,53 @@ router.post("/:accountId/messages/:chatId", async (req, res) => {
     res.json(result);
     // Poll for bot replies at 1.5 s, 4 s, and 9 s after sending.
     // GramJS NewMessage fires for incoming messages; this is the fallback for any it misses.
+    for (const delay of [1500, 4000, 9000]) {
+      setTimeout(() => {
+        syncMessagesInBackground(accountId, chatId).catch(() => {});
+      }, delay);
+    }
+  } catch (err: any) {
+    tgError(err, accountId, res);
+  }
+});
+
+// POST /:accountId/messages/:chatId/share-phone -- answer a bot's "share phone number"
+// reply-keyboard button by sending our own number as a contact card.
+router.post("/:accountId/messages/:chatId/share-phone", async (req, res) => {
+  const accountId = Number(req.params.accountId);
+  const chatId = decodeURIComponent(req.params.chatId);
+  const { replyToMsgId } = req.body as { replyToMsgId?: number };
+  try {
+    const entry = await getLiveClient(accountId);
+    const result = await sharePhoneNumber(
+      entry,
+      chatId,
+      replyToMsgId ? Number(replyToMsgId) : undefined,
+    );
+    cacheMessages(accountId, chatId, [
+      {
+        id: result.id,
+        text: result.text,
+        html: null,
+        date: result.date,
+        fromMe: true,
+        isRead: false,
+        fromId: null,
+        fromName: null,
+        hasPhoto: false,
+        hasDocument: false,
+        hasSticker: false,
+        fileName: null,
+        buttons: null,
+        reactions: null,
+        replyToId: replyToMsgId ? Number(replyToMsgId) : null,
+        replyToText: null,
+        replyToName: null,
+        replyCount: null,
+      },
+    ]);
+    res.json(result);
+    // Same reply-polling fallback as a plain send: the bot usually answers straight away.
     for (const delay of [1500, 4000, 9000]) {
       setTimeout(() => {
         syncMessagesInBackground(accountId, chatId).catch(() => {});

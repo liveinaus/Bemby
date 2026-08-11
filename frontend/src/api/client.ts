@@ -2035,6 +2035,7 @@ export type TgButton = {
   url: string | null;
   webApp: boolean; // Telegram Mini App -- must open in a real browser
   send: boolean; // reply-keyboard button -- clicking sends its text as a message
+  requestPhone: boolean; // reply-keyboard button -- shares our own phone as a contact
 };
 
 export type TgReaction = {
@@ -2302,6 +2303,14 @@ export const tgClientApi = {
       }>(`/tg-client/${accountId}/pin/${encodeURIComponent(chatId)}`, {
         pinned,
       })
+      .then((r) => r.data),
+
+  sharePhone: (accountId: number, chatId: string, replyToMsgId?: number) =>
+    api
+      .post<{ id: number; date: number; text: string }>(
+        `/tg-client/${accountId}/messages/${encodeURIComponent(chatId)}/share-phone`,
+        { replyToMsgId },
+      )
       .then((r) => r.data),
 
   clickButton: (

@@ -651,7 +651,10 @@
                                 btnLoadingKey === `${msg.id}-${ri}-${bi}`,
                             }"
                             :disabled="
-                              (!btn.data && !btn.url && !btn.send) ||
+                              (!btn.data &&
+                                !btn.url &&
+                                !btn.send &&
+                                !btn.requestPhone) ||
                               btnLoadingKey === `${msg.id}-${ri}-${bi}`
                             "
                             @click="clickInlineButton(msg, btn, ri, bi)"
@@ -1541,6 +1544,33 @@
     </div>
   </div>
 
+  <!-- Share phone number confirmation -->
+  <div
+    v-if="sharePhoneTarget"
+    class="tgc-invite-overlay"
+    @click.self="sharePhoneTarget = null"
+  >
+    <div class="tgc-invite-card">
+      <div class="tgc-invite-icon"><i class="fa-solid fa-phone"></i></div>
+      <div class="tgc-invite-title">{{ t("tgc.sharePhone.title") }}</div>
+      <div class="tgc-invite-meta">
+        {{ sharePhoneTarget.chatName }} -- {{ t("tgc.sharePhone.body") }}
+      </div>
+      <div class="tgc-invite-actions">
+        <button class="tgc-invite-cancel" @click="sharePhoneTarget = null">
+          {{ t("common.cancel") }}
+        </button>
+        <button
+          class="tgc-invite-join"
+          :disabled="sharingPhone"
+          @click="confirmSharePhone"
+        >
+          {{ sharingPhone ? t("tgc.sharePhone.sending") : t("tgc.sharePhone.confirm") }}
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Delete chat confirmation -->
   <div
     v-if="deleteChatTarget"
@@ -1919,6 +1949,11 @@ const profileDetails = ref<TgProfile | null>(null);
 const profileLoading = ref(false);
 const copyToast = ref("");
 const btnLoadingKey = ref<string | null>(null);
+
+// Pending "share my phone number" confirmation
+type SharePhoneTarget = { msgId: number; key: string; chatName: string };
+const sharePhoneTarget = ref<SharePhoneTarget | null>(null);
+const sharingPhone = ref(false);
 
 // Reply compose
 const replyingTo = ref<TgMessage | null>(null);
@@ -3374,12 +3409,18 @@ async function clickInlineButton(
     url: string | null;
     webApp: boolean;
     send: boolean;
+    requestPhone: boolean;
   },
   ri: number,
   bi: number,
 ) {
   if (!selectedAccountId.value || !activeChatId.value) return;
   const key = `${msg.id}-${ri}-${bi}`;
+  // "Share my phone number": ask first, then send our number as a contact card
+  if (btn.requestPhone) {
+    sharePhoneTarget.value = { msgId: msg.id, key, chatName: activeChat.value?.name ?? "this bot" };
+    return;
+  }
   // Reply-keyboard button: send its label back as a normal message
   if (btn.send && !btn.data && !btn.url) {
     if (sending.value || !btn.text) return;
@@ -3458,6 +3499,66 @@ async function clickInlineButton(
     if (joinRequestSent.value && pendingJoinChatId.value) {
       setTimeout(checkMembershipStatus, 4000);
     }
+  }
+}
+
+// Sends our own number as a contact card, the only form a bot accepts for a
+// "share phone number" keyboard button.
+async function confirmSharePhone() {
+  const target = sharePhoneTarget.value;
+  if (!target || !selectedAccountId.value || !activeChatId.value) return;
+  sharingPhone.value = true;
+  btnLoadingKey.value = target.key;
+  try {
+    const res = await tgClientApi.sharePhone(
+      selectedAccountId.value,
+      activeChatId.value,
+      target.msgId,
+    );
+    sharePhoneTarget.value = null;
+    messages.value.push({
+      id: res.id,
+      text: res.text,
+      html: null,
+      date: res.date,
+      fromMe: true,
+      isRead: false,
+      fromId: null,
+      fromName: null,
+      hasPhoto: false,
+      hasDocument: false,
+      hasSticker: false,
+      fileName: null,
+      buttons: null,
+      reactions: null,
+      replyToId: null,
+      replyToText: null,
+      replyToName: null,
+      replyCount: null,
+    });
+    await scrollBottom(true);
+    const idx = dialogs.value.findIndex((d) => d.chatId === activeChatId.value);
+    if (idx !== -1) {
+      dialogs.value[idx] = {
+        ...dialogs.value[idx],
+        lastMessage: { text: res.text, date: res.date, fromMe: true },
+      };
+      const [moved] = dialogs.value.splice(idx, 1);
+      dialogs.value.unshift(moved);
+    }
+    setTimeout(refreshMessages, 1500);
+    setTimeout(refreshMessages, 4000);
+  } catch (e: any) {
+    const raw =
+      e?.response?.data?.error ?? e?.message ?? "Sharing phone number failed";
+    copyToast.value = friendlyTgError(raw);
+    if (copyToastTimer) clearTimeout(copyToastTimer);
+    copyToastTimer = setTimeout(() => {
+      copyToast.value = "";
+    }, 4000);
+  } finally {
+    sharingPhone.value = false;
+    btnLoadingKey.value = null;
   }
 }
 

@@ -1783,6 +1783,12 @@ const zh = {
     openUrl: "打开链接",
     closeChat: "关闭聊天",
     jumpToLatest: "跳至最新消息",
+    sharePhone: {
+      title: "分享手机号",
+      body: "该机器人请求获取你的手机号，将以联系人名片的形式发送。",
+      confirm: "分享手机号",
+      sending: "发送中...",
+    },
     openLink: {
       title: "打开链接",
       inBemby: "在 Bemby 中打开",
@@ -3653,6 +3659,12 @@ const en: typeof zh = {
     openUrl: "Open URL",
     closeChat: "Close chat",
     jumpToLatest: "Jump to latest message",
+    sharePhone: {
+      title: "Share phone number",
+      body: "This bot is asking for your phone number. It will be sent as a contact card.",
+      confirm: "Share phone number",
+      sending: "Sending...",
+    },
     openLink: {
       title: "Open link",
       inBemby: "Open in Bemby",

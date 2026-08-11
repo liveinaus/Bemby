@@ -1,4 +1,5 @@
 import { TelegramClient, Api, Logger } from "telegram";
+import { generateRandomBigInt } from "telegram/Helpers";
 import { CustomFile } from "telegram/client/uploads";
 import { LogLevel } from "telegram/extensions/Logger";
 import { StringSession } from "telegram/sessions";
@@ -28,6 +29,7 @@ export type TgButton = {
   url: string | null;
   webApp: boolean; // Telegram Mini App button -- must open in a real browser
   send: boolean; // reply-keyboard button -- clicking sends its text as a message
+  requestPhone: boolean; // reply-keyboard button -- shares our own phone as a contact
 };
 
 export type TgMsgPayload = {
@@ -328,6 +330,7 @@ function extractButtons(msg: Api.Message): TgButton[][] | null {
           btn instanceof Api.KeyboardButtonWebView ||
           btn instanceof Api.KeyboardButtonSimpleWebView,
         send: false,
+        requestPhone: false,
       })),
     );
   }
@@ -343,8 +346,9 @@ function extractButtons(msg: Api.Message): TgButton[][] | null {
           btn instanceof Api.KeyboardButtonWebView ||
           btn instanceof Api.KeyboardButtonSimpleWebView,
         // Only plain text buttons can be fulfilled by sending their text;
-        // request-phone/location/poll/webview variants can't, so leave them inert.
+        // location/poll/webview variants can't, so leave them inert.
         send: btn instanceof Api.KeyboardButton,
+        requestPhone: btn instanceof Api.KeyboardButtonRequestPhone,
       })),
     );
     return rows.length ? rows : null;
@@ -370,6 +374,25 @@ function isStickerDoc(media: Api.TypeMessageMedia | null | undefined): boolean {
   const doc = (media as Api.MessageMediaDocument).document;
   if (!(doc instanceof Api.Document)) return false;
   return doc.attributes.some((a) => a instanceof Api.DocumentAttributeSticker);
+}
+
+// Contact cards carry no message text, so without this they render as an empty
+// bubble once the history is reloaded from the server.
+function contactMediaText(
+  media: Api.TypeMessageMedia | null | undefined,
+): string {
+  if (!(media instanceof Api.MessageMediaContact)) return "";
+  const c = media as Api.MessageMediaContact;
+  const name = [c.firstName, c.lastName].filter(Boolean).join(" ");
+  const phone = c.phoneNumber?.startsWith("+")
+    ? c.phoneNumber
+    : `+${c.phoneNumber ?? ""}`;
+  return [name, phone].filter((s) => s && s !== "+").join(" ").trim();
+}
+
+/** Message text as shown in the UI, with a stand-in for text-less media. */
+function displayText(msg: Api.Message | { message?: string; media?: any }): string {
+  return (msg as any).message || contactMediaText((msg as any).media);
 }
 
 // Filename of a document attachment, if the sender provided one.
@@ -552,7 +575,7 @@ async function connectLiveClient(accountId: number): Promise<LiveEntry> {
       chatId,
       message: {
         id: msg.id,
-        text: msg.message ?? "",
+        text: displayText(msg),
         html: entitiesToHtml(msg.message ?? "", msg.entities),
         date: msg.date,
         fromMe: Boolean(msg.out),
@@ -692,7 +715,7 @@ export async function loadDialogs(
       unreadCount: d.dialog.unreadCount ?? 0,
       lastMessage: lastMsg
         ? {
-            text: lastMsg.message ?? "",
+            text: displayText(lastMsg),
             date: lastMsg.date,
             fromMe: Boolean(lastMsg.out),
           }
@@ -800,7 +823,7 @@ export async function getMessages(
     const readMaxId = entry.readOutboxCache.get(chatId) ?? 0;
     return {
       id: msg.id,
-      text: msg.message ?? "",
+      text: displayText(msg),
       html: entitiesToHtml(msg.message ?? "", (msg as Api.Message).entities),
       date: msg.date,
       fromMe: Boolean(msg.out),
@@ -854,7 +877,7 @@ export async function getPinnedMessage(
   const readMaxId = entry.readOutboxCache.get(chatId) ?? 0;
   return {
     id: msg.id,
-    text: msg.message ?? "",
+    text: displayText(msg),
     html: entitiesToHtml(msg.message ?? "", (msg as Api.Message).entities),
     date: msg.date,
     fromMe: Boolean(msg.out),
@@ -891,6 +914,71 @@ export async function sendMessage(
     ...(replyToMsgId ? { replyTo: replyToMsgId } : {}),
   });
   return { id: result.id, date: result.date };
+}
+
+/**
+ * Answers a reply-keyboard "share phone number" button by sending our own number
+ * as a contact card, which is what the official clients do. Bots only accept the
+ * number this way -- a typed-out phone number is just text to them.
+ */
+export async function sharePhoneNumber(
+  entry: LiveEntry,
+  chatId: string,
+  replyToMsgId?: number,
+): Promise<{ id: number; date: number; text: string }> {
+  await ensureEntityCached(entry, chatId);
+  const entity = entry.entityCache.get(chatId);
+  if (!entity) throw new Error("Chat not found");
+
+  const me = (await entry.client.getMe()) as Api.User;
+  if (!me?.phone) {
+    throw new Error("This account has no phone number to share");
+  }
+
+  const updates = await entry.client.invoke(
+    new Api.messages.SendMedia({
+      peer: entity as any,
+      media: new Api.InputMediaContact({
+        phoneNumber: me.phone,
+        firstName: me.firstName ?? "",
+        lastName: me.lastName ?? "",
+        vcard: "",
+      }),
+      message: "",
+      randomId: generateRandomBigInt() as any,
+      ...(replyToMsgId
+        ? { replyTo: new Api.InputReplyToMessage({ replyToMsgId }) }
+        : {}),
+    }),
+  );
+
+  const sent = sentMessageFromUpdates(updates);
+  const name = [me.firstName, me.lastName].filter(Boolean).join(" ");
+  const phone = me.phone.startsWith("+") ? me.phone : `+${me.phone}`;
+  return { ...sent, text: [name, phone].filter(Boolean).join(" ") };
+}
+
+/** Pulls the id/date of the message we just sent out of the Updates response. */
+function sentMessageFromUpdates(updates: Api.TypeUpdates): {
+  id: number;
+  date: number;
+} {
+  const list: any[] = (updates as any).updates ?? [];
+  for (const u of list) {
+    const m = u?.message;
+    if (
+      (u instanceof Api.UpdateNewMessage ||
+        u instanceof Api.UpdateNewChannelMessage) &&
+      m instanceof Api.Message
+    ) {
+      return { id: m.id, date: m.date };
+    }
+  }
+  const idUpdate = list.find((u) => u instanceof Api.UpdateMessageID);
+  return {
+    id: idUpdate?.id ?? 0,
+    date: (updates as any).date ?? Math.floor(Date.now() / 1000),
+  };
 }
 
 export async function sendFile(
@@ -1835,7 +1923,7 @@ export async function getThreadMessages(
     }
     return {
       id: msg.id,
-      text: msg.message ?? "",
+      text: displayText(msg),
       html: entitiesToHtml(msg.message ?? "", msg.entities),
       date: msg.date,
       fromMe: Boolean(msg.out),

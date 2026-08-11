@@ -6,7 +6,8 @@ const {
   MockUser, MockChat, MockChannel,
   MockPeerUser, MockPeerChannel, MockPeerChat,
   MockMessage, MockChatInvite, MockChatInviteAlready, MockChatInvitePeek,
-  MockMessageMediaPhoto, MockMessageMediaDocument, MockDocument, MockReplyInlineMarkup,
+  MockMessageMediaPhoto, MockMessageMediaDocument, MockMessageMediaContact,
+  MockDocument, MockReplyInlineMarkup,
   MockTelegramClient, mockClientInstance,
   mockAddEventHandler, mockGetDialogs, mockGetMessages, mockSendMessage, mockInvoke,
 } = vi.hoisted(() => {
@@ -22,6 +23,7 @@ const {
   class MockChatInvitePeek { constructor(d: Record<string, any>) { Object.assign(this, d); } }
   class MockMessageMediaPhoto {}
   class MockMessageMediaDocument { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
+  class MockMessageMediaContact { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
   class MockDocument { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
   class MockReplyInlineMarkup {
     rows: Array<{ buttons: Array<{ text: string }> }>;
@@ -53,7 +55,8 @@ const {
     MockUser, MockChat, MockChannel,
     MockPeerUser, MockPeerChannel, MockPeerChat,
     MockMessage, MockChatInvite, MockChatInviteAlready, MockChatInvitePeek,
-    MockMessageMediaPhoto, MockMessageMediaDocument, MockDocument, MockReplyInlineMarkup,
+    MockMessageMediaPhoto, MockMessageMediaDocument, MockMessageMediaContact,
+    MockDocument, MockReplyInlineMarkup,
     MockTelegramClient, mockClientInstance,
     mockAddEventHandler, mockGetDialogs, mockGetMessages, mockSendMessage, mockInvoke,
   };
@@ -71,6 +74,7 @@ vi.mock('telegram', () => ({
     Message:             MockMessage,
     MessageMediaPhoto:   MockMessageMediaPhoto,
     MessageMediaDocument: MockMessageMediaDocument,
+    MessageMediaContact: MockMessageMediaContact,
     Document:            MockDocument,
     ReplyInlineMarkup:   MockReplyInlineMarkup,
     contacts: {
@@ -375,6 +379,21 @@ describe('getMessages', () => {
     const [msg] = await getMessages(entry as any, 'u12', 20, 0);
     expect(msg.hasPhoto).toBe(true);
     expect(msg.hasDocument).toBe(false);
+  });
+
+  it('describes a contact card, which carries no message text of its own', async () => {
+    const user  = new MockUser({ id: 22n });
+    const entry = makeEntry([['u22', user]]);
+
+    mockGetMessages.mockResolvedValueOnce([
+      new MockMessage({
+        id: 4, message: '', date: 1700000003, out: true, fromId: null, replyMarkup: null,
+        media: new MockMessageMediaContact({ phoneNumber: '10000000000', firstName: 'Ada', lastName: '' }),
+      }),
+    ]);
+
+    const [msg] = await getMessages(entry as any, 'u22', 20, 0);
+    expect(msg.text).toBe('Ada +10000000000');
   });
 
   it('calls loadDialogs via ensureEntityCached when entity is not in cache', async () => {
