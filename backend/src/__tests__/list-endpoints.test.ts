@@ -215,10 +215,28 @@ function insertTemplate(
     ).lastInsertRowid as number;
 }
 
-function insertAccount(name: string, opts: { disabled?: number; notes?: string; phone?: string } = {}) {
+function insertAccount(
+  name: string,
+  opts: {
+    disabled?: number;
+    notes?: string;
+    phone?: string;
+    tgName?: string;
+    tgUsername?: string;
+  } = {},
+) {
   return testDb
-    .prepare("INSERT INTO tg_accounts (name, phone_number, disabled, notes) VALUES (?, ?, ?, ?)")
-    .run(name, opts.phone ?? "+61", opts.disabled ?? 0, opts.notes ?? null).lastInsertRowid as number;
+    .prepare(
+      "INSERT INTO tg_accounts (name, phone_number, disabled, notes, tg_display_name, tg_username) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .run(
+      name,
+      opts.phone ?? "+61",
+      opts.disabled ?? 0,
+      opts.notes ?? null,
+      opts.tgName ?? null,
+      opts.tgUsername ?? null,
+    ).lastInsertRowid as number;
 }
 
 function insertJob(name: string, opts: { accountId?: number | null; jobType?: string; bot?: string; templateId?: number | null } = {}) {
@@ -376,6 +394,45 @@ describe("GET /accounts", () => {
 
     const activeOnly = await getJson("/accounts?page=1&pageSize=10&disabled=0");
     expect(activeOnly.body.total).toBe(2);
+  });
+
+  // A list of names and usernames pasted in whole: one term per line, any of which keeps a row
+  it("reads a multi-line search as one term per line", async () => {
+    insertAccount("01", { tgName: "\u5411\u9633\u800c\u751f", tgUsername: "sunward7" });
+    insertAccount("02", { tgName: "Astra", tgUsername: "iulzee" });
+    insertAccount("03", { tgName: "\u5403\u74dc\u7fa4\u4f17", tgUsername: "melon22" });
+    insertAccount("04", { tgName: "Nobody", tgUsername: "elsewhere" });
+
+    const list = ["\u5411\u9633\u800c\u751f", "@iulzee", "melon22", ""].join("\n");
+    const { body } = await getJson(
+      `/accounts?page=1&pageSize=10&search=${encodeURIComponent(list)}`,
+    );
+
+    // The @ is dropped, a bare username matches too, and the blank line counts for nothing
+    expect(body.items.map((a: any) => a.name)).toEqual(["01", "02", "03"]);
+    expect(body.total).toBe(3);
+  });
+
+  it("keeps other filters over the whole list of terms", async () => {
+    insertAccount("01", { tgUsername: "keeper" });
+    insertAccount("02", { tgUsername: "gone", disabled: 1 });
+
+    const { body } = await getJson(
+      `/accounts?page=1&pageSize=10&disabled=0&search=${encodeURIComponent("keeper\ngone")}`,
+    );
+
+    expect(body.items.map((a: any) => a.name)).toEqual(["01"]);
+  });
+
+  it("still escapes LIKE wildcards line by line", async () => {
+    insertAccount("01", { notes: "100% real" });
+    insertAccount("02", { notes: "anything at all" });
+
+    const { body } = await getJson(
+      `/accounts?page=1&pageSize=10&search=${encodeURIComponent("100%\n@")}`,
+    );
+
+    expect(body.items.map((a: any) => a.name)).toEqual(["01"]);
   });
 });
 

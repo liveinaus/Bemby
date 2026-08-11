@@ -50,6 +50,28 @@ export function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
+/** No search box needs more lines than this; the rest are dropped rather than built into SQL. */
+export const MAX_SEARCH_TERMS = 200;
+
+/**
+ * A search box read as one term per line, any one of which is enough to keep a row. Pasting a
+ * list of names and usernames in whole is how a batch held elsewhere -- a spreadsheet, a
+ * message -- is looked up here, and one line at a time would be the same work several times
+ * over.
+ *
+ * A leading `@` is dropped, since a username is stored without one and a list copied out of
+ * Telegram carries it on some lines and not others. Blank lines and repeats go too.
+ */
+export function searchTerms(search: string): string[] {
+  const terms = new Set<string>();
+  for (const line of (search ?? "").split(/[\r\n]+/)) {
+    const term = line.trim().replace(/^@+/, "").trim();
+    if (term) terms.add(term);
+    if (terms.size >= MAX_SEARCH_TERMS) break;
+  }
+  return [...terms];
+}
+
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;

@@ -111,6 +111,7 @@ import {
   scheduleSeparatePage,
 } from './composables/schedulePage';
 import { dataStoreEnabled, loadDataStoreSetting } from './composables/dataStore';
+import { requestedView } from './composables/viewNav';
 
 type ViewName = 'accounts' | 'messenger' | 'jobs' | 'schedule' | 'templates' | 'data' | 'settings' | 'logs' | 'help';
 
@@ -145,6 +146,13 @@ function setView(view: ViewName) {
   localStorage.setItem(LAST_VIEW_KEY, view);
   sidebarOpen.value = false;
 }
+
+// A view asking to hand over to another one (Accounts opening the Messenger on an account)
+watch(requestedView, (view) => {
+  if (!view) return;
+  requestedView.value = null;
+  setView(view);
+});
 
 const route = useRoute();
 const router = useRouter();

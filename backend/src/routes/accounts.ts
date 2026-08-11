@@ -1,6 +1,12 @@
 import { Router, raw } from "express";
 import { db, getDefaultTgApiCredentials } from "../db/database";
-import { parsePaging, parseSort, textParam, escapeLike } from "./list-query";
+import {
+  parsePaging,
+  parseSort,
+  textParam,
+  escapeLike,
+  searchTerms,
+} from "./list-query";
 import {
   requestCode,
   submitCode,
@@ -153,15 +159,21 @@ router.get("/", (req, res) => {
   const conditions: string[] = [];
   const params: (string | number)[] = [];
 
-  if (search) {
-    conditions.push(`(
+  // One term per line, any of which is enough to keep the row: a pasted list of names and
+  // usernames is looked up in one go rather than a line at a time
+  const terms = searchTerms(search);
+  if (terms.length) {
+    const oneTerm = `(
       name LIKE ? ESCAPE '\\' OR phone_number LIKE ? ESCAPE '\\'
       OR COALESCE(tg_display_name, '') LIKE ? ESCAPE '\\'
       OR COALESCE(tg_username, '') LIKE ? ESCAPE '\\'
       OR COALESCE(notes, '') LIKE ? ESCAPE '\\'
-    )`);
-    const like = `%${escapeLike(search)}%`;
-    params.push(like, like, like, like, like);
+    )`;
+    conditions.push(`(${terms.map(() => oneTerm).join(" OR ")})`);
+    for (const term of terms) {
+      const like = `%${escapeLike(term)}%`;
+      params.push(like, like, like, like, like);
+    }
   }
   if (authStatus) {
     conditions.push("auth_status = ?");

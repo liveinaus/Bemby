@@ -3,12 +3,22 @@
     <div class="page-header">
       <h2 class="page-title">{{ t("accounts.title") }}</h2>
       <div class="page-header-actions">
-        <input
-          v-model="searchText"
-          class="form-input"
-          style="width: 200px"
-          :placeholder="t('common.search')"
-        />
+        <!-- A textarea rather than an input: a pasted list of names is the point, and an input
+             would flatten its newlines into one long term that matches nothing -->
+        <div class="account-search">
+          <textarea
+            v-model="searchText"
+            class="form-input account-search-box"
+            :rows="searchRows"
+            :placeholder="t('accounts.searchPlaceholder')"
+          ></textarea>
+          <div v-if="searchTermCount > 1" class="account-search-count">
+            {{ t("accounts.searchTerms").replace("{n}", String(searchTermCount)) }}
+            <template v-if="searchTermCount > MAX_SEARCH_TERMS">
+              {{ t("accounts.searchTermsCapped").replace("{n}", String(MAX_SEARCH_TERMS)) }}
+            </template>
+          </div>
+        </div>
         <button
           v-if="accounts.length"
           class="btn btn-secondary"
@@ -300,6 +310,14 @@
                     @click="openAuth(a)"
                   >
                     <i class="fa-solid fa-key"></i>
+                  </button>
+                  <button
+                    v-if="a.authStatus === 'authenticated' && !a.disabled"
+                    class="btn btn-sm btn-ghost btn-icon"
+                    :title="t('accounts.openInMessenger')"
+                    @click="openMessengerFor(a.id)"
+                  >
+                    <i class="fa-brands fa-telegram"></i>
                   </button>
                   <button
                     v-if="a.authStatus === 'authenticated'"
@@ -2737,6 +2755,17 @@
           <i class="fa-solid fa-key"></i> {{ t("accounts.authenticate") }}
         </button>
         <button
+          v-if="actionMenuAccount.authStatus === 'authenticated' && !actionMenuAccount.disabled"
+          class="action-sheet-btn"
+          @click="
+            openMessengerFor(actionMenuAccount.id);
+            actionMenuAccount = null;
+          "
+        >
+          <i class="fa-brands fa-telegram"></i>
+          {{ t("accounts.openInMessenger") }}
+        </button>
+        <button
           v-if="actionMenuAccount.authStatus === 'authenticated'"
           class="action-sheet-btn"
           @click="
@@ -2835,6 +2864,7 @@ import { usePersistedRef } from "../composables/usePersistedRef";
 import { phoneCountry } from "../utils/phoneCountry";
 import { proxyScheme, proxySupportsTelegram } from "../utils/proxy";
 import { debounce } from "../composables/useDebounce";
+import { openMessengerFor } from "../composables/viewNav";
 import {
   onBulkTaskFinished,
   runningTaskOfKind,
@@ -2891,6 +2921,30 @@ const debouncedSearch = debounce(() => {
   else load();
 }, 300);
 watch(searchText, () => debouncedSearch());
+
+// One term per line, read the same way the backend reads it: the count is shown so a paste
+// that arrived as one long line rather than many is obvious, rather than being blamed on the
+// accounts. The cap matches MAX_SEARCH_TERMS there, and holds the query string down as well.
+const MAX_SEARCH_TERMS = 200;
+
+const searchTermList = computed(() => [
+  ...new Set(
+    searchText.value
+      .split(/[\r\n]+/)
+      .map((line) => line.trim().replace(/^@+/, "").trim())
+      .filter(Boolean),
+  ),
+]);
+
+const searchTermCount = computed(() => searchTermList.value.length);
+
+/** What goes to the server: the terms as it reads them, capped. Empty when nothing was typed. */
+const searchParam = computed(() =>
+  searchTermList.value.slice(0, MAX_SEARCH_TERMS).join("\n") || undefined,
+);
+
+// Grows with the list up to a few lines, so a long paste does not take over the header
+const searchRows = computed(() => Math.min(6, Math.max(1, searchTermCount.value)));
 
 watch([sortKey, sortDir], () => {
   if (page.value !== 1) page.value = 1;
@@ -4415,7 +4469,7 @@ async function load() {
   const params = () => ({
     page: page.value,
     pageSize: pageSize.value,
-    search: searchText.value.trim() || undefined,
+    search: searchParam.value,
     sortKey: sortKey.value || undefined,
     sortDir: sortKey.value ? sortDir.value : undefined,
   });
@@ -5183,6 +5237,25 @@ async function verify2fa() {
 </script>
 
 <style scoped>
+/* The search box holds a list, so it is a textarea; it stays input-sized on one line */
+.account-search {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-search-box {
+  width: 200px;
+  resize: vertical;
+  line-height: 1.4;
+  font-family: inherit;
+}
+
+.account-search-count {
+  font-size: 11px;
+  color: #888;
+}
+
 .device-model-preview {
   margin-top: 3px;
   font-size: 11px;

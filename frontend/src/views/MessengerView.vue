@@ -1815,6 +1815,7 @@ import {
   loadAccountDisplaySetting,
 } from "../composables/accountDisplay";
 import { displayPeerId } from "../utils/peerId";
+import { takeMessengerAccountId } from "../composables/viewNav";
 
 // ── Messenger state persistence ───────────────────────────────────────────────
 
@@ -2207,13 +2208,22 @@ onMounted(async () => {
   accounts.value = await accountsApi.list().catch(() => []);
   if (!authenticatedAccounts.value.length) return;
 
+  // An account the Accounts view sent us to wins over the one this view had last, and its
+  // chat is not restored: the point of arriving that way is the account, not where it was
+  const asked = takeMessengerAccountId();
+  const askedValid =
+    asked != null && authenticatedAccounts.value.some((a) => a.id === asked);
+
   const saved = loadMessengerState();
   const savedAccountValid =
+    !askedValid &&
     saved != null &&
     authenticatedAccounts.value.some((a) => a.id === saved.accountId);
-  selectedAccountId.value = savedAccountValid
-    ? saved.accountId
-    : authenticatedAccounts.value[0].id;
+  selectedAccountId.value = askedValid
+    ? asked!
+    : savedAccountValid
+      ? saved!.accountId
+      : authenticatedAccounts.value[0].id;
 
   await loadDialogs();
   startLiveSocket();
