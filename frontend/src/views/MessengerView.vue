@@ -1567,6 +1567,32 @@
           type="tel"
           :placeholder="t('tgc.sharePhone.placeholder')"
         />
+        <div
+          v-if="sharePhoneHint"
+          class="tgc-phone-check"
+          :class="`tgc-phone-check-${sharePhoneHint.tone}`"
+        >
+          <i
+            class="fa-solid"
+            :class="
+              sharePhoneHint.tone === 'good'
+                ? 'fa-circle-check'
+                : sharePhoneHint.tone === 'bad'
+                  ? 'fa-circle-exclamation'
+                  : 'fa-circle-info'
+            "
+          ></i>
+          {{ sharePhoneHint.text }}
+        </div>
+        <!-- The check is a help, not a ruling: a numbering plan we have wrong must not stop
+             a number that is in fact right -->
+        <label
+          v-if="sharePhoneHint?.tone === 'bad' && sharePhoneCheck.status !== 'malformed'"
+          class="tgc-revoke-check"
+        >
+          <input type="checkbox" v-model="sharePhoneIgnoreCheck" />
+          {{ t("tgc.sharePhone.ignoreCheck") }}
+        </label>
         <div class="tgc-phone-warning">
           <i class="fa-solid fa-triangle-exclamation"></i>
           {{ t("tgc.sharePhone.customWarning") }}
@@ -1816,6 +1842,7 @@ import {
 } from "../composables/accountDisplay";
 import { displayPeerId } from "../utils/peerId";
 import { takeMessengerAccountId } from "../composables/viewNav";
+import { checkPhoneNumber, expectedDigitsText } from "../utils/phoneCountry";
 
 // ── Messenger state persistence ───────────────────────────────────────────────
 
@@ -1973,14 +2000,56 @@ const sharePhoneTarget = ref<SharePhoneTarget | null>(null);
 const sharingPhone = ref(false);
 const sharePhoneUseCustom = ref(false);
 const sharePhoneCustom = ref("");
+/** Ticked to send a number whose length does not match its country anyway. */
+const sharePhoneIgnoreCheck = ref(false);
 
-// Telegram stores numbers as digits; a leading + and separators are cosmetic.
-const sharePhoneCustomValid = computed(() =>
-  /^\d{5,20}$/.test(sharePhoneCustom.value.replace(/[\s\-().]/g, "").replace(/^\+/, "")),
-);
-const sharePhoneReady = computed(
-  () => !sharePhoneUseCustom.value || sharePhoneCustomValid.value,
-);
+// Telegram stores numbers as digits; a leading + and separators are cosmetic. The country code
+// says how many digits the number should carry, which is the mistake worth catching here: the
+// number goes to whoever asked for it and cannot be taken back.
+const sharePhoneCheck = computed(() => checkPhoneNumber(sharePhoneCustom.value));
+
+const sharePhoneReady = computed(() => {
+  if (!sharePhoneUseCustom.value) return true;
+  const check = sharePhoneCheck.value;
+  if (check.status === "empty" || check.status === "malformed") return false;
+  return check.ok || sharePhoneIgnoreCheck.value;
+});
+
+/** The line under the field: what country the code points at, and whether the length fits. */
+const sharePhoneHint = computed(() => {
+  const check = sharePhoneCheck.value;
+  const where = check.country ? `${check.country.flag} ${check.country.name}` : "";
+  switch (check.status) {
+    case "empty":
+      return null;
+    case "malformed":
+      return { tone: "bad" as const, text: t("tgc.sharePhone.lenMalformed") };
+    case "unverified":
+      return {
+        tone: "plain" as const,
+        text: t("tgc.sharePhone.lenUnverified").replace("{country}", where),
+      };
+    case "ok":
+      return {
+        tone: "good" as const,
+        text: t("tgc.sharePhone.lenOk")
+          .replace("{country}", where)
+          .replace("{n}", String(check.digits.length)),
+      };
+    default:
+      return {
+        tone: "bad" as const,
+        text: t(
+          check.status === "tooShort"
+            ? "tgc.sharePhone.lenTooShort"
+            : "tgc.sharePhone.lenTooLong",
+        )
+          .replace("{country}", where)
+          .replace("{expected}", expectedDigitsText(check.expected!))
+          .replace("{n}", String(check.digits.length)),
+      };
+  }
+});
 
 // Reply compose
 const replyingTo = ref<TgMessage | null>(null);
@@ -3456,6 +3525,7 @@ async function clickInlineButton(
   if (btn.requestPhone) {
     sharePhoneUseCustom.value = false;
     sharePhoneCustom.value = "";
+    sharePhoneIgnoreCheck.value = false;
     sharePhoneTarget.value = { msgId: msg.id, key, chatName: activeChat.value?.name ?? "this bot" };
     return;
   }
@@ -7563,6 +7633,26 @@ async function saveContactEdit() {
 
 .tgc-phone-input:focus {
   border-color: #3390ec;
+}
+
+.tgc-phone-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.tgc-phone-check-good {
+  color: #2e9e5b;
+}
+
+.tgc-phone-check-bad {
+  color: #e63946;
+}
+
+.tgc-phone-check-plain {
+  color: #888;
 }
 
 .tgc-phone-warning {

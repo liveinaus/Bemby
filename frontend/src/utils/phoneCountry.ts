@@ -250,6 +250,150 @@ for (const [iso, codes] of Object.entries(NANP_AREA_CODES)) {
   for (const c of codes) CALLING_CODES[`1${c}`] = iso;
 }
 
+/**
+ * How many digits a number from this country carries in full, country code included -- the
+ * form a number is written in when it is shared, so `8613800138000` is 13 and that is the
+ * number to check against.
+ *
+ * A range where the country genuinely has one (mobile and landline of different lengths); a
+ * country missing from here is not checked at all rather than guessed at, since refusing a
+ * number that is in fact valid would be the worse failure.
+ */
+const TOTAL_DIGITS: Record<string, [number, number]> = {
+  // East and Southeast Asia
+  CN: [13, 13],
+  HK: [11, 11],
+  MO: [11, 11],
+  TW: [12, 12],
+  JP: [11, 12],
+  KR: [11, 12],
+  SG: [10, 10],
+  MY: [11, 12],
+  ID: [11, 14],
+  PH: [12, 12],
+  TH: [11, 11],
+  VN: [11, 11],
+  KH: [11, 12],
+  LA: [11, 13],
+  MM: [10, 12],
+  BN: [10, 10],
+  MN: [11, 11],
+  // South Asia
+  IN: [12, 12],
+  PK: [12, 12],
+  BD: [13, 13],
+  LK: [12, 12],
+  NP: [13, 13],
+  MV: [10, 10],
+  // NANP: one country code and a ten-digit number, wherever in it
+  US: [11, 11],
+  CA: [11, 11],
+  PR: [11, 11],
+  DO: [11, 11],
+  JM: [11, 11],
+  TT: [11, 11],
+  BS: [11, 11],
+  BB: [11, 11],
+  // Europe
+  GB: [11, 12],
+  IE: [12, 12],
+  FR: [11, 11],
+  DE: [11, 14],
+  IT: [11, 12],
+  ES: [11, 11],
+  PT: [12, 12],
+  NL: [11, 11],
+  BE: [10, 11],
+  CH: [11, 11],
+  AT: [10, 13],
+  SE: [9, 11],
+  NO: [10, 10],
+  DK: [10, 10],
+  FI: [9, 13],
+  IS: [10, 10],
+  PL: [11, 11],
+  CZ: [12, 12],
+  SK: [12, 12],
+  HU: [11, 11],
+  RO: [11, 11],
+  BG: [11, 12],
+  GR: [12, 12],
+  LT: [11, 11],
+  LV: [11, 11],
+  EE: [10, 11],
+  CY: [11, 11],
+  MT: [11, 11],
+  LU: [9, 12],
+  RS: [11, 12],
+  HR: [11, 12],
+  SI: [11, 11],
+  BA: [11, 11],
+  MK: [11, 11],
+  AL: [12, 12],
+  MD: [11, 11],
+  UA: [12, 12],
+  BY: [12, 12],
+  RU: [11, 11],
+  KZ: [11, 11],
+  // Caucasus and Central Asia
+  AM: [11, 11],
+  AZ: [12, 12],
+  GE: [12, 12],
+  UZ: [12, 12],
+  KG: [12, 12],
+  TJ: [12, 12],
+  TM: [11, 11],
+  // Middle East
+  TR: [12, 12],
+  IL: [12, 12],
+  AE: [12, 12],
+  SA: [12, 12],
+  QA: [11, 11],
+  KW: [11, 11],
+  BH: [11, 11],
+  OM: [11, 11],
+  JO: [12, 12],
+  LB: [10, 11],
+  SY: [12, 12],
+  YE: [12, 12],
+  IQ: [13, 13],
+  IR: [12, 12],
+  PS: [12, 12],
+  // Africa
+  EG: [12, 12],
+  MA: [12, 12],
+  DZ: [12, 12],
+  TN: [11, 11],
+  ZA: [11, 11],
+  NG: [13, 13],
+  KE: [12, 12],
+  GH: [12, 12],
+  ET: [12, 12],
+  TZ: [12, 12],
+  UG: [12, 12],
+  ZM: [12, 12],
+  ZW: [12, 12],
+  MZ: [12, 12],
+  AO: [12, 12],
+  CM: [12, 12],
+  CI: [13, 13],
+  SN: [12, 12],
+  // Oceania and the Americas
+  AU: [11, 11],
+  NZ: [11, 13],
+  BR: [12, 13],
+  AR: [12, 13],
+  MX: [12, 13],
+  CL: [11, 11],
+  CO: [12, 12],
+  PE: [11, 11],
+  VE: [12, 12],
+  EC: [12, 12],
+  UY: [11, 12],
+  PY: [12, 12],
+  BO: [11, 11],
+};
+
 export type PhoneCountry = {
   iso: string;
   flag: string;
@@ -295,4 +439,61 @@ export function phoneCountry(
     : null;
   cache.set(key, result);
   return result;
+}
+
+export type PhoneCheckStatus =
+  /** Right length for the country it belongs to. */
+  | "ok"
+  /** Nothing typed yet. */
+  | "empty"
+  /** Not a phone number at all: too few or too many digits, wherever it is from. */
+  | "malformed"
+  | "tooShort"
+  | "tooLong"
+  /** A number, but nothing here knows how long this country's numbers are. */
+  | "unverified";
+
+export type PhoneCheck = {
+  /** The digits alone: `+`, spaces, dashes and brackets removed. */
+  digits: string;
+  country: PhoneCountry | null;
+  /** Total digits this country carries, country code included; null when not known. */
+  expected: [number, number] | null;
+  status: PhoneCheckStatus;
+  /** Whether it is safe to send: everything but a length that contradicts the country. */
+  ok: boolean;
+};
+
+/**
+ * Checks a number the way a person would before sending it on: which country the code says it
+ * is from, and whether it has that country's number of digits. `8613800138000` is a Chinese
+ * number and China's are 13 digits, so a 12-digit one has a digit missing.
+ *
+ * A country with no length on record comes back `unverified` rather than refused -- the table
+ * is a help, and the numbering plans it describes do change.
+ */
+export function checkPhoneNumber(input: string | null | undefined): PhoneCheck {
+  const raw = (input ?? "").trim();
+  const digits = raw.replace(/[\s\-().]/g, "").replace(/^\+/, "");
+  if (!digits) return { digits: "", country: null, expected: null, status: "empty", ok: false };
+  if (!/^\d{5,20}$/.test(digits)) {
+    return { digits, country: null, expected: null, status: "malformed", ok: false };
+  }
+
+  const country = phoneCountry(digits);
+  const expected = country ? (TOTAL_DIGITS[country.iso] ?? null) : null;
+  if (!country || !expected) {
+    return { digits, country, expected: null, status: "unverified", ok: true };
+  }
+
+  const [min, max] = expected;
+  const status: PhoneCheckStatus =
+    digits.length < min ? "tooShort" : digits.length > max ? "tooLong" : "ok";
+  return { digits, country, expected, status, ok: status === "ok" };
+}
+
+/** `13`, or `11-12` where the country has both lengths -- for the message beside the field. */
+export function expectedDigitsText(expected: [number, number]): string {
+  const [min, max] = expected;
+  return min === max ? String(min) : `${min}-${max}`;
 }

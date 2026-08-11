@@ -1902,6 +1902,12 @@ const zh = {
         "Telegram 会根据号码反查并在名片上标记对应的用户 ID：本账号的号码标记为本账号，其他号码标记为 0。凡是校验 user_id 的机器人都会拒绝。",
       confirm: "分享手机号",
       sending: "发送中...",
+      lenOk: "{country} · 共 {n} 位，长度正确",
+      lenTooShort: "{country} 的号码应为 {expected} 位（含国家码），当前只有 {n} 位",
+      lenTooLong: "{country} 的号码应为 {expected} 位（含国家码），当前有 {n} 位",
+      lenUnverified: "无法按国家码校验长度{country}，请自行核对",
+      lenMalformed: "请输入 5-20 位数字的号码（含国家码，不要写 +）",
+      ignoreCheck: "长度不符，仍然发送",
     },
     openLink: {
       title: "打开链接",
@@ -3895,6 +3901,14 @@ const en: typeof zh = {
         "Telegram looks the number up and stamps the matching user ID on the card: this account's own number stamps this account, anything else stamps 0. Any bot that verifies user_id will reject it.",
       confirm: "Share phone number",
       sending: "Sending...",
+      lenOk: "{country} · {n} digits, the right length",
+      lenTooShort:
+        "A {country} number is {expected} digits including the country code; this one has {n}",
+      lenTooLong:
+        "A {country} number is {expected} digits including the country code; this one has {n}",
+      lenUnverified: "No length on record for this country code{country} -- please check it",
+      lenMalformed: "Enter 5-20 digits, country code included and no +",
+      ignoreCheck: "Send it anyway",
     },
     openLink: {
       title: "Open link",
