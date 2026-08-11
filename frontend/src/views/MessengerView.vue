@@ -1556,13 +1556,29 @@
       <div class="tgc-invite-meta">
         {{ sharePhoneTarget.chatName }} -- {{ t("tgc.sharePhone.body") }}
       </div>
+      <label class="tgc-revoke-check">
+        <input type="checkbox" v-model="sharePhoneUseCustom" />
+        {{ t("tgc.sharePhone.useCustom") }}
+      </label>
+      <template v-if="sharePhoneUseCustom">
+        <input
+          v-model="sharePhoneCustom"
+          class="tgc-phone-input"
+          type="tel"
+          :placeholder="t('tgc.sharePhone.placeholder')"
+        />
+        <div class="tgc-phone-warning">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          {{ t("tgc.sharePhone.customWarning") }}
+        </div>
+      </template>
       <div class="tgc-invite-actions">
         <button class="tgc-invite-cancel" @click="sharePhoneTarget = null">
           {{ t("common.cancel") }}
         </button>
         <button
           class="tgc-invite-join"
-          :disabled="sharingPhone"
+          :disabled="sharingPhone || !sharePhoneReady"
           @click="confirmSharePhone"
         >
           {{ sharingPhone ? t("tgc.sharePhone.sending") : t("tgc.sharePhone.confirm") }}
@@ -1954,6 +1970,16 @@ const btnLoadingKey = ref<string | null>(null);
 type SharePhoneTarget = { msgId: number; key: string; chatName: string };
 const sharePhoneTarget = ref<SharePhoneTarget | null>(null);
 const sharingPhone = ref(false);
+const sharePhoneUseCustom = ref(false);
+const sharePhoneCustom = ref("");
+
+// Telegram stores numbers as digits; a leading + and separators are cosmetic.
+const sharePhoneCustomValid = computed(() =>
+  /^\d{5,20}$/.test(sharePhoneCustom.value.replace(/[\s\-().]/g, "").replace(/^\+/, "")),
+);
+const sharePhoneReady = computed(
+  () => !sharePhoneUseCustom.value || sharePhoneCustomValid.value,
+);
 
 // Reply compose
 const replyingTo = ref<TgMessage | null>(null);
@@ -3418,6 +3444,8 @@ async function clickInlineButton(
   const key = `${msg.id}-${ri}-${bi}`;
   // "Share my phone number": ask first, then send our number as a contact card
   if (btn.requestPhone) {
+    sharePhoneUseCustom.value = false;
+    sharePhoneCustom.value = "";
     sharePhoneTarget.value = { msgId: msg.id, key, chatName: activeChat.value?.name ?? "this bot" };
     return;
   }
@@ -3507,6 +3535,7 @@ async function clickInlineButton(
 async function confirmSharePhone() {
   const target = sharePhoneTarget.value;
   if (!target || !selectedAccountId.value || !activeChatId.value) return;
+  if (!sharePhoneReady.value) return;
   sharingPhone.value = true;
   btnLoadingKey.value = target.key;
   try {
@@ -3514,6 +3543,7 @@ async function confirmSharePhone() {
       selectedAccountId.value,
       activeChatId.value,
       target.msgId,
+      sharePhoneUseCustom.value ? sharePhoneCustom.value.trim() : undefined,
     );
     sharePhoneTarget.value = null;
     messages.value.push({
@@ -7508,6 +7538,34 @@ async function saveContactEdit() {
   color: #444;
   margin-bottom: 18px;
   cursor: pointer;
+}
+
+.tgc-phone-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  margin-bottom: 10px;
+  border: 1px solid #d8dde3;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+}
+
+.tgc-phone-input:focus {
+  border-color: #3390ec;
+}
+
+.tgc-phone-warning {
+  display: flex;
+  gap: 7px;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #b26a00;
+  background: #fff6e5;
+  border-radius: 8px;
+  padding: 9px 11px;
+  margin-bottom: 18px;
 }
 
 .tgc-webview-proxy-note {

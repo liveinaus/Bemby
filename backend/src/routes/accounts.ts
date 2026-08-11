@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, raw } from "express";
 import { db, getDefaultTgApiCredentials } from "../db/database";
 import { parsePaging, parseSort, textParam, escapeLike } from "./list-query";
 import {
@@ -9,6 +9,8 @@ import {
   resendCodeAsSms,
   getProfile,
   updateProfile,
+  getProfilePhoto,
+  setProfilePhoto,
   getSessions,
   terminateSession,
   getPasswordInfo,
@@ -44,6 +46,11 @@ import {
   type BulkAddOptions,
 } from "../jobs/bulkAdd";
 import { bulkMgmtGuard } from "../middleware/bulkMgmt";
+import {
+  assertUsableImage,
+  avatarPoolStatus,
+  MAX_AVATAR_BYTES,
+} from "../tg/avatarSource";
 import {
   startBulkProfile,
   getBulkProfileStatus,
@@ -925,6 +932,94 @@ router.post("/:id/update-profile", async (req, res) => {
     internalError(res, err, "update-profile");
   }
 });
+
+// GET /avatar-pool -- where local avatar images are read from, and how many are there
+router.get("/avatar-pool", (_req, res) => {
+  res.json(avatarPoolStatus());
+});
+
+// GET /:id/avatar -- the account's current Telegram profile photo.
+// Returned as a data URL rather than raw bytes so an <img> can show it: this router sits
+// behind requireAuth, which reads the Authorization header, and an <img> cannot send one.
+router.get("/:id/avatar", async (req, res) => {
+  const account = loadAccount(req.params.id) as AccountRow | undefined;
+  if (!account) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  if (!account.session_string) {
+    res.status(400).json({ error: "Account not authenticated" });
+    return;
+  }
+  try {
+    const { apiId, apiHash } = resolveApiCredentials(account);
+    const proxy = parseTgProxy(resolveProxyUrl(account.proxy_id));
+    const deviceParams = resolveAppClientParams(account.id, account.app_client_id);
+    const photo = await getProfilePhoto(
+      apiId,
+      apiHash,
+      account.session_string,
+      proxy,
+      deviceParams,
+    );
+    res.json({
+      dataUrl: photo
+        ? `data:image/jpeg;base64,${photo.toString("base64")}`
+        : null,
+    });
+  } catch (err: any) {
+    if (isAuthError(err?.message ?? "")) markSessionExpired(account.id);
+    internalError(res, err, "avatar");
+  }
+});
+
+// POST /:id/avatar -- set the account's profile photo from raw uploaded bytes.
+// Body is the image itself (application/octet-stream), matching how the messenger uploads
+// files: base64 in JSON would inflate it by a third for no gain.
+router.post(
+  "/:id/avatar",
+  raw({ type: () => true, limit: MAX_AVATAR_BYTES }),
+  async (req, res) => {
+    const account = loadAccount(req.params.id) as AccountRow | undefined;
+    if (!account) {
+      res.status(404).json({ error: "Not found" });
+      return;
+    }
+    if (!account.session_string) {
+      res.status(400).json({ error: "Account not authenticated" });
+      return;
+    }
+    const body = req.body as Buffer;
+    if (!Buffer.isBuffer(body)) {
+      res.status(400).json({ error: "Image body is required" });
+      return;
+    }
+    try {
+      assertUsableImage(body);
+    } catch (err: any) {
+      res.status(400).json({ error: err?.message ?? "Invalid image" });
+      return;
+    }
+    try {
+      const { apiId, apiHash } = resolveApiCredentials(account);
+      const proxy = parseTgProxy(resolveProxyUrl(account.proxy_id));
+      const deviceParams = resolveAppClientParams(account.id, account.app_client_id);
+      const filename = String(req.query.filename ?? "avatar.jpg").slice(0, 120);
+      await setProfilePhoto(
+        apiId,
+        apiHash,
+        account.session_string,
+        { buffer: body, filename },
+        proxy,
+        deviceParams,
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      if (isAuthError(err?.message ?? "")) markSessionExpired(account.id);
+      internalError(res, err, "set-avatar");
+    }
+  },
+);
 
 // GET /:id/sessions -- list all active Telegram sessions for this account
 router.get("/:id/sessions", async (req, res) => {

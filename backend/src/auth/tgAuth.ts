@@ -1,4 +1,5 @@
 import { TelegramClient, Api, Logger } from "telegram";
+import { CustomFile } from "telegram/client/uploads";
 import { LogLevel } from "telegram/extensions/Logger";
 import { StringSession } from "telegram/sessions";
 import type { TgProxy } from "../types";
@@ -376,6 +377,60 @@ export async function getProfile(
       lastName: me?.lastName ?? "",
       about: full.fullUser.about ?? "",
     };
+  } finally {
+    await client.destroy().catch(() => undefined);
+  }
+}
+
+/**
+ * The account's own profile photo, or null when it has none. Returned as bytes for the
+ * caller to encode however it serves them; Telegram hands back a JPEG.
+ */
+export async function getProfilePhoto(
+  apiId: number,
+  apiHash: string,
+  sessionString: string,
+  proxy?: TgProxy,
+  deviceParams?: TgDeviceParams,
+): Promise<Buffer | null> {
+  const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
+  try {
+    await client.connect();
+    const photo = await client.downloadProfilePhoto("me");
+    // Missing photos come back as undefined from some layers and as an empty buffer
+    // from others, and an empty buffer would render as a broken image.
+    if (!photo || !photo.length) return null;
+    return Buffer.isBuffer(photo) ? photo : Buffer.from(photo);
+  } finally {
+    await client.destroy().catch(() => undefined);
+  }
+}
+
+/**
+ * Replaces the account's profile photo. Telegram keeps the previous ones on the account --
+ * this adds a new photo and makes it current, which is what the official clients do too.
+ */
+export async function setProfilePhoto(
+  apiId: number,
+  apiHash: string,
+  sessionString: string,
+  image: { buffer: Buffer; filename: string },
+  proxy?: TgProxy,
+  deviceParams?: TgDeviceParams,
+): Promise<void> {
+  const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
+  try {
+    await client.connect();
+    const file = await client.uploadFile({
+      file: new CustomFile(
+        image.filename,
+        image.buffer.length,
+        "",
+        image.buffer,
+      ),
+      workers: 1,
+    });
+    await client.invoke(new Api.photos.UploadProfilePhoto({ file }));
   } finally {
     await client.destroy().catch(() => undefined);
   }

@@ -788,6 +788,39 @@
             {{ t("accounts.profileSection") }}
           </div>
 
+          <div class="avatar-row">
+            <div class="avatar-frame">
+              <i v-if="avatarLoading" class="fa-solid fa-spinner fa-spin"></i>
+              <img v-else-if="avatarUrl" :src="avatarUrl" alt="" />
+              <i v-else class="fa-solid fa-user avatar-placeholder"></i>
+            </div>
+            <div class="avatar-actions">
+              <button
+                class="btn btn-secondary btn-sm"
+                :disabled="avatarBusy || avatarLoading"
+                @click="avatarInput?.click()"
+              >
+                <i
+                  :class="
+                    avatarBusy
+                      ? 'fa-solid fa-spinner fa-spin'
+                      : 'fa-solid fa-image'
+                  "
+                ></i>
+                {{ t("accounts.avatarUpload") }}
+              </button>
+              <div class="form-hint">{{ t("accounts.avatarHint") }}</div>
+            </div>
+            <input
+              ref="avatarInput"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              style="display: none"
+              @change="onAvatarPicked"
+            />
+          </div>
+          <div v-if="avatarError" class="error-msg">{{ avatarError }}</div>
+
           <div
             v-if="profileLoading"
             style="color: #888; font-size: 13px; margin-bottom: 12px"
@@ -1685,7 +1718,56 @@
             <div v-if="bulkTgRenameError" class="error-msg">
               {{ bulkTgRenameError }}
             </div>
+            <!-- Avatar assignment -->
             <div class="form-group">
+              <label class="form-check">
+                <input v-model="bulkTgRenameAvatar" type="checkbox" />
+                <span>{{ t("accounts.bulkTgRename.avatarLabel") }}</span>
+              </label>
+              <template v-if="bulkTgRenameAvatar">
+                <select
+                  v-model="bulkTgRenameAvatarSource"
+                  class="form-input"
+                  style="margin-top: 6px"
+                >
+                  <option value="any">
+                    {{ t("accounts.bulkTgRename.avatarAny") }}
+                  </option>
+                  <option value="pool">
+                    {{ t("accounts.bulkTgRename.avatarPool") }}
+                  </option>
+                  <option value="online">
+                    {{ t("accounts.bulkTgRename.avatarOnline") }}
+                  </option>
+                </select>
+                <div v-if="avatarPool" class="form-hint">
+                  {{ t("accounts.bulkTgRename.avatarPoolCount") }}:
+                  <strong>{{ avatarPool.count }}</strong> ({{ avatarPool.dir }})
+                  &middot;
+                  {{ t("accounts.bulkTgRename.avatarStyles") }}:
+                  <strong>{{ avatarPool.styles }}</strong>
+                </div>
+                <div
+                  v-if="
+                    bulkTgRenameAvatarSource === 'pool' && avatarPool?.count === 0
+                  "
+                  class="warn-box"
+                  style="margin-top: 6px"
+                >
+                  {{ t("accounts.bulkTgRename.avatarPoolEmpty") }}
+                </div>
+              </template>
+              <label class="form-check" style="margin-top: 6px">
+                <input
+                  v-model="bulkTgRenameNamesToo"
+                  type="checkbox"
+                  :disabled="!bulkTgRenameAvatar"
+                />
+                <span>{{ t("accounts.bulkTgRename.namesToo") }}</span>
+              </label>
+            </div>
+
+            <div v-show="bulkTgRenameNamesToo" class="form-group">
               <div class="bulk-tgrename-toolbar">
                 <label class="form-label" style="margin: 0">{{
                   t("accounts.bulkTgRename.valuesLabel")
@@ -2603,6 +2685,8 @@ import {
   type BulkAddOptions,
   type BulkProfileBatch,
   type BulkProfileEntry,
+  type AvatarSourceMode,
+  type AvatarPoolStatus,
 } from "../api/client";
 import { t, locale } from "../i18n";
 import { usePersistedRef } from "../composables/usePersistedRef";
@@ -2834,6 +2918,13 @@ const profileLoading = ref(false);
 const profileBusy = ref(false);
 const profileError = ref("");
 const profileMsg = ref("");
+
+// ── Avatar state ──────────────────────────────────────────────────────────────
+const avatarUrl = ref<string | null>(null);
+const avatarLoading = ref(false);
+const avatarBusy = ref(false);
+const avatarError = ref("");
+const avatarInput = ref<HTMLInputElement | null>(null);
 
 // ── Sessions state ────────────────────────────────────────────────────────────
 const sessions = ref<SessionInfo[]>([]);
@@ -3544,6 +3635,10 @@ const bulkTgRenameAiHint = ref("");
 const bulkTgRenameAiSkipAbout = ref(false);
 const bulkTgRenameGap = ref(3);
 const bulkTgRenameBatch = ref<BulkProfileBatch | null>(null);
+const bulkTgRenameAvatar = ref(false);
+const bulkTgRenameAvatarSource = ref<AvatarSourceMode>("any");
+const bulkTgRenameNamesToo = ref(true);
+const avatarPool = ref<AvatarPoolStatus | null>(null);
 let bulkTgRenamePollTimer: ReturnType<typeof setTimeout> | null = null;
 
 const bulkTgRenamePlaceholder =
@@ -3573,12 +3668,16 @@ const bulkTgRenameParsed = computed(() =>
     }),
 );
 
-const bulkTgRenameValid = computed(
-  () =>
-    bulkTgRenameTargets.value.length > 0 &&
+// Names are only required when the batch is actually writing them. An avatar-only
+// run leaves the text box out of it entirely.
+const bulkTgRenameValid = computed(() => {
+  if (!bulkTgRenameTargets.value.length) return false;
+  if (!bulkTgRenameNamesToo.value) return bulkTgRenameAvatar.value;
+  return (
     bulkTgRenameParsed.value.length === bulkTgRenameTargets.value.length &&
-    bulkTgRenameParsed.value.every((p) => p.firstName.length > 0),
-);
+    bulkTgRenameParsed.value.every((p) => p.firstName.length > 0)
+  );
+});
 
 const bulkTgRenameDoneCount = computed(
   () =>
@@ -3623,6 +3722,11 @@ async function generateBulkTgRenameWithAi() {
   }
 }
 
+// Names can only be skipped when avatars are being set, or the batch would do nothing.
+watch(bulkTgRenameAvatar, (on) => {
+  if (!on) bulkTgRenameNamesToo.value = true;
+});
+
 function openBulkTgRename() {
   bulkTgRenameError.value = "";
   // Keep showing a batch still running from a previous open
@@ -3631,6 +3735,11 @@ function openBulkTgRename() {
     bulkTgRenameText.value = "";
   }
   showBulkTgRename.value = true;
+  // Tells the operator how many pool images there are before they pick a source
+  accountsApi
+    .avatarPool()
+    .then((s) => (avatarPool.value = s))
+    .catch(() => (avatarPool.value = null));
   if (bulkTgRenameBatch.value?.running) pollBulkTgRename();
 }
 
@@ -3669,16 +3778,20 @@ async function startBulkTgRename() {
   if (!bulkTgRenameValid.value) return;
   bulkTgRenameError.value = "";
   const parsed = bulkTgRenameParsed.value;
+  const withNames = bulkTgRenameNamesToo.value;
   const entries: BulkProfileEntry[] = bulkTgRenameTargets.value.map((a, i) => ({
     accountId: a.id,
-    firstName: parsed[i]?.firstName ?? "",
-    lastName: parsed[i]?.lastName ?? "",
-    about: parsed[i]?.about ?? "",
+    firstName: withNames ? (parsed[i]?.firstName ?? "") : "",
+    lastName: withNames ? (parsed[i]?.lastName ?? "") : "",
+    about: withNames ? (parsed[i]?.about ?? "") : "",
   }));
   bulkTgRenameBusy.value = true;
   try {
     bulkTgRenameBatch.value = await accountsApi.bulkProfile(entries, {
       gapSeconds: bulkTgRenameGap.value,
+      avatarSource: bulkTgRenameAvatar.value
+        ? bulkTgRenameAvatarSource.value
+        : undefined,
     });
     pollBulkTgRename();
   } catch (err: any) {
@@ -4013,7 +4126,10 @@ async function startBulkClean() {
 // Lazy-load each tab's data the first time it is opened
 watch(editTab, (tab) => {
   if (editTarget.value?.authStatus !== "authenticated") return;
-  if (tab === "profile" && !profileLoaded.value) loadProfile();
+  if (tab === "profile" && !profileLoaded.value) {
+    loadProfile();
+    loadAvatar();
+  }
   if (tab === "devices" && sessions.value.length === 0) loadSessions();
   if (tab === "others") {
     if (!pwdInfo.value) loadPasswordInfo();
@@ -4161,6 +4277,10 @@ function openEdit(a: Account) {
   profileBusy.value = false;
   profileError.value = "";
   profileMsg.value = "";
+  avatarUrl.value = null;
+  avatarLoading.value = false;
+  avatarBusy.value = false;
+  avatarError.value = "";
   sessions.value = [];
   sessionsLoading.value = false;
   sessionsError.value = "";
@@ -4315,6 +4435,43 @@ async function doUpdateProfile() {
     profileError.value = err.response?.data?.error ?? err.message;
   } finally {
     profileBusy.value = false;
+  }
+}
+
+// ── Avatar ────────────────────────────────────────────────────────────────────
+// Fetched separately from the rest of the profile: it is a media download rather
+// than a field read, so a slow one should not hold up the name and bio.
+async function loadAvatar() {
+  if (!editTarget.value) return;
+  avatarLoading.value = true;
+  avatarError.value = "";
+  avatarUrl.value = null;
+  try {
+    const { dataUrl } = await accountsApi.getAvatar(editTarget.value.id);
+    avatarUrl.value = dataUrl;
+  } catch (err: any) {
+    avatarError.value = err.response?.data?.error ?? err.message;
+  } finally {
+    avatarLoading.value = false;
+  }
+}
+
+async function onAvatarPicked(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = ""; // so re-picking the same file fires change again
+  if (!file || !editTarget.value) return;
+  avatarBusy.value = true;
+  avatarError.value = "";
+  profileMsg.value = "";
+  try {
+    await accountsApi.setAvatar(editTarget.value.id, file);
+    profileMsg.value = t("accounts.avatarUpdated");
+    await loadAvatar();
+  } catch (err: any) {
+    avatarError.value = err.response?.data?.error ?? err.message;
+  } finally {
+    avatarBusy.value = false;
   }
 }
 
@@ -4954,6 +5111,45 @@ tr:hover .tg-name-refresh {
   font-size: 11px;
   color: #9ca3af;
   margin: 0 0 4px;
+}
+
+.avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.avatar-frame {
+  width: 72px;
+  height: 72px;
+  flex: none;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #f1f3f5;
+  border: 1px solid #e3e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #adb5bd;
+}
+
+.avatar-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-placeholder {
+  font-size: 28px;
+}
+
+.avatar-actions {
+  min-width: 0;
+}
+
+.avatar-actions .form-hint {
+  margin-top: 6px;
 }
 
 .input-with-toggle {

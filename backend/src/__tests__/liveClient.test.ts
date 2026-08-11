@@ -146,6 +146,7 @@ import {
   sweepLiveClients,
   parseMiniAppLink,
   fetchPhoto,
+  normalisePhoneNumber,
 } from '../tg/liveClient';
 import { db } from '../db/database';
 
@@ -891,6 +892,21 @@ describe('fetchPhoto', () => {
 });
 
 // ---- sweepLiveClients (issue #14: memory growth) ----------------------------
+
+describe('normalisePhoneNumber', () => {
+  it('strips a leading + and cosmetic separators', () => {
+    expect(normalisePhoneNumber('+61 412 345 678')).toBe('61412345678');
+    expect(normalisePhoneNumber('(02) 5550-1234')).toBe('0255501234');
+  });
+
+  it('rejects anything that is not a plausible number', () => {
+    expect(normalisePhoneNumber('not a number')).toBeNull();
+    expect(normalisePhoneNumber('1234')).toBeNull();          // too short
+    expect(normalisePhoneNumber('1'.repeat(21))).toBeNull();  // too long
+    expect(normalisePhoneNumber('+61-412-345-678x99')).toBeNull();
+    expect(normalisePhoneNumber('')).toBeNull();
+  });
+});
 
 describe('sweepLiveClients', () => {
   const IDLE_MS = 30 * 60_000;

@@ -182,6 +182,15 @@ app.use("/api/tg-client", requireAuth, tgClientRouter);
 // Serve Vue SPA
 const publicDir = path.join(__dirname, "..", "public");
 app.use(express.static(publicDir));
+
+// An /api path no router matched is a missing endpoint, not a page. Without this it falls
+// into the SPA fallback below and answers with index.html -- or, in dev where that file is
+// not built, with a 500 from the error handler, which reads as a fault in whatever feature
+// made the call rather than as a route that is not there.
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "Unknown API endpoint" });
+});
+
 app.get("*", (req, res) => {
   res.sendFile(path.join(publicDir, "index.html"));
 });

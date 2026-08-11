@@ -14,6 +14,7 @@ import {
   sendMessage,
   sendFile,
   sharePhoneNumber,
+  normalisePhoneNumber,
   getContacts,
   addContact,
   editContact,
@@ -329,13 +330,21 @@ router.post("/:accountId/messages/:chatId", async (req, res) => {
 router.post("/:accountId/messages/:chatId/share-phone", async (req, res) => {
   const accountId = Number(req.params.accountId);
   const chatId = decodeURIComponent(req.params.chatId);
-  const { replyToMsgId } = req.body as { replyToMsgId?: number };
+  const { replyToMsgId, phoneNumber } = req.body as {
+    replyToMsgId?: number;
+    phoneNumber?: string;
+  };
+  if (phoneNumber && !normalisePhoneNumber(phoneNumber)) {
+    res.status(400).json({ error: "Not a valid phone number" });
+    return;
+  }
   try {
     const entry = await getLiveClient(accountId);
     const result = await sharePhoneNumber(
       entry,
       chatId,
       replyToMsgId ? Number(replyToMsgId) : undefined,
+      phoneNumber?.trim() || undefined,
     );
     cacheMessages(accountId, chatId, [
       {

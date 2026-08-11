@@ -210,15 +210,21 @@ export type BulkProfileItemStatus =
 
 export type BulkProfileEntry = {
   accountId: number;
-  firstName: string;
+  // Optional only when the batch is setting avatars: there is then nothing to
+  // write to the name fields, and Telegram rejects a blank first name.
+  firstName?: string;
   lastName?: string;
   about?: string;
 };
+
+/** Where a random profile photo is drawn from; "any" prefers the pool. */
+export type AvatarSourceMode = "pool" | "online" | "any";
 
 export type BulkProfileOptions = {
   gapSeconds?: number;
   maxRetries?: number;
   retryDelaySeconds?: number;
+  avatarSource?: AvatarSourceMode;
 };
 
 export type BulkProfileItem = {
@@ -232,6 +238,14 @@ export type BulkProfileItem = {
   status: BulkProfileItemStatus;
   message: string;
   error: string | null;
+  avatar: string | null;
+};
+
+export type AvatarPoolStatus = {
+  dir: string;
+  count: number;
+  online: boolean;
+  styles: number;
 };
 
 export type BulkProfileBatch = {
@@ -1063,6 +1077,21 @@ export const accountsApi = {
         data,
       )
       .then((r) => r.data),
+  /** Current profile photo as a data URL, or null when the account has none. */
+  getAvatar: (id: number) =>
+    api
+      .get<{ dataUrl: string | null }>(`/accounts/${id}/avatar`)
+      .then((r) => r.data),
+  setAvatar: (id: number, file: File) =>
+    api
+      .post<{ ok: boolean }>(
+        `/accounts/${id}/avatar?filename=${encodeURIComponent(file.name)}`,
+        file,
+        { headers: { "Content-Type": "application/octet-stream" } },
+      )
+      .then((r) => r.data),
+  avatarPool: () =>
+    api.get<AvatarPoolStatus>("/accounts/avatar-pool").then((r) => r.data),
   export: (ids?: number[], secret?: string) =>
     api
       .post<AccountExportPayload>("/accounts/export", {
@@ -2305,11 +2334,18 @@ export const tgClientApi = {
       })
       .then((r) => r.data),
 
-  sharePhone: (accountId: number, chatId: string, replyToMsgId?: number) =>
+  // phoneNumber overrides the account's own number; bots that verify the card's
+  // user_id against the sender will reject anything but the account's own.
+  sharePhone: (
+    accountId: number,
+    chatId: string,
+    replyToMsgId?: number,
+    phoneNumber?: string,
+  ) =>
     api
       .post<{ id: number; date: number; text: string }>(
         `/tg-client/${accountId}/messages/${encodeURIComponent(chatId)}/share-phone`,
-        { replyToMsgId },
+        { replyToMsgId, phoneNumber },
       )
       .then((r) => r.data),
 

@@ -917,29 +917,50 @@ export async function sendMessage(
 }
 
 /**
- * Answers a reply-keyboard "share phone number" button by sending our own number
- * as a contact card, which is what the official clients do. Bots only accept the
- * number this way -- a typed-out phone number is just text to them.
+ * Digits only, no leading +, which is how Telegram stores and compares numbers.
+ * Returns null when the input isn't plausibly a phone number.
+ */
+export function normalisePhoneNumber(raw: string): string | null {
+  const digits = raw.replace(/[\s\-().]/g, "").replace(/^\+/, "");
+  return /^\d{5,20}$/.test(digits) ? digits : null;
+}
+
+/**
+ * Answers a reply-keyboard "share phone number" button by sending a contact card,
+ * which is what the official clients do. Bots only accept a number this way -- a
+ * typed-out phone number is just text to them.
+ *
+ * `phoneNumber` overrides the account's own number. Telegram accepts any number
+ * here, but it resolves the card's `userId` server-side by looking the number up:
+ * our own number stamps our own id, anything unregistered stamps 0. Bots that
+ * verify with `contact.user_id == from.id` therefore reject an override.
  */
 export async function sharePhoneNumber(
   entry: LiveEntry,
   chatId: string,
   replyToMsgId?: number,
+  phoneNumber?: string,
 ): Promise<{ id: number; date: number; text: string }> {
   await ensureEntityCached(entry, chatId);
   const entity = entry.entityCache.get(chatId);
   if (!entity) throw new Error("Chat not found");
 
+  let phone: string;
   const me = (await entry.client.getMe()) as Api.User;
-  if (!me?.phone) {
-    throw new Error("This account has no phone number to share");
+  if (phoneNumber) {
+    const normalised = normalisePhoneNumber(phoneNumber);
+    if (!normalised) throw new Error("Not a valid phone number");
+    phone = normalised;
+  } else {
+    if (!me?.phone) throw new Error("This account has no phone number to share");
+    phone = me.phone;
   }
 
   const updates = await entry.client.invoke(
     new Api.messages.SendMedia({
       peer: entity as any,
       media: new Api.InputMediaContact({
-        phoneNumber: me.phone,
+        phoneNumber: phone,
         firstName: me.firstName ?? "",
         lastName: me.lastName ?? "",
         vcard: "",
@@ -954,8 +975,7 @@ export async function sharePhoneNumber(
 
   const sent = sentMessageFromUpdates(updates);
   const name = [me.firstName, me.lastName].filter(Boolean).join(" ");
-  const phone = me.phone.startsWith("+") ? me.phone : `+${me.phone}`;
-  return { ...sent, text: [name, phone].filter(Boolean).join(" ") };
+  return { ...sent, text: [name, `+${phone}`].filter(Boolean).join(" ") };
 }
 
 /** Pulls the id/date of the message we just sent out of the Updates response. */

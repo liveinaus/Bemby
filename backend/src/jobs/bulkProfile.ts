@@ -1,15 +1,19 @@
 import crypto from "crypto";
 import { db, getDefaultTgApiCredentials } from "../db/database";
 import { decryptAccountRow } from "../db/secretColumns";
-import { updateProfile } from "../auth/tgAuth";
+import { updateProfile, setProfilePhoto } from "../auth/tgAuth";
 import { parseTgProxy } from "./runner";
 import { resolveAppClientParams } from "../tg/appClient";
 import { isAuthError, markSessionExpired } from "../tg/liveClient";
+import {
+  pickRandomAvatar,
+  type AvatarSourceMode,
+} from "../tg/avatarSource";
 
-// Bulk-updates the Telegram profile (first name, last name, bio/about) of
-// already-authenticated accounts. Accounts are processed one at a time with a
-// gap between them to stay under Telegram's rate limits; failed accounts are
-// retried a few times. Runs as a background batch that survives page reloads,
+// Bulk-updates the Telegram profile (first name, last name, bio/about, profile
+// photo) of already-authenticated accounts. Accounts are processed one at a time
+// with a gap between them to stay under Telegram's rate limits; failed accounts
+// are retried a few times. Runs as a background batch that survives page reloads,
 // mirroring the bulk-add flow.
 
 export type BulkProfileItemStatus =
@@ -31,6 +35,8 @@ export type BulkProfileItem = {
   status: BulkProfileItemStatus;
   message: string;
   error: string | null;
+  /** Which source supplied this account's new photo, once one has been set. */
+  avatar: string | null;
 };
 
 export type BulkProfileBatch = {
@@ -42,10 +48,12 @@ export type BulkProfileBatch = {
   items: BulkProfileItem[];
 };
 
-// One account's target profile, as supplied by the client.
+// One account's target profile, as supplied by the client. firstName may be left
+// empty only when the batch is setting avatars, which is the avatar-only case:
+// there is nothing to write to the name fields and Telegram rejects a blank one.
 export type BulkProfileEntry = {
   accountId: number;
-  firstName: string;
+  firstName?: string;
   lastName?: string;
   about?: string;
 };
@@ -57,23 +65,31 @@ export type BulkProfileOptions = {
   maxRetries?: number;
   /** Cooldown before a failed account is retried, in seconds (default 60). */
   retryDelaySeconds?: number;
+  /** Where a random profile photo comes from; omitted leaves photos untouched. */
+  avatarSource?: AvatarSourceMode;
 };
 
 type BulkProfileConfig = {
   betweenAccountsMs: number;
   maxRetries: number;
   retryDelayMs: number;
+  avatarSource: AvatarSourceMode | null;
 };
 
 const DEFAULT_GAP_SECONDS = 3;
 const DEFAULT_MAX_RETRIES = 1;
 const DEFAULT_RETRY_DELAY_SECONDS = 60;
 
+const AVATAR_MODES: AvatarSourceMode[] = ["pool", "online", "any"];
+
 function resolveConfig(opts?: BulkProfileOptions): BulkProfileConfig {
   const gap = Number(opts?.gapSeconds);
   const retries = Number(opts?.maxRetries);
   const retryDelay = Number(opts?.retryDelaySeconds);
+  const avatar = opts?.avatarSource;
   return {
+    avatarSource:
+      avatar && AVATAR_MODES.includes(avatar) ? avatar : null,
     betweenAccountsMs:
       Number.isFinite(gap) && gap >= 0
         ? gap * 1000
@@ -143,7 +159,11 @@ type AccountRow = {
   tg_username: string | null;
 };
 
-async function updateOne(item: BulkProfileItem): Promise<void> {
+async function updateOne(
+  item: BulkProfileItem,
+  config: BulkProfileConfig,
+  usedAvatars: Set<string>,
+): Promise<void> {
   const account = db
     .prepare("SELECT * FROM tg_accounts WHERE id = ?")
     .get(item.accountId) as AccountRow | undefined;
@@ -167,21 +187,37 @@ async function updateOne(item: BulkProfileItem): Promise<void> {
   const proxy = parseTgProxy(resolveProxyUrl(account.proxy_id));
   const deviceParams = resolveAppClientParams(account.id, account.app_client_id);
 
-  const profile = await updateProfile(
-    creds.apiId,
-    creds.apiHash,
-    account.session_string,
-    { firstName: item.firstName, lastName: item.lastName, about: item.about },
-    proxy,
-    deviceParams,
-  );
+  // An avatar-only row has no name to write, and Telegram rejects a blank firstName.
+  if (item.firstName) {
+    const profile = await updateProfile(
+      creds.apiId,
+      creds.apiHash,
+      account.session_string,
+      { firstName: item.firstName, lastName: item.lastName, about: item.about },
+      proxy,
+      deviceParams,
+    );
 
-  // Keep the cached display name in sync with the new profile.
-  const displayName =
-    [profile.firstName, profile.lastName].filter(Boolean).join(" ") || null;
-  db.prepare(
-    "UPDATE tg_accounts SET tg_display_name = ? WHERE id = ?",
-  ).run(displayName, account.id);
+    // Keep the cached display name in sync with the new profile.
+    const displayName =
+      [profile.firstName, profile.lastName].filter(Boolean).join(" ") || null;
+    db.prepare(
+      "UPDATE tg_accounts SET tg_display_name = ? WHERE id = ?",
+    ).run(displayName, account.id);
+  }
+
+  if (config.avatarSource) {
+    const pick = await pickRandomAvatar(config.avatarSource, usedAvatars);
+    await setProfilePhoto(
+      creds.apiId,
+      creds.apiHash,
+      account.session_string,
+      { buffer: pick.buffer, filename: pick.filename },
+      proxy,
+      deviceParams,
+    );
+    item.avatar = pick.source;
+  }
 }
 
 type QueueEntry = { item: BulkProfileItem; readyAt: number };
@@ -197,6 +233,9 @@ async function runBatch(
     }));
     const totalAttempts = config.maxRetries + 1;
     let processedAny = false;
+    // Shared across the batch so a pool of images is spread over the accounts
+    // rather than each account drawing from the whole pool independently.
+    const usedAvatars = new Set<string>();
 
     while (queue.length && !batch.cancelled) {
       const entry = queue.shift()!;
@@ -221,11 +260,15 @@ async function runBatch(
 
       item.attempts++;
       item.status = "updating";
-      item.message = "Updating profile";
+      item.message = item.firstName ? "Updating profile" : "Setting avatar";
       try {
-        await updateOne(item);
+        await updateOne(item, config, usedAvatars);
         item.status = "done";
-        item.message = "Profile updated";
+        item.message = item.avatar
+          ? item.firstName
+            ? `Profile and avatar updated (${item.avatar})`
+            : `Avatar updated (${item.avatar})`
+          : "Profile updated";
         item.error = null;
       } catch (err: any) {
         const reason = err?.message ?? String(err);
@@ -264,6 +307,7 @@ export function startBulkProfile(
     return { ok: false, error: "No accounts provided" };
   }
 
+  const config = resolveConfig(options);
   const items: BulkProfileItem[] = [];
   for (const [index, entry] of entries.entries()) {
     const accountId = Number(entry?.accountId);
@@ -271,7 +315,8 @@ export function startBulkProfile(
     if (!Number.isInteger(accountId) || accountId <= 0) {
       return { ok: false, error: `Invalid account id on row ${index + 1}` };
     }
-    if (!firstName) {
+    // Without a name there has to be something else to do, or the row is a no-op.
+    if (!firstName && !config.avatarSource) {
       return { ok: false, error: `First name is required on row ${index + 1}` };
     }
     const row = db
@@ -291,10 +336,10 @@ export function startBulkProfile(
       status: "pending",
       message: "",
       error: null,
+      avatar: null,
     });
   }
 
-  const config = resolveConfig(options);
   const batch: BulkProfileBatch = {
     id: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
