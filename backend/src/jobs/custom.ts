@@ -128,12 +128,60 @@ export const msgTextMatches = (
 };
 
 /** This account, as the forms a group prompt can name it by. */
-type SelfRef = { id: string; username?: string };
+type SelfRef = { id: string; username?: string; names?: string[] };
 
 const selfRef = async (client: TelegramClient): Promise<SelfRef> => {
   const me = (await client.getMe()) as Api.User;
-  return { id: me.id.toString(), username: me.username || undefined };
+  const first = me.firstName?.trim() ?? "";
+  const last = me.lastName?.trim() ?? "";
+  return {
+    id: me.id.toString(),
+    username: me.username || undefined,
+    // Longest first, so a full name is tried before the first name alone.
+    names: [[first, last].filter(Boolean).join(" "), first, last, me.username ?? ""].filter(Boolean),
+  };
 };
+
+/**
+ * Does this message name the account by display name, masked or not? Welcome bots post
+ * the "阿**2" / "T***y" form, keeping only the first and last character -- but the same
+ * bot leaves a two-character name whole, since there is no middle to hide.
+ *
+ * Masking usually preserves length, so a token of the same length whose ends match is
+ * taken as ours. A bot using a fixed number of stars still identifies us when its prompt
+ * carries only one masked name, so that case is accepted on the ends alone. A name that
+ * reads as a substring of another member's can match their prompt -- the mention check is
+ * the exact one.
+ */
+export function messageMasksUserName(
+  m: Api.Message | null | undefined,
+  me: SelfRef,
+): boolean {
+  const text = m?.message ?? "";
+  const names = me.names ?? [];
+  if (!text || !names.length) return false;
+
+  // Masking keeps the first and last character, so a name of two characters has no middle
+  // to hide and is posted as it is ("小明"). The plain name has to count, or such an
+  // account never recognises its own prompt.
+  if (names.some((n) => n.length >= 2 && text.includes(n))) return true;
+
+  const masked = [...text.matchAll(/(\S)\*+(\S)/gu)].map((x) => ({
+    token: x[0],
+    first: x[1],
+    last: x[2],
+  }));
+  if (!masked.length) return false;
+
+  const endsMatch = (name: string, t: (typeof masked)[number]): boolean =>
+    name.length >= 2 && t.first === name[0] && t.last === name[name.length - 1];
+
+  for (const name of names) {
+    if (masked.some((t) => endsMatch(name, t) && t.token.length === name.length)) return true;
+  }
+  if (masked.length === 1) return names.some((name) => endsMatch(name, masked[0]));
+  return false;
+}
 
 // Is this message addressed to this account? A group posting verification prompts for
 // several joiners at once names each one -- as @username, as a text mention (the only
@@ -147,15 +195,29 @@ export function messageAddressesUser(
   if ((m as any).mentioned) return true;
   const text = m.message ?? "";
   const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // A bare id, not part of a longer number (so "180" never matches an id ending in 180)
+  const carriesId = (s: string): boolean =>
+    new RegExp(`(?:^|\\D)${me.id}(?:\\D|$)`).test(s);
   if (me.username && new RegExp(`@${escape(me.username)}\\b`, "i").test(text))
     return true;
   if (text.includes(`tg://user?id=${me.id}`)) return true;
-  // A bare id, not part of a longer number (so "180" never matches an id ending in 180)
-  if (new RegExp(`(?:^|\\D)${me.id}(?:\\D|$)`).test(text)) return true;
+  if (carriesId(text)) return true;
   // Text mentions carry the user in an entity rather than the text
-  return ((m.entities ?? []) as any[]).some(
-    (e) => e?.userId != null && e.userId.toString() === me.id,
-  );
+  if (((m.entities ?? []) as any[]).some((e) => e?.userId != null && e.userId.toString() === me.id))
+    return true;
+  // Some welcome bots name the joiner in a hidden link instead of a mention: a zero-width
+  // text link whose URL carries {"userId":<id>}. It is exact, and on a prompt that masks
+  // the display name it is the only signal that says which joiner it is for.
+  return ((m.entities ?? []) as any[]).some((e) => {
+    if (typeof e?.url !== "string") return false;
+    let url = e.url;
+    try {
+      url = decodeURIComponent(url);
+    } catch {
+      // Malformed escape sequence -- test the raw URL, the id is unescaped either way
+    }
+    return carriesId(url);
+  });
 }
 
 // A wait for buttons can be pinned to a subset of messages: one carrying certain wording,
@@ -328,6 +390,21 @@ async function waitForNewMessageInChat(
   });
 }
 
+type GroupVerifyOpts = {
+  /** Button text to match in the group prompt; partial match, blank takes the sole button. */
+  buttonMatch: string;
+  /** Bounds the wait for the in-group prompt to appear. */
+  promptWaitMs: number;
+  /** Bounds the whole verification: the prompt wait plus everything it leads to. */
+  maxMs: number;
+  /** Only prompts stamped at or after this second count as ours. */
+  sinceSec?: number;
+  /** Require the prompt to name this account (@username, text mention, or numeric id). */
+  onlyMine?: boolean;
+  /** Also accept a prompt naming this account through a masked name ("阿**2"). */
+  maskedName?: boolean;
+};
+
 // Some groups post an in-group verification message with a button that must be clicked to
 // gain real access after joining. Best-effort: waits for that message, clicks the button whose
 // text contains buttonMatch (or the sole button), and appends the outcome to step.result.
@@ -338,18 +415,25 @@ async function waitForNewMessageInChat(
 async function clickGroupVerification(
   client: TelegramClient,
   chat: Api.Channel,
-  buttonMatch: string,
-  maxMs: number,
   step: CustomStepLog,
+  opts: GroupVerifyOpts,
   signal?: AbortSignal,
-  sinceSec?: number,
-  onlyMine?: boolean,
 ): Promise<void> {
-  const me = onlyMine ? await selfRef(client) : null;
+  const { buttonMatch, promptWaitMs, sinceSec, onlyMine, maskedName } = opts;
+  // One budget for the whole verification, so a slow prompt cannot leave the private
+  // hand-off with no time left -- these bots ban on their own deadline.
+  const deadline = Date.now() + opts.maxMs;
+  const remainingMs = () => deadline - Date.now();
+  const maxMs = Math.min(promptWaitMs, Math.max(0, remainingMs()));
+  const me = onlyMine || maskedName ? await selfRef(client) : null;
+  // Either signal alone is enough to call a prompt ours: a bot that masks the name
+  // never @-mentions, and one that @-mentions never masks.
   const filter: ButtonsFilter | undefined = me
     ? {
-        accept: (m) => messageAddressesUser(m, me),
-        describe: "addressed to this account",
+        accept: (m) =>
+          (!!onlyMine && messageAddressesUser(m, me)) ||
+          (!!maskedName && messageMasksUserName(m, me)),
+        describe: maskedName && !onlyMine ? "naming this account (masked)" : "addressed to this account",
       }
     : undefined;
   const wanted = (m: Api.Message | null | undefined): boolean =>
@@ -360,7 +444,7 @@ async function clickGroupVerification(
 
   // A group verifying a rush of joiners buries our prompt under theirs, so look back
   // further when only ours will do.
-  const scanLimit = onlyMine ? 50 : 10;
+  const scanLimit = filter ? 50 : 10;
 
   // Waiter catches prompts that arrive (or get edited in) from now on; the scan catches a
   // prompt that landed in the gap before the listener attached. Whichever finds one first wins.
@@ -401,7 +485,7 @@ async function clickGroupVerification(
   }
 
   if (!buttonsMsg) {
-    step.result = `${step.result} (no verification prompt${onlyMine ? " addressed to this account" : ""})`;
+    step.result = `${step.result} (no verification prompt${filter ? ` ${filter.describe}` : ""})`;
     return;
   }
 
@@ -418,30 +502,242 @@ async function clickGroupVerification(
     return;
   }
 
+  step.clickedButton = (target as any).text as string;
+
   const data = (target as Api.KeyboardButtonCallback).data;
-  if (!data) {
-    step.result = `${step.result} (verification button not clickable)`;
+  if (data) {
+    const peer = await client.getInputEntity(chat);
+    step.result = `${step.result} + ${await clickCallback(client, peer, buttonsMsg.id, data, step)}`;
     return;
   }
 
-  const peer = await client.getInputEntity(chat);
-  step.clickedButton = (target as any).text as string;
+  // No callback data: the button opens something. A `?start=` deep link hands the
+  // verification to a private chat with the bot, which is a flow we can follow.
+  const web = webButtonOf(target as Api.TypeKeyboardButton);
+  if (web?.startLink) {
+    await verifyInPrivateChat(client, web.startLink, step, remainingMs, signal);
+    return;
+  }
+  step.result = `${step.result} (verification button "${(target as any).text}" opens ${
+    web?.miniApp ? "a Mini App" : web?.url ? "a web page" : "nothing clickable"
+  })`;
+}
+
+/** Presses a callback button and reports what came back, in step.result's voice. */
+async function clickCallback(
+  client: TelegramClient,
+  peer: Api.TypeEntityLike,
+  msgId: number,
+  data: Buffer,
+  step: CustomStepLog,
+): Promise<string> {
   try {
     const answer = (await client.invoke(
-      new Api.messages.GetBotCallbackAnswer({ peer, msgId: buttonsMsg.id, data }),
+      new Api.messages.GetBotCallbackAnswer({ peer, msgId, data }),
     )) as Api.messages.BotCallbackAnswer;
     if (answer.message) step.callbackAnswer = answer.message;
-    step.result = `${step.result} + verified`;
+    return "verified";
   } catch (err: any) {
     // The callback reached the bot but it never answered -- common for verification bots
     // that process the click without calling answerCallbackQuery. The click was delivered,
     // so treat the verification as done rather than failing the whole join.
-    if (err?.message?.includes("BOT_RESPONSE_TIMEOUT")) {
-      step.result = `${step.result} + verify clicked (no bot confirmation)`;
-    } else {
-      throw err;
-    }
+    if (err?.message?.includes("BOT_RESPONSE_TIMEOUT")) return "verify clicked (no bot confirmation)";
+    throw err;
   }
+}
+
+/**
+ * The channel a verification prompt wants joined, read off one of its buttons. Only a
+ * link to a channel itself counts: a link to a post inside one (`t.me/name/54`, the "wiki"
+ * button these groups also post) is something to read, not something to join, and a
+ * `?start=`/`?startapp=` link addresses the bot rather than a channel.
+ */
+export function channelToJoinFromUrl(
+  url: string,
+): { invite: string } | { username: string } | null {
+  const invite = url.match(/t(?:elegram)?\.me\/(?:joinchat\/|\+)([A-Za-z0-9_-]+)/i);
+  if (invite) return { invite: invite[1] };
+  if (/[?&]start(app)?=/i.test(url)) return null;
+  const publicLink = url.match(/t(?:elegram)?\.me\/([A-Za-z]\w+)\/?(?:\?|$)/i);
+  return publicLink ? { username: publicLink[1] } : null;
+}
+
+// Buttons a private verification prompt offers besides the one to press: an invite to a
+// channel the bot then checks you subscribed to. Anything else it opens is not ours to open.
+async function joinFromButtonUrl(client: TelegramClient, url: string): Promise<string | null> {
+  const target = channelToJoinFromUrl(url);
+  if (!target) return null;
+  try {
+    if ("invite" in target) {
+      await client.invoke(new Api.messages.ImportChatInvite({ hash: target.invite }));
+    } else {
+      const entity = await client.getEntity(target.username);
+      await client.invoke(new Api.channels.JoinChannel({ channel: entity as any }));
+    }
+    return "joined channel";
+  } catch (err: any) {
+    if (err?.message?.includes("ALREADY_PARTICIPANT")) return "already in channel";
+    if (err?.message?.includes("INVITE_REQUEST_SENT")) return "channel join pending approval";
+    throw err;
+  }
+}
+
+// Wording these bots use to say the verification passed, so a confirmed run says so
+// instead of reporting a bare click.
+const VERIFY_PASSED = /已通过|通过验证|验证成功|verified|success/i;
+// A prompt pairs the button to press with ones that decline. Pressing the wrong one fails
+// the verification outright, so an ambiguous prompt is reported rather than guessed at.
+const VERIFY_DECLINE = /拒绝|取消|举报|cancel|reject|decline/i;
+const VERIFY_CONFIRM = /验证|verify|完成|确认|done|confirm/i;
+
+/**
+ * The callback button to press on a verification prompt: a prompt offering one button
+ * means that one, and a prompt offering several means the one worded as confirmation.
+ * Returns undefined when the choice is unclear -- better to report that than to press
+ * "拒绝" (or an admin's "通过") on someone's account.
+ */
+export function pressableVerifyButton(
+  buttons: Api.TypeKeyboardButton[],
+): Api.KeyboardButtonCallback | undefined {
+  const callbacks = buttons.filter(
+    (b): b is Api.KeyboardButtonCallback => !!(b as Api.KeyboardButtonCallback).data,
+  );
+  const pressable = callbacks.filter((b) => !VERIFY_DECLINE.test(b.text ?? ""));
+  // Sole survivor of a longer list is not the same as a sole button: the admin controls
+  // that ride along with these prompts leave "通过" standing once declines are dropped.
+  if (callbacks.length === 1) return pressable[0];
+  return pressable.find((b) => VERIFY_CONFIRM.test(b.text ?? ""));
+}
+
+/**
+ * Everything the bot has said past minId, waiting up to maxMs for it. The listener is
+ * attached before the history is scanned, so a bot that answers `/start` faster than the
+ * round trip completes is caught by the scan rather than waited for until the timeout.
+ */
+async function repliesFromBot(
+  client: TelegramClient,
+  botUsername: string,
+  minId: number,
+  maxMs: number,
+  signal?: AbortSignal,
+): Promise<Api.Message[]> {
+  const waitAbort = new AbortController();
+  const forwardAbort = () => waitAbort.abort();
+  signal?.addEventListener("abort", forwardAbort, { once: true });
+  try {
+    const waiter = waitForButtonsInChat(
+      client,
+      botUsername,
+      Math.max(0, maxMs),
+      waitAbort.signal,
+      minId,
+    ).catch(() => [] as Api.Message[]);
+
+    const scan = client
+      .getMessages(botUsername, { limit: 10 })
+      .then((ms) => (ms as Api.Message[]).filter((m) => m && !m.out && m.id > minId))
+      .catch(() => [] as Api.Message[]);
+
+    return await Promise.race([waiter, scan.then((m) => (m.length ? m : waiter))]);
+  } finally {
+    waitAbort.abort();
+    signal?.removeEventListener("abort", forwardAbort);
+  }
+}
+
+/**
+ * Follows a group's "verify in a private chat" button the way a real client does: sends
+ * `/start <payload>` to the bot, then works through what it replies with -- joining the
+ * channel it asks for and pressing its verify button -- until it confirms or the budget runs out.
+ */
+async function verifyInPrivateChat(
+  client: TelegramClient,
+  startLink: { botUsername: string; startParam: string },
+  step: CustomStepLog,
+  remainingMs: () => number,
+  signal?: AbortSignal,
+): Promise<void> {
+  const { botUsername, startParam } = startLink;
+  const notes: string[] = [`deep link to @${botUsername}`];
+  const say = () => {
+    step.result = `${step.result} + ${notes.join(", ")}`;
+  };
+
+  const sent = await client.sendMessage(botUsername, { message: `/start ${startParam}` });
+  let minId = sent.id;
+
+  // The bot answers in rounds: a prompt, then a confirmation once its conditions are met.
+  // Three is enough for the join-a-channel-then-verify shape without looping on a bot
+  // that keeps re-posting the same prompt.
+  for (let round = 0; round < 3; round++) {
+    if (signal?.aborted) throw new Error("Job cancelled");
+    if (remainingMs() <= 0) {
+      notes.push("verification timed out");
+      say();
+      return;
+    }
+
+    const msgs = await repliesFromBot(client, botUsername, minId, remainingMs(), signal);
+
+    // A confirmation carries no buttons, so check everything that arrived, not just prompts.
+    if (msgs.some((m) => VERIFY_PASSED.test(m.message ?? ""))) {
+      notes.push("verified in private chat");
+      say();
+      return;
+    }
+
+    const prompt = [...msgs].reverse().find((m) => hasInlineButtons(m));
+    if (!prompt) {
+      notes.push(round === 0 ? "bot sent no verification prompt" : "no further prompt");
+      say();
+      return;
+    }
+    minId = prompt.id;
+
+    const flat = ((prompt as any).replyMarkup as Api.ReplyInlineMarkup).rows.flatMap(
+      (r) => r.buttons,
+    );
+
+    // Satisfy the prompt's precondition first: these bots check the subscription when
+    // the verify button is pressed, so joining afterwards would fail the check.
+    for (const btn of flat) {
+      const web = webButtonOf(btn);
+      if (!web?.url || web.miniApp || web.startLink) continue;
+      const joined = await joinFromButtonUrl(client, web.url).catch(() => null);
+      if (joined) notes.push(joined);
+    }
+
+    const target = pressableVerifyButton(flat);
+    if (!target) {
+      notes.push("private prompt has no clear verify button");
+      say();
+      return;
+    }
+
+    const peer = await client.getInputEntity(botUsername);
+    step.clickedButton = target.text;
+    notes.push(await clickCallback(client, peer, prompt.id, target.data, step));
+
+    // A pass usually lands as a follow-up message; give it what is left of the budget,
+    // but never fail the join over a bot that simply stays quiet.
+    const confirm = await waitForNewMessageInChat(
+      client,
+      botUsername,
+      Math.min(15_000, Math.max(0, remainingMs())),
+      signal,
+    );
+    if (confirm && VERIFY_PASSED.test(confirm.message ?? "")) {
+      notes.push("verified in private chat");
+      say();
+      return;
+    }
+    if (!confirm) {
+      say();
+      return;
+    }
+    // Something else came back -- loop and let the next round read it.
+  }
+  say();
 }
 
 // Collects messages from the target until one has buttons or timeout fires.
@@ -2324,15 +2620,20 @@ export async function runCustom(
                   // Only wait for the in-group verification prompt on a genuine fresh join --
                   // an already-joined account won't get a new prompt, so don't stall on it.
                   if (action.verifyButton && freshlyJoined && entity instanceof Api.Channel) {
+                    const promptWaitMs = action.verifyWaitMs ?? 30000;
                     await clickGroupVerification(
                       client,
                       entity,
-                      action.verifyButton,
-                      action.verifyWaitMs ?? 30000,
                       step,
+                      {
+                        buttonMatch: action.verifyButton,
+                        promptWaitMs,
+                        maxMs: action.verifyMaxWaitMs ?? promptWaitMs + 60000,
+                        sinceSec: joinStartSec,
+                        onlyMine: action.verifyMentionsMe,
+                        maskedName: action.verifyMaskedName,
+                      },
                       signal,
-                      joinStartSec,
-                      action.verifyMentionsMe,
                     );
                   }
                 }

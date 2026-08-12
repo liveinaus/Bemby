@@ -636,9 +636,21 @@
                   </label>
                   <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.verifyMentionsMeHint') }}</div>
                 </div>
+                <div class="form-group" style="margin-bottom:0;margin-top:8px">
+                  <label class="form-checkbox-label">
+                    <input type="checkbox" v-model="action.verifyMaskedName" />
+                    {{ t('jobs.custom.labelVerifyMaskedName') }}
+                  </label>
+                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.verifyMaskedNameHint') }}</div>
+                </div>
                 <div v-if="action.verifyButton" class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-label">{{ t('jobs.custom.labelVerifyWaitMs') }}</label>
                   <input v-model.number="action.verifyWaitMs" type="number" min="1000" step="1000" class="form-input" />
+                </div>
+                <div v-if="action.verifyButton" class="form-group" style="margin-bottom:0;margin-top:8px">
+                  <label class="form-label">{{ t('jobs.custom.labelVerifyMaxWaitMs') }}</label>
+                  <input v-model.number="action.verifyMaxWaitMs" type="number" min="1000" step="1000" class="form-input" />
+                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.verifyMaxWaitMsHint') }}</div>
                 </div>
               </div>
 
@@ -1256,8 +1268,12 @@ type CustomActionForm = {
   checkMembership: boolean;
   verifyButton: string;
   verifyWaitMs: number;
+  /** join_group: bounds the whole verification, private-chat hand-off included */
+  verifyMaxWaitMs: number;
   /** join_group: only click a verification prompt naming this account */
   verifyMentionsMe: boolean;
+  /** join_group: also accept a prompt naming this account with a masked name */
+  verifyMaskedName: boolean;
   channelId: string;
   /** Mini App actions: the in-app steps, one per entry, run in order */
   appSteps: string[];
@@ -1617,7 +1633,7 @@ function onJobTypeChange() {
 }
 
 function defaultAction(): CustomActionForm {
-  return { type: 'send_command', content: '/start', contentDropdown: '/start', contentCustom: '', contentAiInputLength: '', maxWaitMs: 30000, waitMs: 2000, button: '签到', buttonDropdown: '签到', buttonCustom: '', buttonAiHint: '', maxRetries: 3, scope: 0, captchaLength: '', successContains: '', failContains: '', contact: '', groupId: '', checkMembership: false, verifyButton: '', verifyWaitMs: 30000, verifyMentionsMe: false, channelId: '', appSteps: [], miniAppMaxWaitMs: 300000, miniAppProxyId: '', miniAppProxyPool: [], miniAppTryAllProxies: true, profileId: '', keepAppSession: false, url: '', webSteps: [] };
+  return { type: 'send_command', content: '/start', contentDropdown: '/start', contentCustom: '', contentAiInputLength: '', maxWaitMs: 30000, waitMs: 2000, button: '签到', buttonDropdown: '签到', buttonCustom: '', buttonAiHint: '', maxRetries: 3, scope: 0, captchaLength: '', successContains: '', failContains: '', contact: '', groupId: '', checkMembership: false, verifyButton: '', verifyWaitMs: 30000, verifyMaxWaitMs: 120000, verifyMentionsMe: false, verifyMaskedName: false, channelId: '', appSteps: [], miniAppMaxWaitMs: 300000, miniAppProxyId: '', miniAppProxyPool: [], miniAppTryAllProxies: true, profileId: '', keepAppSession: false, url: '', webSteps: [] };
 }
 
 function addAction() {
@@ -1718,7 +1734,7 @@ function applyTemplate(tpl: JobTemplate) {
           if (a.type === 'wait_reply') return { ...base, type: 'wait_reply' as const, maxWaitMs: a.maxWaitMs, successContains: a.successContains ?? '', failContains: a.failContains ?? '', maxRetries: a.maxRetries ?? 0, scope: a.scope ?? 0 };
           if (a.type === 'delay') return { ...base, type: 'delay' as const, waitMs: a.waitMs };
           if (a.type === 'enter_captcha') return { ...base, type: 'enter_captcha' as const, maxWaitMs: a.maxWaitMs, captchaLength: String(a.captchaLength ?? ''), maxRetries: a.maxRetries ?? 0 };
-          if (a.type === 'join_group') return { ...base, type: 'join_group' as const, groupId: a.groupId, checkMembership: a.checkMembership ?? false, verifyButton: a.verifyButton ?? '', verifyWaitMs: a.verifyWaitMs ?? 30000, verifyMentionsMe: a.verifyMentionsMe ?? false };
+          if (a.type === 'join_group') return { ...base, type: 'join_group' as const, groupId: a.groupId, checkMembership: a.checkMembership ?? false, verifyButton: a.verifyButton ?? '', verifyWaitMs: a.verifyWaitMs ?? 30000, verifyMaxWaitMs: a.verifyMaxWaitMs ?? 120000, verifyMentionsMe: a.verifyMentionsMe ?? false, verifyMaskedName: a.verifyMaskedName ?? false };
           if (a.type === 'subscribe_channel') return { ...base, type: 'subscribe_channel' as const, channelId: a.channelId, checkMembership: a.checkMembership ?? false };
           if (a.type === 'open_mini_app') return { ...base, type: 'open_mini_app' as const, contact: a.contact ?? '', button: a.button ?? '', appSteps: [...(a.appButtons ?? [])], successContains: a.successContains ?? '', failContains: a.failContains ?? '', maxRetries: a.maxRetries ?? 0, miniAppMaxWaitMs: a.maxWaitMs ?? 0, miniAppProxyId: a.proxyId ?? '', miniAppProxyPool: [...(a.proxyPool ?? [])], miniAppTryAllProxies: a.tryAllProxies ?? true, profileId: a.profileId ?? '', keepAppSession: a.keepAppSession ?? false };
           if (a.type === 'open_mini_app_url') return { ...base, type: 'open_mini_app_url' as const, url: a.url ?? '', contact: a.contact ?? '', appSteps: [...(a.appButtons ?? [])], successContains: a.successContains ?? '', failContains: a.failContains ?? '', maxRetries: a.maxRetries ?? 0, miniAppMaxWaitMs: a.maxWaitMs ?? 0, miniAppProxyId: a.proxyId ?? '', miniAppProxyPool: [...(a.proxyPool ?? [])], miniAppTryAllProxies: a.tryAllProxies ?? true, profileId: a.profileId ?? '', keepAppSession: a.keepAppSession ?? false };
@@ -2012,7 +2028,7 @@ function openEdit(j: Job) {
           if (a.type === 'wait_reply') return { ...base, type: 'wait_reply', maxWaitMs: a.maxWaitMs, successContains: a.successContains ?? '', failContains: a.failContains ?? '', maxRetries: a.maxRetries ?? 0, scope: a.scope ?? 0 };
           if (a.type === 'delay') return { ...base, type: 'delay', waitMs: a.waitMs };
           if (a.type === 'enter_captcha') return { ...base, type: 'enter_captcha', maxWaitMs: a.maxWaitMs, captchaLength: String(a.captchaLength ?? ''), maxRetries: a.maxRetries ?? 0 };
-          if (a.type === 'join_group') return { ...base, type: 'join_group', groupId: a.groupId, checkMembership: a.checkMembership ?? false, verifyButton: a.verifyButton ?? '', verifyWaitMs: a.verifyWaitMs ?? 30000, verifyMentionsMe: a.verifyMentionsMe ?? false };
+          if (a.type === 'join_group') return { ...base, type: 'join_group', groupId: a.groupId, checkMembership: a.checkMembership ?? false, verifyButton: a.verifyButton ?? '', verifyWaitMs: a.verifyWaitMs ?? 30000, verifyMaxWaitMs: a.verifyMaxWaitMs ?? 120000, verifyMentionsMe: a.verifyMentionsMe ?? false, verifyMaskedName: a.verifyMaskedName ?? false };
           if (a.type === 'subscribe_channel') return { ...base, type: 'subscribe_channel', channelId: a.channelId, checkMembership: a.checkMembership ?? false };
           if (a.type === 'open_mini_app') return { ...base, type: 'open_mini_app', contact: a.contact ?? '', button: a.button ?? '', appSteps: [...(a.appButtons ?? [])], successContains: a.successContains ?? '', failContains: a.failContains ?? '', maxRetries: a.maxRetries ?? 0, miniAppMaxWaitMs: a.maxWaitMs ?? 0, miniAppProxyId: a.proxyId ?? '', miniAppProxyPool: [...(a.proxyPool ?? [])], miniAppTryAllProxies: a.tryAllProxies ?? true, profileId: a.profileId ?? '', keepAppSession: a.keepAppSession ?? false };
           if (a.type === 'open_mini_app_url') return { ...base, type: 'open_mini_app_url', url: a.url ?? '', contact: a.contact ?? '', appSteps: [...(a.appButtons ?? [])], successContains: a.successContains ?? '', failContains: a.failContains ?? '', maxRetries: a.maxRetries ?? 0, miniAppMaxWaitMs: a.maxWaitMs ?? 0, miniAppProxyId: a.proxyId ?? '', miniAppProxyPool: [...(a.proxyPool ?? [])], miniAppTryAllProxies: a.tryAllProxies ?? true, profileId: a.profileId ?? '', keepAppSession: a.keepAppSession ?? false };
@@ -2203,8 +2219,9 @@ function buildConfig(): EmbywatchConfig | CustomConfig | AutoregConfig | Checkin
           type: 'join_group' as const,
           groupId: a.groupId,
           ...(a.checkMembership ? { checkMembership: true } : {}),
-          ...(a.verifyButton.trim() ? { verifyButton: a.verifyButton.trim(), verifyWaitMs: a.verifyWaitMs } : {}),
+          ...(a.verifyButton.trim() ? { verifyButton: a.verifyButton.trim(), verifyWaitMs: a.verifyWaitMs, verifyMaxWaitMs: a.verifyMaxWaitMs } : {}),
           ...(a.verifyMentionsMe ? { verifyMentionsMe: true } : {}),
+          ...(a.verifyMaskedName ? { verifyMaskedName: true } : {}),
         };
         if (a.type === 'subscribe_channel') return { type: 'subscribe_channel' as const, channelId: a.channelId, ...(a.checkMembership ? { checkMembership: true } : {}) };
         if (a.type === 'open_mini_app') return {

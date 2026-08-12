@@ -7,7 +7,7 @@ vi.mock("../db/database", () => ({
 }));
 
 import { describe, it, expect, vi } from "vitest";
-import { messageAddressesUser } from "../jobs/custom";
+import { messageAddressesUser, messageMasksUserName } from "../jobs/custom";
 import type { Api } from "telegram";
 
 const me = { id: "778899123", username: "my_account" };
@@ -59,5 +59,67 @@ describe("messageAddressesUser", () => {
   it("rejects a prompt that names nobody, and a missing message", () => {
     expect(messageAddressesUser(msg("请点击下方按钮完成验证"), me)).toBe(false);
     expect(messageAddressesUser(null, me)).toBe(false);
+  });
+
+  // nmBot names the joiner in a zero-width text link rather than a mention, so the id
+  // lives in an entity URL and never appears in the message text at all.
+  it("finds our id inside a hidden text link's URL", () => {
+    const hidden = (userId: string) =>
+      msg("欢迎 小明 加入群组！请完成入群验证。", {
+        entities: [
+          {
+            className: "MessageEntityTextUrl",
+            url: `https://telegram.me/?nmBotTextDatabase=%7B%22userId%22%3A${userId}%2C%22groupId%22%3A-1001795649815%7D`,
+          },
+        ],
+      });
+    expect(messageAddressesUser(hidden("778899123"), me)).toBe(true);
+    expect(messageAddressesUser(hidden("7788991234"), me)).toBe(false);
+    expect(messageAddressesUser(hidden("111222333"), me)).toBe(false);
+  });
+});
+
+// Welcome bots that mask the joiner's name ("欢迎 阿**2 加入群组") never @-mention anyone,
+// so the mention match above cannot see them at all -- the name has to be matched in the
+// masked form instead, without claiming a prompt that belongs to someone else.
+describe("messageMasksUserName", () => {
+  const masked = { id: "778899123", username: "my_account", names: ["阿凡达2"] };
+
+  it("takes the prompt masking our name and leaves another joiner's alone", () => {
+    expect(messageMasksUserName(msg("欢迎 阿**达2 加入群组！请完成入群验证。"), masked)).toBe(false);
+    expect(messageMasksUserName(msg("欢迎 阿**2 加入群组！请完成入群验证。"), masked)).toBe(true);
+    expect(messageMasksUserName(msg("欢迎 王**明 加入群组！请完成入群验证。"), masked)).toBe(false);
+  });
+
+  it("matches a latin name of the same length", () => {
+    const tim = { id: "1", names: ["Timothy"] };
+    expect(messageMasksUserName(msg("欢迎 T*****y 加入群组"), tim)).toBe(true);
+    expect(messageMasksUserName(msg("欢迎 T*****r 加入群组"), tim)).toBe(false);
+  });
+
+  it("requires the ends to line up even when only one masked name is present", () => {
+    const tim = { id: "1", names: ["Timothy"] };
+    // A bot using a fixed star count still identifies us unambiguously here.
+    expect(messageMasksUserName(msg("欢迎 T***y 加入群组"), tim)).toBe(true);
+    expect(messageMasksUserName(msg("欢迎 B***b 加入群组"), tim)).toBe(false);
+  });
+
+  it("will not guess between several masked names of the wrong length", () => {
+    const tim = { id: "1", names: ["Timothy"] };
+    expect(messageMasksUserName(msg("欢迎 T***y 和 T***y 加入群组"), tim)).toBe(false);
+  });
+
+  // The same bot that masks "思***绪" posts "小明" whole -- two characters have no middle
+  // to hide -- so a short-named account has to recognise its own prompt from the plain name.
+  it("takes a two-character name the bot could not mask", () => {
+    const short = { id: "1", names: ["小明"] };
+    expect(messageMasksUserName(msg("欢迎 小明 加入群组！请完成入群验证。"), short)).toBe(true);
+    expect(messageMasksUserName(msg("欢迎 思***绪 ⭐️ 加入群组！请完成入群验证。"), short)).toBe(false);
+  });
+
+  it("ignores a message with no name of ours in it, and an account with no name", () => {
+    expect(messageMasksUserName(msg("欢迎 Bobby 加入群组"), { id: "1", names: ["Timothy"] })).toBe(false);
+    expect(messageMasksUserName(msg("欢迎 T*****y 加入群组"), { id: "1" })).toBe(false);
+    expect(messageMasksUserName(null, masked)).toBe(false);
   });
 });

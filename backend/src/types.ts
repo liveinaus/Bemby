@@ -165,11 +165,22 @@ export type CustomAction =
       verifyButton?: string;
       verifyWaitMs?: number;
       /**
+       * Bounds the whole verification, not just the wait for the prompt: a button that
+       * hands verification to a private chat with the bot leads to more steps, and those
+       * bots ban on their own deadline. Defaults to verifyWaitMs + 60s.
+       */
+      verifyMaxWaitMs?: number;
+      /**
        * Click only a prompt that names this account (@username, a text mention, or its
        * numeric id), so a group verifying several joiners at once never has someone
        * else's prompt clicked. Prompts for other people are waited past.
        */
       verifyMentionsMe?: boolean;
+      /**
+       * Also treat a prompt that masks the name ("阿**2" -- first and last character kept)
+       * as ours. Welcome bots that mask never @-mention, so verifyMentionsMe cannot see them.
+       */
+      verifyMaskedName?: boolean;
     }
   | {
       // Open a Mini App button's page in the installed browser (passing Cloudflare on

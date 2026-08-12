@@ -434,8 +434,12 @@ export type CustomAction =
       checkMembership?: boolean;
       verifyButton?: string;
       verifyWaitMs?: number;
+      /** Bounds the whole verification, including a hand-off to the bot's private chat */
+      verifyMaxWaitMs?: number;
       /** Only click a verification prompt naming this account */
       verifyMentionsMe?: boolean;
+      /** Also accept a prompt naming this account with a masked name ("阿**2") */
+      verifyMaskedName?: boolean;
     }
   | {
       /** Mini App opened at a given address rather than one found on a button. */
