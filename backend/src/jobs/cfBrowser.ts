@@ -1330,7 +1330,11 @@ const NO_LEASE: { key?: string; release: () => void } = { release: () => {} };
 // Browsers currently up. A free-build launch takes no licence seat, so seat usage does not
 // answer "is anything running" -- and removing a binary, or stopping the lot by hand, both
 // need to know. Held as the browsers themselves so they can be closed on request.
-const liveBrowsers = new Set<{ close: () => Promise<void> }>();
+const liveBrowsers = new Set<{
+  close: () => Promise<void>;
+  /** Which job run this browser belongs to, so one run can be stopped on its own. */
+  runId?: string;
+}>();
 
 /** How many solver browsers are open right now. */
 export function cfBrowsersRunning(): number {
@@ -1347,6 +1351,21 @@ export async function stopAllCfBrowsers(): Promise<{ stopped: number }> {
   // close() releases the seat, profile and proxy, and is bounded, so one wedged browser
   // cannot hold up the rest
   await Promise.all(open.map((b) => b.close().catch(() => {})));
+  return { stopped: open.length };
+}
+
+/**
+ * Closes the browsers one job run owns. This is what makes cancelling a browser step take
+ * effect at once: the driver calls it is sitting in reject as their page goes, instead of
+ * the run carrying on to the end of its budget with nobody waiting for the answer.
+ */
+export async function stopCfBrowsersForRun(
+  runId: string,
+): Promise<{ stopped: number }> {
+  const open = [...liveBrowsers].filter((b) => b.runId === runId);
+  await Promise.all(open.map((b) => b.close().catch(() => {})));
+  if (open.length)
+    console.log(`[cfBrowser] closed ${open.length} browser(s) for cancelled run ${runId}`);
   return { stopped: open.length };
 }
 
@@ -1408,6 +1427,8 @@ export async function launchCfBrowser(
      * watch over VNC: on its own display, the viewer sees this browser and nothing else.
      */
     display?: string;
+    /** The job run this browser serves, so cancelling that run can close it. */
+    runId?: string;
   } = {},
 ): Promise<LaunchedBrowser> {
   const tune = cfTuning();
@@ -1622,6 +1643,7 @@ export async function launchCfBrowser(
     // rendered and the exit takes the blame. This is the only honest signal that it went.
     let closing = false;
     let died = false;
+    let closePromise: Promise<void> | undefined;
     context.on("close", () => {
       if (closing) return;
       died = true;
@@ -1633,10 +1655,11 @@ export async function launchCfBrowser(
       );
     });
 
-    const launched: LaunchedBrowser = {
+    const launched: LaunchedBrowser & { runId?: string } = {
       context,
       page,
       key,
+      runId: opts.runId,
       profileKey,
       deviceSeed,
       locale,
@@ -1644,27 +1667,32 @@ export async function launchCfBrowser(
       tier: usedTier,
       geo,
       died: () => died,
-      close: async () => {
-        closing = true;
-        // Before the browser goes: its cookies, which its own store may not keep
-        await Promise.race([
-          saveCookies(context, profile.dir).then((n) => {
-            if (n) console.log(`[cfBrowser] saved ${n} cookie(s) for ${profileKey}`);
-          }),
-          new Promise((r) => setTimeout(r, 5_000)),
-        ]);
-        // Bounded: a wedged renderer can leave close() pending, and everything below it --
-        // the licence seat above all -- would then be held for the life of the process.
-        await Promise.race([
-          context.close().catch(() => {}),
-          new Promise((r) => setTimeout(r, CLOSE_TIMEOUT_MS)),
-        ]);
-        proxy.close();
-        profile.release();
-        lease.release();
-        liveBrowsers.delete(launched);
-      },
+      // Once only, and callers awaiting a close already under way get that one: cancelling a
+      // run closes its browsers from the outside while the run's own cleanup still runs, and
+      // repeating the save-and-release would sit through both timeouts a second time
+      close: () => (closePromise ??= closeOnce()),
     };
+
+    async function closeOnce(): Promise<void> {
+      closing = true;
+      // Before the browser goes: its cookies, which its own store may not keep
+      await Promise.race([
+        saveCookies(context, profile.dir).then((n) => {
+          if (n) console.log(`[cfBrowser] saved ${n} cookie(s) for ${profileKey}`);
+        }),
+        new Promise((r) => setTimeout(r, 5_000)),
+      ]);
+      // Bounded: a wedged renderer can leave close() pending, and everything below it --
+      // the licence seat above all -- would then be held for the life of the process.
+      await Promise.race([
+        context.close().catch(() => {}),
+        new Promise((r) => setTimeout(r, CLOSE_TIMEOUT_MS)),
+      ]);
+      proxy.close();
+      profile.release();
+      lease.release();
+      liveBrowsers.delete(launched);
+    }
     liveBrowsers.add(launched);
     return launched;
   } catch (err) {

@@ -80,8 +80,10 @@ export function startManualJobRun(jobId: number | string): ManualRunStart {
     .then(() => {
       const detail = detailLogs.length ? JSON.stringify(detailLogs) : null;
       const warnings = collectRunWarnings(job.jobType, detailLogs);
+      // Only while the row is still open: a cancel that gave up waiting has already
+      // settled it, and that verdict is the one the user was shown
       db.prepare(
-        "UPDATE job_logs SET status = 'success', message = ?, detail = ? WHERE id = ?",
+        "UPDATE job_logs SET status = 'success', message = ?, detail = ? WHERE id = ? AND status = 'running'",
       ).run(completedMessage(warnings), detail, logId);
       // Durable stamp; job_logs is pruned by log_retention_days. Only moves
       // forward so a slow run finishing after a later one can't rewind it.
@@ -105,7 +107,7 @@ export function startManualJobRun(jobId: number | string): ManualRunStart {
       const isCancelled = message === "Job cancelled";
       const detail = detailLogs.length ? JSON.stringify(detailLogs) : null;
       db.prepare(
-        "UPDATE job_logs SET status = 'failed', message = ?, detail = ? WHERE id = ?",
+        "UPDATE job_logs SET status = 'failed', message = ?, detail = ? WHERE id = ? AND status = 'running'",
       ).run(isCancelled ? "Cancelled" : message, detail, logId);
       if (!isCancelled) {
         void notifyJobEvent(

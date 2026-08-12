@@ -191,6 +191,42 @@ describe("startManualJobRun", () => {
     expect(mocks.notifyJobEvent).not.toHaveBeenCalled();
   });
 
+  // A cancel that gave up waiting settles the row itself, so the button stops spinning. The
+  // run then finishes later and must leave that verdict alone -- overwriting it flips a row
+  // the user was already shown back to success.
+  it("leaves a row another hand already settled alone when it finishes", async () => {
+    let finish!: () => void;
+    mocks.runJob.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
+    const started = startManualJobRun(addJob(addAccount()));
+    if (!started.ok) throw new Error("expected the run to start");
+
+    testDb
+      .prepare("UPDATE job_logs SET status = 'failed', message = 'Force stopped' WHERE id = ?")
+      .run(started.logId);
+    finish();
+    await started.completion;
+
+    expect(log(started.logId)).toMatchObject({
+      status: "failed",
+      message: "Force stopped",
+    });
+  });
+
+  it("does the same when the run fails after the row was settled", async () => {
+    let fail!: (err: Error) => void;
+    mocks.runJob.mockReturnValue(new Promise<void>((_, reject) => (fail = reject)));
+    const started = startManualJobRun(addJob(addAccount()));
+    if (!started.ok) throw new Error("expected the run to start");
+
+    testDb
+      .prepare("UPDATE job_logs SET status = 'failed', message = 'Force stopped' WHERE id = ?")
+      .run(started.logId);
+    fail(new Error("the browser never came back"));
+    await started.completion;
+
+    expect(log(started.logId).message).toBe("Force stopped");
+  });
+
   it("runs an account-less job type without demanding a session", async () => {
     mocks.runJob.mockResolvedValue(undefined);
     const started = startManualJobRun(addJob(null, "embywatch"));

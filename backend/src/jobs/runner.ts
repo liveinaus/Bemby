@@ -11,6 +11,7 @@ import { runCheckin, CheckinError, type CheckinAttemptLog } from "./checkin";
 import { runEmbywatch } from "./embywatch";
 import { newCfRunState } from "./cloudflare";
 import { nameRun, releaseRunDisplay } from "./runDisplays";
+import { stopCfBrowsersForRun } from "./cfBrowser";
 import { runCustom, CustomJobError, type CustomJobLog } from "./custom";
 import { runAutoreg, AutoregJobError, type AutoregJobLog } from "./autoreg";
 import { db } from "../db/database";
@@ -154,6 +155,14 @@ export async function runJob(
   });
   // So a viewer's list of what is running says which job each screen belongs to
   nameRun(cfRun.runId, job.id, job.name);
+
+  // Cancelling sets the signal, but a browser step can be sitting in a driver call that
+  // takes no notice of one. Closing this run's browsers makes those calls reject at once,
+  // which is what turns "stopping" into stopped instead of a wait on the whole budget.
+  const stopBrowsers = () => {
+    void stopCfBrowsersForRun(cfRun.runId).catch(() => {});
+  };
+  signal?.addEventListener("abort", stopBrowsers, { once: true });
 
   try {
 
@@ -336,6 +345,7 @@ export async function runJob(
 
     throw lastError;
   } finally {
+    signal?.removeEventListener("abort", stopBrowsers);
     // However the run ended, its screen goes with it: an X server left behind holds a
     // display number, and there is nothing left to watch on it
     releaseRunDisplay(cfRun.runId);

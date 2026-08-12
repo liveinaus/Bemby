@@ -344,6 +344,14 @@ export type LoadOptions = {
    * blank uses the shared one, which is what everything did before.
    */
   display?: string;
+  /** The run these browsers belong to, so cancelling the run can close them. */
+  runId?: string;
+  /**
+   * Stops the load when the job is cancelled. Checked between exits and between page steps,
+   * and the run's browsers are closed from the outside, so a cancel lands in seconds rather
+   * than at the end of the budget.
+   */
+  signal?: AbortSignal;
 };
 
 // Every timing and limit the browser side runs on lives in cfTuning, so it can be
@@ -508,8 +516,9 @@ async function launchAlignedBrowser(
   deadline: number,
   profile?: { template?: string; vars?: CfProfileVars },
   display?: string,
+  runId?: string,
 ): Promise<LaunchedBrowser> {
-  const launched = await launchCfBrowser(proxyUrl, { profile, display });
+  const launched = await launchCfBrowser(proxyUrl, { profile, display, runId });
   if (launched.geo) return launched;
 
   const geo = await probeExitGeo(launched.page, launched.key, deadline);
@@ -521,7 +530,7 @@ async function launchAlignedBrowser(
   // be refused, which the keyed build answers by quitting during startup. The seat is
   // already free locally; this is purely to let the far side catch up.
   await sleep(cfTuning().relaunchSettleMs, deadline);
-  return launchCfBrowser(proxyUrl, { profile, display });
+  return launchCfBrowser(proxyUrl, { profile, display, runId });
 }
 
 /**
@@ -2581,6 +2590,8 @@ export type WebStepHooks = {
    * raises one mid-run.
    */
   solveChallenge?: () => Promise<boolean | null>;
+  /** Stops the list where it stands when the job is cancelled. */
+  signal?: AbortSignal;
 };
 
 /** State one `runWebSteps` call carries through its steps, loops included. */
@@ -2823,6 +2834,7 @@ async function runStepList(
   const { deadline, tune, hooks } = run;
 
   for (const step of steps) {
+    if (hooks.signal?.aborted) return "cancelled before the page steps finished";
     if (msLeft(deadline) <= 0) return "ran out of time before the page steps finished";
     // A pick that found nothing new ends the round: the steps after it have no value to
     // work with, and the loop is about to stop anyway
@@ -4617,9 +4629,16 @@ async function attemptLoad(
     if (troubles.length < 5 && !troubles.includes(msg)) troubles.push(msg);
   };
   try {
+    if (opts.signal?.aborted) throw new Error("Job cancelled");
     // The clock and language of the exit are launch flags, so this settles them before
     // anything on the target is loaded
-    launched = await launchAlignedBrowser(proxyUrl, budgetDeadline, opts.profile, opts.display);
+    launched = await launchAlignedBrowser(
+      proxyUrl,
+      budgetDeadline,
+      opts.profile,
+      opts.display,
+      opts.runId,
+    );
     launchOk = true;
     browserTier = launched.tier;
     profileKey = launched.profileKey;
@@ -4763,6 +4782,7 @@ async function attemptLoad(
         // this attempt is right here -- so the steps work it through rather than the run
         // only noticing once every step has already failed against an interstitial
         solveChallenge,
+        signal: opts.signal,
       });
       webSteps = run.logs;
       webFailure = run.failure;
@@ -4962,6 +4982,9 @@ export async function loadCheckinUrl(
 
   for (let i = 0; i < candidates.length; i++) {
     const candidate = candidates[i];
+    // Cancelling has to stop the whole load, not just the exit in hand: another exit would
+    // launch another browser and start the wait over
+    if (opts.signal?.aborted) throw new Error("Job cancelled");
     if (i > 0) {
       if (msLeft(deadline) < tune.minAttemptMs) {
         trace.push(`out of time after ${i} exit(s) (budget ${Math.round(budget / 1000)}s)`);
@@ -5036,6 +5059,10 @@ export async function loadCheckinUrl(
       break;
     }
   }
+
+  // A browser closed from under the load fails the attempt like any other; say what it
+  // actually was rather than reporting the collateral as the fault
+  if (opts.signal?.aborted) throw new Error("Job cancelled");
 
   return { ...last!, trace: [...trace], refusedProxyIds: [...refusedProxyIds] };
 }

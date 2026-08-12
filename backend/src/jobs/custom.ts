@@ -2502,6 +2502,8 @@ export async function runCustom(
                   maxWaitMs: budgetLeft,
                   profile: { template: action.profileId, vars: cfProfileVars(cfRun) },
                   display: await displayForRun(cfRun),
+                  runId: cfRun.runId,
+                  signal,
                   // The browser side is invisible from here, so keep what it saw
                   screenshot: true,
                   solveQuestion: async (question) => {
@@ -2682,6 +2684,8 @@ export async function runCustom(
                   maxWaitMs: budgetLeft,
                   profile: { template: action.profileId, vars: cfProfileVars(cfRun) },
                   display: await displayForRun(cfRun),
+                  runId: cfRun.runId,
+                  signal,
                   screenshot: true,
                   solveQuestion: async (question) => {
                     const prompt =
@@ -2848,6 +2852,8 @@ export async function runCustom(
                   // Which cookie jar this runs on, and so what a login here belongs to
                   profile: { template: action.profileId, vars: cfProfileVars(cfRun) },
                   display: await displayForRun(cfRun),
+                  runId: cfRun.runId,
+                  signal,
                 });
                 step.cfHost = cf.finalHost;
                 step.cfChallenged = cf.challenged;

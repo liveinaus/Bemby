@@ -134,10 +134,33 @@ router.patch('/:id/retire', (req, res) => {
   res.json({ retired: newVal === 1 });
 });
 
+/**
+ * How long a cancelled run has to unwind before the row is stopped on its behalf.
+ *
+ * Aborting is cooperative, and not every wait a run sits in takes notice of it -- some
+ * driver and network calls only come back when they are done. Left alone, the row stays
+ * 'running' and the button spins for as long as that takes, which reads as a hang. The row
+ * is settled here instead; whichever of the two gets there first wins it.
+ */
+const FORCE_STOP_GRACE_MS = 15_000;
+
 router.post('/:id/cancel', (req, res) => {
   const logId = Number(req.params.id);
   if (isJobRunning(logId)) {
     cancelJob(logId);
+    const timer = setTimeout(() => {
+      const changed = db
+        .prepare(
+          "UPDATE job_logs SET status = 'failed', message = 'Force stopped' WHERE id = ? AND status = 'running'",
+        )
+        .run(logId);
+      if (changed.changes)
+        console.warn(
+          `[logs] run ${logId} did not stop within ${FORCE_STOP_GRACE_MS / 1000}s of being cancelled; marked force stopped`,
+        );
+    }, FORCE_STOP_GRACE_MS);
+    // Nothing should wait on this: it is a backstop, not work of its own
+    timer.unref?.();
     res.json({ message: 'Cancel signal sent' });
     return;
   }
