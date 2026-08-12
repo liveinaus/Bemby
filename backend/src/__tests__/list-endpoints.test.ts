@@ -215,6 +215,11 @@ function insertTemplate(
     ).lastInsertRowid as number;
 }
 
+/** Backdates a template, so the added-date column has something to sort. */
+function setCreatedAt(id: number, at: string) {
+  testDb.prepare("UPDATE job_templates SET created_at = ? WHERE id = ?").run(at, id);
+}
+
 function insertAccount(
   name: string,
   opts: {
@@ -326,6 +331,26 @@ describe("GET /templates", () => {
     insertTemplate("B", { bot: "abot" });
     const { body } = await getJson("/templates?page=1&pageSize=10&sortKey=botUrl&sortDir=desc");
     expect(body.items.map((t: any) => t.name)).toEqual(["A", "B"]);
+  });
+
+  // The date a template was added is a column of its own, so it has to be sortable both ways
+  it("sorts by the date the template was added", async () => {
+    const older = insertTemplate("Older");
+    const newer = insertTemplate("Newer");
+    setCreatedAt(older, "2026-01-05 09:00:00");
+    setCreatedAt(newer, "2026-08-12 09:00:00");
+
+    const asc = await getJson("/templates?page=1&pageSize=10&sortKey=created&sortDir=asc");
+    expect(asc.body.items.map((t: any) => t.name)).toEqual(["Older", "Newer"]);
+    const desc = await getJson("/templates?page=1&pageSize=10&sortKey=created&sortDir=desc");
+    expect(desc.body.items.map((t: any) => t.name)).toEqual(["Newer", "Older"]);
+  });
+
+  it("reports the date each template was added", async () => {
+    const id = insertTemplate("Dated");
+    setCreatedAt(id, "2026-01-05 09:00:00");
+    const { body } = await getJson("/templates");
+    expect(body[0].createdAt).toBe("2026-01-05 09:00:00");
   });
 });
 
@@ -495,6 +520,18 @@ describe("POST /templates/:id/duplicate", () => {
 
     const all = await getJson("/templates");
     expect(all.body.map((t: any) => t.name)).toEqual(["Daily Draw", "Daily Draw (copy)"]);
+  });
+
+  // A copy is a template added today, whatever the source's age: inheriting the source's
+  // date would bury every duplicate at the bottom of a newest-first list
+  it("dates the copy when it was duplicated, not when the source was added", async () => {
+    const id = insertTemplate("Ancient");
+    setCreatedAt(id, "2020-03-01 09:00:00");
+
+    const { body } = await postJson(`/templates/${id}/duplicate`);
+
+    expect(body.createdAt).not.toBe("2020-03-01 09:00:00");
+    expect(new Date(`${body.createdAt}Z`).getTime()).toBeGreaterThan(Date.now() - 60_000);
   });
 
   it("numbers further copies rather than repeating the name", async () => {

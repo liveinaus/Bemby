@@ -2014,11 +2014,18 @@
               按序号取记录（把文件夹当队列用）
             </div>
             <p class="help-para">
-              引用与「读取数据」都要写出记录键，因此无法表示「第一条」。要按顺序逐条取用（例如一批待用的
-              账号），请添加网页步骤<strong>按序号取记录</strong>：填文件夹与序号（从 0 开始，按添加顺序，
-              先加的在前），记录的<strong>键</strong>会存入变量，取值可另存一个变量。
-              键正是引用取不到、而「删除数据」需要的东西：用完后以
-              <code>{{ "{变量名}" }}</code> 作为记录键删除该条，下次运行时原来的第 1 条就成了第 0 条。
+              记录键的位置可以写 <code>#0</code> 表示该文件夹的第一条记录、<code>#1</code> 表示第二条
+              （按添加顺序，与面板中按键名排序的显示顺序不同）。引用和所有数据步骤都支持，
+              因此一批待用的账号无需写出键名：<code>{{ "{data.文件夹.#0.password}" }}</code>。
+              字段路径写 <code>#key</code> 则取记录自身的键——当「键」本身就是要用的值（用户名、邮箱）时正需要它：
+              <code>{{ "{data.文件夹.#0.#key}" }}</code>。
+              若确实存在键名为 <code>#0</code> 的记录，则优先取该记录；纯数字仍按键名处理，
+              <code>0</code> 指键名为 <code>0</code> 的记录，而不是序号。
+            </p>
+            <p class="help-para">
+              网页步骤<strong>按序号取记录</strong>做的是同一件事，但会把键与取值存入变量：
+              用在选择器中，或需要用<strong>删除数据</strong>精确删掉本次用过的那一条时，用它更合适。
+              删掉之后队列前进一位：原来的第 1 条就成了下次运行的第 0 条。
             </p>
             <div
               class="card-section-title"
@@ -2089,16 +2096,26 @@
               Taking records in turn (a folder as a queue)
             </div>
             <p class="help-para">
-              A reference and the <strong>Read from Data</strong> step both spell
-              the record key out, so neither can say "the first one". To work
-              through a folder in order — a batch of accounts waiting to be used —
-              add the <strong>Take a record by position</strong> page step: a
-              folder and a position (counting from 0, oldest first). The record's
-              <strong>key</strong> lands in a variable, and its value can go in a
-              second one. That key is the part a reference cannot reach and the
-              part <strong>Delete from Data</strong> needs: delete the record with
-              <code>{{ "{name}" }}</code> as its key once you are done with it, and
-              the next run finds what had been number 1 as its number 0.
+              Write <code>#0</code> where the record key goes for the folder's
+              first record, <code>#1</code> for the next — in the order records
+              were added, which is not the panel's listing by key. It works in a
+              reference and in every data step, so a batch of accounts waiting to
+              be used needs no key spelled out:
+              <code>{{ "{data.folder.#0.password}" }}</code>. The path
+              <code>#key</code> reads the record's own key, which is the useful
+              part when the key <em>is</em> the value — a username, an address:
+              <code>{{ "{data.folder.#0.#key}" }}</code>. A record whose key is
+              literally <code>#0</code> still wins, and a plain number is a key
+              like any other: <code>0</code> names the record called
+              <code>0</code>, never a position.
+            </p>
+            <p class="help-para">
+              The <strong>Take a record by position</strong> page step does the
+              same thing with the key and the value held in variables, which is
+              what a selector needs, or a
+              <strong>Delete from Data</strong> that should remove exactly the
+              record this run used. Deleting it moves the queue on: what had been
+              number 1 becomes the next run's number 0.
             </p>
             <div
               class="card-section-title"

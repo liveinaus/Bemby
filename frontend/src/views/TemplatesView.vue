@@ -51,12 +51,13 @@
               <th class="th-sort" :class="sortKey === 'enabled' ? 'sort-active' : ''" @click="setSort('enabled')">{{ t('templates.colEnabled') }} <span class="sort-icon">{{ sortIcon('enabled') }}</span></th>
               <th class="th-sort col-hide-mobile" :class="sortKey === 'botUrl' ? 'sort-active' : ''" @click="setSort('botUrl')">{{ t('templates.colBotUrl') }} <span class="sort-icon">{{ sortIcon('botUrl') }}</span></th>
               <th class="th-sort col-hide-mobile" :class="sortKey === 'linkedJobs' ? 'sort-active' : ''" @click="setSort('linkedJobs')">{{ t('templates.colLinkedJobs') }} <span class="sort-icon">{{ sortIcon('linkedJobs') }}</span></th>
+              <th class="th-sort col-hide-mobile" :class="sortKey === 'created' ? 'sort-active' : ''" @click="setSort('created')">{{ t('templates.colAdded') }} <span class="sort-icon">{{ sortIcon('created') }}</span></th>
               <th>{{ t('common.actions') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!templates.length">
-              <td colspan="6" class="empty">{{ t('templates.noTemplates') }}</td>
+              <td colspan="7" class="empty">{{ t('templates.noTemplates') }}</td>
             </tr>
             <tr
               v-for="(tpl, idx) in templates"
@@ -78,6 +79,7 @@
               </td>
               <td class="col-hide-mobile">{{ tpl.jobType === 'embywatch' ? tpl.botUsername : '@' + tpl.botUsername }}</td>
               <td class="col-hide-mobile">{{ tpl.linkedJobCount ?? 0 }}</td>
+              <td class="col-hide-mobile">{{ fmtDate(tpl.createdAt) }}</td>
               <td @click.stop>
                 <div class="actions hide-mobile">
                   <button
@@ -319,7 +321,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import { templatesApi, settingsApi, accountsApi, tgClientApi, jobsApi, type JobTemplate, type Settings, type Proxy, type AvailableAccount } from '../api/client';
-import { t } from '../i18n';
+import { t, locale } from '../i18n';
 import { copyText } from '../utils/clipboard';
 import { usePersistedRef } from '../composables/usePersistedRef';
 import { debounce } from '../composables/useDebounce';
@@ -388,6 +390,21 @@ function setSort(key: string) {
 function sortIcon(key: string): string {
   if (sortKey.value !== key) return '↕';
   return sortDir.value === 'asc' ? '↑' : '↓';
+}
+
+// SQLite stamps created_at in UTC with no zone marker, which a browser would otherwise read
+// as local time and land a day out either side of midnight
+function fmtDate(stamp: string | null | undefined): string {
+  if (!stamp) return '—';
+  const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(stamp) ? stamp : `${stamp.replace(' ', 'T')}Z`;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  const localeMap: Record<string, string> = { en: 'en-AU', zh: 'zh-CN' };
+  return parsed.toLocaleDateString(localeMap[locale.value] ?? 'en-AU', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 const searchReload = debounce(() => {

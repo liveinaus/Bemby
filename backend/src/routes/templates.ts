@@ -133,6 +133,7 @@ const TEMPLATE_SORTS: Record<string, string> = {
   enabled: 'CASE WHEN t.enabled = 1 THEN 0 ELSE 1 END',
   botUrl: 't.bot_username COLLATE NOCASE',
   linkedJobs: 'linked_job_count',
+  created: 't.created_at',
 };
 
 router.get('/', (req, res) => {
@@ -272,7 +273,8 @@ router.post('/:id/duplicate', (req, res) => {
   }
 
   // Everything the source configures, nothing about its identity: the copy starts with no
-  // linked jobs, which stay with the original.
+  // linked jobs, which stay with the original, and created_at is left to default so the copy
+  // is dated when it was made rather than inheriting the source's date.
   const result = db.prepare(`
     INSERT INTO job_templates
       (name, job_type, bot_username, timezone, reply_timeout_ms, retry_max, enabled, config, start_command, checkin_button, run_every_days, run_every_days_max)

@@ -133,6 +133,86 @@ describe("reading", () => {
   });
 });
 
+// A folder used as a queue is keyed by whatever the run made -- a username, an address -- so
+// a reference has to be able to say "the one at the front" without naming it, and to read that
+// name back out. Neither was reachable before: a key had to be spelled out, and a path walks
+// the value, which the key is not part of.
+describe("reading by position", () => {
+  /** Two accounts, added in this order, keyed the way a signup queue is. */
+  function seedQueue(): number {
+    const folderId = createFolder("tbd_outlook");
+    createRecord(folderId, "luckycee23", { password: "second" });
+    createRecord(folderId, "jaclee324", { password: "first" });
+    return folderId;
+  }
+
+  it("takes the record at a position, oldest first", () => {
+    seedQueue();
+    expect(readDataRef("tbd_outlook.#0.password")).toBe("second");
+    expect(readDataRef("tbd_outlook.#1.password")).toBe("first");
+  });
+
+  it("reads the record's own key, which is what identifies it", () => {
+    seedQueue();
+    expect(readDataRef("tbd_outlook.#0.#key")).toBe("luckycee23");
+    expect(readDataRef("tbd_outlook.#1.#key")).toBe("jaclee324");
+    // And by name too, so the rule is the same however the record was named
+    expect(readDataRef("tbd_outlook.jaclee324.#key")).toBe("jaclee324");
+  });
+
+  it("follows the queue as records go, rather than the key it started on", () => {
+    const folderId = seedQueue();
+    deleteDataValue("tbd_outlook", "#0", "");
+    expect(readDataRef("tbd_outlook.#0.#key")).toBe("jaclee324");
+    expect(listRecords(folderId)).toHaveLength(1);
+  });
+
+  it("reads the whole value of a positional record", () => {
+    seedQueue();
+    expect(JSON.parse(readDataRef("tbd_outlook.#0")!)).toEqual({ password: "second" });
+  });
+
+  it("says nothing for a position the folder does not reach", () => {
+    seedQueue();
+    expect(readDataRef("tbd_outlook.#7.#key")).toBeNull();
+    expect(fillDataRefs("{data.tbd_outlook.#7.#key}")).toBe("{data.tbd_outlook.#7.#key}");
+  });
+
+  it("fills a position in a template, brackets or dots", () => {
+    seedQueue();
+    expect(fillDataRefs("un={data.tbd_outlook.#0.#key}")).toBe("un=luckycee23");
+    expect(fillDataRefs("un={data.tbd_outlook[#0].#key}")).toBe("un=luckycee23");
+  });
+
+  // A number is a name like any other: a folder keyed by id must not have `0` read as
+  // "whichever record is first", and a record actually named `#0` still answers to it
+  it("treats a plain number as a key, not a position", () => {
+    const folderId = createFolder("byId");
+    createRecord(folderId, "7", { note: "seven" });
+    createRecord(folderId, "0", { note: "zero" });
+    expect(readDataRef("byId.0.note")).toBe("zero");
+    expect(readDataRef("byId.#0.note")).toBe("seven");
+  });
+
+  it("prefers a record whose key is literally the position form", () => {
+    const folderId = createFolder("odd");
+    createRecord(folderId, "first", { note: "by position" });
+    createRecord(folderId, "#0", { note: "by name" });
+    expect(readDataRef("odd.#0.note")).toBe("by name");
+  });
+
+  it("writes to the record at a position, and refuses an empty one", () => {
+    seedQueue();
+    writeDataValue("tbd_outlook", "#0", "password", "changed");
+    expect(readDataRef("tbd_outlook.luckycee23.password")).toBe("changed");
+    expect(() => writeDataValue("tbd_outlook", "#9", "password", "x")).toThrow(
+      /no record at position/,
+    );
+    // Nothing named `#9` was invented on the way
+    expect(getRecord(findFolderByName("tbd_outlook")!.id, "#9")).toBeNull();
+  });
+});
+
 describe("fillDataRefs", () => {
   it("fills a reference in the middle of a template", () => {
     seedExample();

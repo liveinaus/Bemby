@@ -354,13 +354,42 @@ export function getRecordById(id: number): DataRecord | null {
  * goes to the back of the queue instead of jumping it.
  */
 export function recordAt(folderName: string, index: number): DataRecord | null {
-  if (!Number.isInteger(index) || index < 0) return null;
   const folder = findFolderByName(folderName);
-  if (!folder) return null;
+  return folder ? recordAtIndex(folder.id, index) : null;
+}
+
+function recordAtIndex(folderId: number, index: number): DataRecord | null {
+  if (!Number.isInteger(index) || index < 0) return null;
   const row = db
     .prepare("SELECT * FROM data_records WHERE folder_id = ? ORDER BY id LIMIT 1 OFFSET ?")
-    .get(folder.id, index) as RecordRow | undefined;
+    .get(folderId, index) as RecordRow | undefined;
   return row ? toRecord(row) : null;
+}
+
+/** A record key written as a position: `#0` is the first record of the folder. */
+const POSITION_KEY = /^#(\d+)$/;
+
+/** Path segment asking for the record's own key rather than a field of its value. */
+export const RECORD_KEY_SEGMENT = "#key";
+
+/**
+ * The real key of the record a reference names, resolving the `#0` position form.
+ *
+ * Positions run in the order records were added -- the panel lists by key, so the two differ
+ * -- which is what makes `#0` mean "the one at the front of the queue" however its key later
+ * changes. A record whose key is literally `#0` still wins, so nothing already stored under
+ * such a name becomes unreachable.
+ *
+ * Returns null when a position names nothing, which callers report as no record rather than
+ * inventing one: `#0` addresses a record that is there, it never creates one. A plain name is
+ * handed back as written, so a number is a key like any other -- writing to `0` must not be
+ * read as "overwrite whichever record happens to be first".
+ */
+export function resolveRecordKey(folderId: number, key: string): string | null {
+  if (getRecord(folderId, key)) return key;
+  const at = POSITION_KEY.exec(key.trim());
+  if (!at) return key;
+  return recordAtIndex(folderId, Number(at[1]))?.key ?? null;
 }
 
 export function getRecord(folderId: number, key: string): DataRecord | null {
@@ -417,6 +446,10 @@ function putRecord(folderId: number, key: string, value: unknown): void {
  * `folder[me@example.com].password`, as text a step can use. Null when the folder, the record
  * or the path is not there -- which the caller reports rather than quietly sending an empty
  * value.
+ *
+ * In place of a key, `#0` takes the folder's first record (see `resolveRecordKey`), and the
+ * path `#key` reads that record's own key: `folder.#0.#key` is the key of the record at the
+ * front of the queue, which is what a folder keyed by username has to offer.
  */
 export function readDataRef(ref: string): string | null {
   const parts = splitDataPath(ref);
@@ -438,18 +471,23 @@ export function readDataValue(
   const segments = Array.isArray(path) ? path : splitDataPath(path);
   const folder = findFolderByName(folderName);
   if (!folder) return null;
-  const record = getRecord(folder.id, key);
+  const resolved = resolveRecordKey(folder.id, key);
+  const record = resolved === null ? null : getRecord(folder.id, resolved);
   if (!record) return null;
+  // The record's own key, which is what identifies a record picked by position -- and the one
+  // thing a path cannot reach, since a path walks the value
+  if (segments.length === 1 && segments[0] === RECORD_KEY_SEGMENT) return record.key;
   const value = segments.length ? valueAtPath(record.value, segments) : record.value;
   if (value === undefined) return null;
   return dataValueToText(value);
 }
 
 /**
- * Swaps `{data.folder.key}`, `{data.folder.key.path}` and `{data.folder[key].path}` for what
- * is stored, wherever a template is expanded. A reference with nothing behind it is left as it
- * stands, the way an unknown placeholder is: the step that wanted it then fails with the
- * reference still readable, rather than acting on an empty value.
+ * Swaps `{data.folder.key}`, `{data.folder.key.path}`, `{data.folder[key].path}` and the
+ * positional `{data.folder.#0.#key}` for what is stored, wherever a template is expanded. A
+ * reference with nothing behind it is left as it stands, the way an unknown placeholder is: the
+ * step that wanted it then fails with the reference still readable, rather than acting on an
+ * empty value.
  */
 export function fillDataRefs(text: string): string {
   if (!text || !text.includes("{data")) return text;
@@ -466,7 +504,8 @@ export function fillDataRefs(text: string): string {
 /**
  * Stores `value` at `folder`/`key`, into `path` when one is given. The folder and the record
  * are created as needed: a job that has just signed up for something should not have to have
- * had the folder made for it by hand.
+ * had the folder made for it by hand. A `#0` position is the exception -- it addresses a
+ * record already there, so an empty position is an error rather than a record named `#0`.
  */
 export function writeDataValue(
   folderName: string,
@@ -478,12 +517,16 @@ export function writeDataValue(
   requireName(key, "record key");
   const segments = splitDataPath(path);
   const folderId = folderIdForWrite(folderName);
+  const resolved = resolveRecordKey(folderId, key);
+  if (resolved === null) {
+    throw new Error(`${folderName} holds no record at position ${key}`);
+  }
   if (!segments.length) {
-    putRecord(folderId, key, value);
+    putRecord(folderId, resolved, value);
     return;
   }
-  const existing = getRecord(folderId, key);
-  putRecord(folderId, key, setValueAtPath(existing?.value, segments, value));
+  const existing = getRecord(folderId, resolved);
+  putRecord(folderId, resolved, setValueAtPath(existing?.value, segments, value));
 }
 
 /**
@@ -493,13 +536,14 @@ export function writeDataValue(
 export function deleteDataValue(folderName: string, key: string, path: string): boolean {
   const folder = findFolderByName(folderName);
   if (!folder) return false;
-  const record = getRecord(folder.id, key);
+  const resolved = resolveRecordKey(folder.id, key);
+  const record = resolved === null ? null : getRecord(folder.id, resolved);
   if (!record) return false;
   const segments = splitDataPath(path);
   if (!segments.length) return deleteRecord(record.id);
   const { value, removed } = deleteValueAtPath(record.value, segments);
   if (!removed) return false;
-  putRecord(folder.id, key, value);
+  putRecord(folder.id, record.key, value);
   return true;
 }
 

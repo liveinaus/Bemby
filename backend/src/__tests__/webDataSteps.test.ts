@@ -84,6 +84,23 @@ describe("web_data_read", () => {
     expect(typed.map((entry) => entry.text)).toEqual(["xxxx"]);
   });
 
+  // The same position form a reference takes, so a step and a reference say it alike
+  it("takes the record at a position, and its key, without naming it", async () => {
+    const folderId = createFolder("tbd_outlook");
+    createRecord(folderId, "luckycee23", { password: "second" });
+    createRecord(folderId, "jaclee324", { password: "first" });
+    const { page, typed } = fakePage();
+    const result = await run(page, [
+      { type: "web_data_read", folder: "tbd_outlook", key: "#0", path: "#key", varName: "un" },
+      { type: "web_data_read", folder: "tbd_outlook", key: "#0", path: "password", varName: "pw" },
+      { type: "web_input", selector: "#un", text: "{un}" },
+      { type: "web_input", selector: "#pw", text: "{pw}" },
+    ]);
+
+    expect(result.ok).toBe(true);
+    expect(typed.map((entry) => entry.text)).toEqual(["luckycee23", "second"]);
+  });
+
   it("fails the step when nothing is stored there", async () => {
     const { page } = fakePage();
     const result = await run(page, [

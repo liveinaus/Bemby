@@ -971,9 +971,9 @@ const zh = {
       labelDataPath: "字段路径（可选）",
       dataPathPlaceholder: "password",
       dataTargetHint:
-        "指向「数据」中的一条记录。文件夹名与记录键可使用除大括号和方括号以外的任意字符（邮箱地址这类含点的键也可以）；字段路径用于取记录值中的某个字段（如 password，嵌套用 login.password，数组用 items.0，字段名本身含点时用 [a.b]），留空表示整条记录。三个字段都支持 {变量名} 与随机占位符",
+        "指向「数据」中的一条记录。文件夹名与记录键可使用除大括号和方括号以外的任意字符（邮箱地址这类含点的键也可以）；记录键处还可以写 #0 表示该文件夹的第一条记录、#1 表示第二条（按添加顺序），这样无需写出键名即可按队列逐条取用。字段路径用于取记录值中的某个字段（如 password，嵌套用 login.password，数组用 items.0，字段名本身含点时用 [a.b]，写 #key 则取记录自身的键），留空表示整条记录。三个字段都支持 {变量名} 与随机占位符",
       dataReadHint:
-        "把读到的值存入该变量，后续步骤即可用 {变量名} 引用。同一个值也可以直接写成 {data.example.email.password}（键含点时写 {data.example[me@example.com].password}）用在任意文本框里——需要用在选择器中，或希望「没有存过就直接失败」时，才用本步骤",
+        "把读到的值存入该变量，后续步骤即可用 {变量名} 引用。同一个值也可以直接写成 {data.example.email.password}（键含点时写 {data.example[me@example.com].password}，取第一条记录的键写 {data.example.#0.#key}）用在任意文本框里——需要用在选择器中，或希望「没有存过就直接失败」时，才用本步骤",
       labelDataIndex: "序号",
       dataIndexPlaceholder: "0",
       dataPickTargetHint:
@@ -983,7 +983,7 @@ const zh = {
       labelPickValueVar: "值存入变量（可选）",
       pickValueVarPlaceholder: "pw",
       dataPickHint:
-        "记录的「键」存入第一个变量——这正是 {data.文件夹.键} 取不到、而后续「删除数据」又需要的东西；把它填进「删除数据」的记录键即可用完就删，让队列前进一位。第二个变量可选，用于同时取出该记录的取值（配合字段路径取其中一项）。取不到时按下方开关处理",
+        "记录的「键」存入第一个变量——后续「删除数据」正需要它：把它填进「删除数据」的记录键即可用完就删，让队列前进一位。第二个变量可选，用于同时取出该记录的取值（配合字段路径取其中一项）。若只是要把值填进文本框，也可以不用本步骤，直接写 {data.文件夹.#0.#key} 或 {data.文件夹.#0.password}。取不到时按下方开关处理",
       labelDataValue: "要保存的内容",
       dataValuePlaceholder: '{"password":"{password}","note":"{username}"}',
       dataSaveHint:
@@ -1233,6 +1233,7 @@ const zh = {
     colType: "类型",
     colBotUrl: "机器人/网址",
     colLinkedJobs: "关联任务",
+    colAdded: "添加时间",
     confirmDelete: "确定删除此模板？关联任务将被解绑，但不会被删除。",
     bulkEnable: "启用 ({n})",
     bulkDisable: "禁用 ({n})",
@@ -2969,9 +2970,9 @@ const en: typeof zh = {
       labelDataPath: "Field path (optional)",
       dataPathPlaceholder: "password",
       dataTargetHint:
-        "Points at one record in Data. A folder name and a key may hold anything but a brace or a bracket, an email address as a key included. The field path reaches inside the record's value -- `password`, `login.password` for a nested one, `items.0` into a list, `[a.b]` for a field name that holds a dot -- and blank means the whole record. All three take {name} and the random placeholders",
+        "Points at one record in Data. A folder name and a key may hold anything but a brace or a bracket, an email address as a key included. In place of a key, `#0` takes the folder's first record, `#1` the next -- in the order records were added -- so a queue can be worked through without naming anything. The field path reaches inside the record's value -- `password`, `login.password` for a nested one, `items.0` into a list, `[a.b]` for a field name that holds a dot, `#key` for the record's own key -- and blank means the whole record. All three take {name} and the random placeholders",
       dataReadHint:
-        "Holds what was read under the name, for later steps to use as {name}. The same value can be written straight into any text field as {data.example.email.password}, or {data.example[me@example.com].password} where the key holds a dot; reach for this step when the value has to go in a selector, or when nothing stored should stop the run",
+        "Holds what was read under the name, for later steps to use as {name}. The same value can be written straight into any text field as {data.example.email.password}, {data.example[me@example.com].password} where the key holds a dot, or {data.example.#0.#key} for the key of the folder's first record; reach for this step when the value has to go in a selector, or when nothing stored should stop the run",
       labelDataIndex: "Position",
       dataIndexPlaceholder: "0",
       dataPickTargetHint:
@@ -2981,7 +2982,7 @@ const en: typeof zh = {
       labelPickValueVar: "Hold the value as (optional)",
       pickValueVarPlaceholder: "pw",
       dataPickHint:
-        "The record's own key lands in the first name -- the part {data.folder.key} cannot reach, and the part a later Delete from Data step needs: put {name} in its record key and the queue moves on once the run is done with it. The second name is optional and holds that record's value, with the field path picking one field out of it. Nothing there is governed by the switch below",
+        "The record's own key lands in the first name, which is what a later Delete from Data step needs: put {name} in its record key and the queue moves on once the run is done with it. The second name is optional and holds that record's value, with the field path picking one field out of it. A text field that only needs the value can skip this step and write {data.folder.#0.#key} or {data.folder.#0.password} instead. Nothing there is governed by the switch below",
       labelDataValue: "What to store",
       dataValuePlaceholder: '{"password":"{password}","note":"{username}"}',
       dataSaveHint:
@@ -3243,6 +3244,7 @@ const en: typeof zh = {
     colType: "Type",
     colBotUrl: "Bot / URL",
     colLinkedJobs: "Linked Jobs",
+    colAdded: "Added",
     confirmDelete:
       "Delete this template? Linked jobs will be unlinked but not deleted.",
     bulkEnable: "Enable ({n})",
