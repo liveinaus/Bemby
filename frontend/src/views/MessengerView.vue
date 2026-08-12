@@ -441,26 +441,22 @@
                     ]"
                     @click="selectMode && toggleSelectMsg(msg)"
                   >
-                    <!-- Sender avatar (groups with known senders only) -->
-                    <template
-                      v-if="
-                        !msg.fromMe && msg.fromId && activeChat.type === 'group'
-                      "
-                    >
+                    <!-- Sender avatar (groups only; anonymous senders fall back to the group icon) -->
+                    <template v-if="!msg.fromMe && activeChat.type === 'group'">
                       <div
                         v-if="showSenderAvatar(idx)"
                         class="tgc-sender-av"
-                        :style="!avatarSrc(msg.fromId) ? { background: senderColor(msg.fromId) } : {}"
-                        :title="msg.fromName || ''"
-                        v-avatar-load="msg.fromId"
+                        :style="!avatarSrc(senderAvatarId(msg)) ? { background: senderColor(senderAvatarId(msg)) } : {}"
+                        :title="senderLabel(msg) || ''"
+                        v-avatar-load="senderAvatarId(msg)"
                       >
                         <img
-                          v-if="avatarSrc(msg.fromId)"
-                          :src="avatarSrc(msg.fromId)"
+                          v-if="avatarSrc(senderAvatarId(msg))"
+                          :src="avatarSrc(senderAvatarId(msg))"
                           class="tgc-sender-av-photo"
                           alt=""
                         />
-                        <template v-else>{{ avatarLetter(msg.fromName || "?") }}</template>
+                        <template v-else>{{ avatarLetter(senderLabel(msg) || "?") }}</template>
                       </div>
                       <div v-else class="tgc-sender-av-ph"></div>
                     </template>
@@ -538,11 +534,11 @@
                           !msg.fromMe &&
                           activeChat.type !== 'user' &&
                           activeChat.type !== 'bot' &&
-                          msg.fromName
+                          senderLabel(msg)
                         "
                         class="tgc-msg-sender"
                       >
-                        {{ msg.fromName }}
+                        {{ senderLabel(msg) }}
                       </div>
                       <!-- Reply quote -->
                       <div
@@ -3947,14 +3943,28 @@ function senderColor(fromId: string | null): string {
   return SENDER_COLOURS[Math.abs(h) % SENDER_COLOURS.length];
 }
 
+// Owners/admins posting anonymously (or as the group) carry no fromId -- Telegram
+// attributes those to the group itself, so fall back to the group's icon and title.
+function senderAvatarId(msg: TgMessage): string | null {
+  return msg.fromId ?? activeChat.value?.chatId ?? null;
+}
+
+function senderLabel(msg: TgMessage): string | null {
+  if (msg.fromName) return msg.fromName;
+  const chat = activeChat.value;
+  if (!chat || chat.type !== "group") return null;
+  return !msg.fromId || msg.fromId === chat.chatId ? chat.name : null;
+}
+
 function showSenderAvatar(idx: number): boolean {
   const msg = messages.value[idx];
-  // Only show in groups with a known sender; channels post as the channel itself (no fromId)
-  if (msg.fromMe || !msg.fromId) return false;
+  if (msg.fromMe) return false;
   const chat = activeChat.value;
   if (!chat || chat.type !== "group") return false;
   const next = messages.value[idx + 1];
-  return !next || next.fromMe || next.fromId !== msg.fromId;
+  return (
+    !next || next.fromMe || senderAvatarId(next) !== senderAvatarId(msg)
+  );
 }
 
 function fmtTime(ts: number) {
