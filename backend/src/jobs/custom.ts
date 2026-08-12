@@ -31,6 +31,7 @@ import {
   newCfRunState,
   type CfRunState,
 } from "./cloudflare";
+import { parseLabelAlternatives } from "./placeholders";
 import {
   openableBotMenuApp,
   openableButtonUrl,
@@ -491,9 +492,11 @@ async function clickGroupVerification(
 
   const rows = ((buttonsMsg as any).replyMarkup as Api.ReplyInlineMarkup).rows;
   const flat = rows.flatMap((r) => r.buttons);
-  const match = buttonMatch.trim();
-  let target = match
-    ? flat.find((b: any) => ((b.text as string) ?? "").includes(match))
+  // `|`-separated wordings all count, so one job covers a bot that words the button in
+  // whichever language the joining account is set to.
+  const wantedLabels = parseLabelAlternatives(buttonMatch);
+  let target = wantedLabels.length
+    ? flat.find((b: any) => wantedLabels.some((w) => ((b.text as string) ?? "").includes(w)))
     : undefined;
   // Fall back to the sole button for single-button verifications.
   if (!target && flat.length === 1) target = flat[0];

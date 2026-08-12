@@ -8,6 +8,8 @@ vi.mock("../db/database", () => ({
 import { describe, it, expect, vi } from "vitest";
 import { Api } from "telegram";
 import { channelToJoinFromUrl, pressableVerifyButton } from "../jobs/custom";
+import { findUrlButton } from "../jobs/checkin";
+import { matchesAnyLabel } from "../jobs/placeholders";
 
 const callback = (text: string) =>
   new Api.KeyboardButtonCallback({ text, data: Buffer.from(`cb:${text}`) });
@@ -78,5 +80,40 @@ describe("channelToJoinFromUrl", () => {
 
   it("leaves a non-Telegram address alone", () => {
     expect(channelToJoinFromUrl("https://nmbot.nmnm.fun/#/web-verify/-1001795649815/78")).toBeNull();
+  });
+});
+
+// A bot that follows each account's language words the same button differently, so one job
+// has to be able to name every wording it might carry -- the `|` convention the Mini App
+// in-app steps already use.
+describe("`|` alternatives in a button matcher", () => {
+  const msgWith = (...labels: string[]) =>
+    ({
+      replyMarkup: new Api.ReplyInlineMarkup({
+        rows: [
+          new Api.KeyboardButtonRow({
+            buttons: labels.map((t) => new Api.KeyboardButtonUrl({ text: t, url: "https://t.me/b/app?startapp=x" })),
+          }),
+        ],
+      }),
+    }) as unknown as Api.Message;
+
+  it("matches whichever language the bot rendered the Mini App button in", () => {
+    const want = "中验证|in App";
+    expect(findUrlButton(msgWith("在 App 中验证"), want)?.text).toBe("在 App 中验证");
+    expect(findUrlButton(msgWith("Verify in App"), want)?.text).toBe("Verify in App");
+    expect(findUrlButton(msgWith("打开浏览器验证"), want)).toBeUndefined();
+  });
+
+  it("still takes any openable button when nothing is named", () => {
+    expect(findUrlButton(msgWith("whatever"), "")?.text).toBe("whatever");
+    expect(findUrlButton(msgWith("whatever"), undefined)?.text).toBe("whatever");
+  });
+
+  it("matches the group verify button in either language", () => {
+    const want = "在私信中验证|Verify in private chat";
+    expect(matchesAnyLabel("在私信中验证", want)).toBe(true);
+    expect(matchesAnyLabel("Verify in private chat", want)).toBe(true);
+    expect(matchesAnyLabel("通过", want)).toBe(false);
   });
 });

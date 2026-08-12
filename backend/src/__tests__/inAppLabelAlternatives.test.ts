@@ -2,7 +2,7 @@
 // so one step names every wording it might carry: `Join giveaway|参与抽奖|加入抽奖`.
 
 import { describe, it, expect } from "vitest";
-import { parseLabelAlternatives } from "../jobs/cloudflare";
+import { parseLabelAlternatives } from "../jobs/placeholders";
 
 /** How clickInAppControl turns the alternatives into the matcher it searches with. */
 function matcher(step: string): RegExp {

@@ -6,6 +6,7 @@ import type { TgProxy } from '../types';
 import type { TgDeviceParams } from '../auth/tgAuth';
 import { NewMessage, NewMessageEvent, Raw } from 'telegram/events';
 import { webButtonOf, type WebButton } from '../tg/miniApp';
+import { matchesAnyLabel } from './placeholders';
 import { escapeHtml, safeHref } from '../tg/htmlEscape';
 
 export type CheckinAttemptLog = {
@@ -552,8 +553,9 @@ export async function parseMessages(
 // Finds an openable inline button that carries a web address rather than a
 // callback: a URL button (e.g. "我不是机器人") or a Mini App button (e.g. FutureEcho's
 // "🔐 Verify", or a "打开小程序签到" checkin app). Mini App buttons are flagged so the
-// caller can have Telegram sign the URL before opening it. When `matchText` is
-// given, only a button whose label contains it is returned.
+// caller can have Telegram sign the URL before opening it. When `matchText` is given,
+// only a button whose label carries it is returned -- `|`-separated wordings match
+// whichever one the bot rendered, for a bot that follows the account's language.
 export function findUrlButton(msg: Api.Message | undefined, matchText?: string): WebButton | undefined {
   const markup = (msg as any)?.replyMarkup;
   if (!(markup instanceof Api.ReplyInlineMarkup)) return undefined;
@@ -561,7 +563,7 @@ export function findUrlButton(msg: Api.Message | undefined, matchText?: string):
     for (const btn of row.buttons) {
       const web = webButtonOf(btn);
       if (!web) continue;
-      if (!matchText || web.text.includes(matchText)) return web;
+      if (matchesAnyLabel(web.text, matchText)) return web;
     }
   }
   return undefined;

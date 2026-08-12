@@ -135,3 +135,23 @@ export function expandCommand(template: string, context?: Record<string, string>
   });
   return fillDataRefs(expanded);
 }
+
+/**
+ * The wordings a matcher will accept, split on `|`: `Join giveaway|参与抽奖|加入抽奖` takes
+ * whichever of them is actually there. The same control is worded differently depending on
+ * the language the app or bot decides to render in, and one field should cover the lot
+ * rather than the operator keeping a template per language. `|` already means "any of
+ * these" for the success/fail matchers, so it reads the same way everywhere.
+ */
+export function parseLabelAlternatives(wanted: string): string[] {
+  return wanted
+    .split("|")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+/** Does `text` carry any of the wordings in a `|`-separated matcher? Blank matches anything. */
+export function matchesAnyLabel(text: string, wanted?: string): boolean {
+  const alternatives = parseLabelAlternatives(wanted ?? "");
+  return !alternatives.length || alternatives.some((a) => text.includes(a));
+}

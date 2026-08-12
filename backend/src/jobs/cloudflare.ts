@@ -14,7 +14,7 @@ import {
   type CfExitGeo,
   type ProxyCandidate,
 } from "../tg/proxyProviders";
-import { expandCommand } from "./placeholders";
+import { expandCommand, parseLabelAlternatives } from "./placeholders";
 import {
   dataRefText,
   dataStoreOffReason,
@@ -1329,20 +1329,6 @@ async function findInAppCheckin(
       console.warn(`[cloudflare] in-app lookup failed: ${err?.message ?? err}`);
       return null;
     }) as Promise<InAppTarget | null>;
-}
-
-/**
- * The wordings a step will accept, split on `|`: `Join giveaway|参与抽奖|加入抽奖` presses
- * whichever of them the app actually has. The same control is worded differently depending
- * on the language the app decides to render in, and one step should cover the lot rather
- * than the operator keeping a template per language. `|` already means "any of these" for
- * the success/fail matchers, so it reads the same way here.
- */
-export function parseLabelAlternatives(wanted: string): string[] {
-  return wanted
-    .split("|")
-    .map((part) => part.trim())
-    .filter(Boolean);
 }
 
 /** `css:<selector>` in a step names the element to press outright. */
