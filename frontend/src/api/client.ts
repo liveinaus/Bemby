@@ -2194,6 +2194,16 @@ export type TgProfile = {
   blocked: boolean | null;
 };
 
+export type TgMember = {
+  chatId: string;
+  /** The ID as Telegram shows it, which is what a job's contact field takes. */
+  peerId: string;
+  name: string;
+  username: string | null;
+  isBot: boolean;
+  status: "creator" | "admin" | "member";
+};
+
 export type TgReportReason =
   | "spam"
   | "violence"
@@ -2381,6 +2391,18 @@ export const tgClientApi = {
     api
       .get<TgProfile>(
         `/tg-client/${accountId}/profile/${encodeURIComponent(chatId)}`,
+      )
+      .then((r) => r.data),
+
+  members: (
+    accountId: number,
+    chatId: string,
+    params: { limit?: number; offset?: number; query?: string } = {},
+  ) =>
+    api
+      .get<{ members: TgMember[]; total: number }>(
+        `/tg-client/${accountId}/members/${encodeURIComponent(chatId)}`,
+        { params },
       )
       .then((r) => r.data),
 

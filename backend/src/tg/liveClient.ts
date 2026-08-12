@@ -1491,6 +1491,66 @@ export async function getEntityDetails(
   };
 }
 
+export type TgMemberInfo = {
+  chatId: string;
+  /** The ID as Telegram shows it, which is what a job's contact field takes. */
+  peerId: string;
+  name: string;
+  username: string | null;
+  isBot: boolean;
+  status: "creator" | "admin" | "member";
+};
+
+/**
+ * Participants of a group. `search` is Telegram's own filter, which only matches from the
+ * start of a name or username -- the UI fuzzy-matches on top of what comes back.
+ * Members are added to the entity cache, so their avatars and sender names resolve
+ * without another round-trip.
+ */
+export async function getChatMembers(
+  entry: LiveEntry,
+  chatId: string,
+  limit: number,
+  offset: number,
+  search?: string,
+): Promise<{ members: TgMemberInfo[]; total: number }> {
+  await ensureEntityCached(entry, chatId);
+  const entity = entry.entityCache.get(chatId);
+  if (!entity) throw new Error("Chat not found -- open the dialogs list first");
+  if (entity instanceof Api.User)
+    throw new Error("Only groups and channels have members");
+
+  const users = await entry.client.getParticipants(entity as any, {
+    limit,
+    offset,
+    search: search || "",
+  });
+
+  const members = users.map((user) => {
+    const memberChatId = `u${user.id.toString()}`;
+    entry.entityCache.set(memberChatId, user);
+    const participant = (user as any).participant;
+    const status: TgMemberInfo["status"] =
+      participant instanceof Api.ChannelParticipantCreator ||
+      participant instanceof Api.ChatParticipantCreator
+        ? "creator"
+        : participant instanceof Api.ChannelParticipantAdmin ||
+            participant instanceof Api.ChatParticipantAdmin
+          ? "admin"
+          : "member";
+    return {
+      chatId: memberChatId,
+      peerId: displayPeerId(memberChatId),
+      name: entityName(user),
+      username: user.username ?? null,
+      isBot: Boolean(user.bot),
+      status,
+    };
+  });
+
+  return { members, total: users.total ?? members.length };
+}
+
 // Block or unblock a user (contacts.Block / contacts.Unblock)
 export async function setBlocked(
   entry: LiveEntry,

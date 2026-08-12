@@ -63,6 +63,7 @@ import {
   startBot,
   getPinnedMessage,
   getReadOutboxMaxId,
+  getChatMembers,
 } from "../tg/liveClient";
 import type { Response } from "express";
 import { issueMediaTicket } from "../auth/mediaTickets";
@@ -951,6 +952,21 @@ router.post("/:accountId/webview/resolve", async (req, res) => {
     // Assuming otherwise showed the operator a dead panel reading "refused to connect".
     const frameable = await isFrameable(webAppUrl);
     res.json({ webAppUrl, resolved, frameable, signed });
+  } catch (err: any) {
+    tgError(err, accountId, res);
+  }
+});
+
+// GET /:accountId/members/:chatId?limit=&offset=&query= -- group participants
+router.get("/:accountId/members/:chatId", async (req, res) => {
+  const accountId = Number(req.params.accountId);
+  const chatId = decodeURIComponent(req.params.chatId);
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 200), 1), 200);
+  const offset = Math.max(Number(req.query.offset ?? 0), 0);
+  const query = ((req.query.query as string) ?? "").trim();
+  try {
+    const entry = await getLiveClient(accountId);
+    res.json(await getChatMembers(entry, chatId, limit, offset, query));
   } catch (err: any) {
     tgError(err, accountId, res);
   }

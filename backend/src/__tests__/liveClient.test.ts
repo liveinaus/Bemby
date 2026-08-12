@@ -8,8 +8,11 @@ const {
   MockMessage, MockChatInvite, MockChatInviteAlready, MockChatInvitePeek,
   MockMessageMediaPhoto, MockMessageMediaDocument, MockMessageMediaContact,
   MockDocument, MockReplyInlineMarkup,
+  MockChannelParticipantCreator, MockChannelParticipantAdmin,
+  MockChatParticipantCreator, MockChatParticipantAdmin,
   MockTelegramClient, mockClientInstance,
   mockAddEventHandler, mockGetDialogs, mockGetMessages, mockSendMessage, mockInvoke,
+  mockGetParticipants,
 } = vi.hoisted(() => {
   class MockUser { constructor(d: Record<string, any>) { Object.assign(this, d); } }
   class MockChat { constructor(d: Record<string, any>) { Object.assign(this, d); } }
@@ -30,11 +33,17 @@ const {
     constructor(d: any) { this.rows = d.rows; }
   }
 
+  class MockChannelParticipantCreator { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
+  class MockChannelParticipantAdmin { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
+  class MockChatParticipantCreator { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
+  class MockChatParticipantAdmin { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
+
   const mockAddEventHandler = vi.fn();
   const mockGetDialogs      = vi.fn().mockResolvedValue([]);
   const mockGetMessages     = vi.fn().mockResolvedValue([]);
   const mockSendMessage     = vi.fn().mockResolvedValue({ id: 1, date: 1700000000 });
   const mockInvoke          = vi.fn().mockResolvedValue({ users: [], chats: [] });
+  const mockGetParticipants = vi.fn().mockResolvedValue([]);
 
   const mockClientInstance = {
     connect:         vi.fn().mockResolvedValue(undefined),
@@ -45,6 +54,7 @@ const {
     getMessages:     mockGetMessages,
     sendMessage:     mockSendMessage,
     invoke:          mockInvoke,
+    getParticipants: mockGetParticipants,
     downloadMedia:   vi.fn(),
     getInputEntity:  vi.fn().mockResolvedValue({}),
   };
@@ -57,8 +67,11 @@ const {
     MockMessage, MockChatInvite, MockChatInviteAlready, MockChatInvitePeek,
     MockMessageMediaPhoto, MockMessageMediaDocument, MockMessageMediaContact,
     MockDocument, MockReplyInlineMarkup,
+    MockChannelParticipantCreator, MockChannelParticipantAdmin,
+    MockChatParticipantCreator, MockChatParticipantAdmin,
     MockTelegramClient, mockClientInstance,
     mockAddEventHandler, mockGetDialogs, mockGetMessages, mockSendMessage, mockInvoke,
+    mockGetParticipants,
   };
 });
 
@@ -91,6 +104,10 @@ vi.mock('telegram', () => ({
     channels: {
       JoinChannel: vi.fn().mockImplementation((d: any) => ({ joinChannel: d.channel })),
     },
+    ChannelParticipantCreator: MockChannelParticipantCreator,
+    ChannelParticipantAdmin:   MockChannelParticipantAdmin,
+    ChatParticipantCreator:    MockChatParticipantCreator,
+    ChatParticipantAdmin:      MockChatParticipantAdmin,
     ChatInvite:        MockChatInvite,
     ChatInviteAlready: MockChatInviteAlready,
     ChatInvitePeek:    MockChatInvitePeek,
@@ -147,6 +164,7 @@ import {
   parseMiniAppLink,
   fetchPhoto,
   normalisePhoneNumber,
+  getChatMembers,
 } from '../tg/liveClient';
 import { db } from '../db/database';
 
@@ -411,6 +429,64 @@ describe('getMessages', () => {
     await getMessages(entry as any, 'u13', 20, 0);
 
     expect(mockGetDialogs).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---- getChatMembers --------------------------------------------------------
+
+describe('getChatMembers', () => {
+  function participants(users: any[], total: number) {
+    const list: any = [...users];
+    list.total = total;
+    return list;
+  }
+
+  it('maps participants, flags creator and admin, and reports the total', async () => {
+    const group = new MockChannel({ id: 900n, megagroup: true, title: 'Group' });
+    const entry = makeEntry([['c900', group]]);
+
+    mockGetParticipants.mockResolvedValueOnce(participants([
+      new MockUser({ id: 1n, firstName: 'Ada', lastName: 'Lovelace', username: 'ada', participant: new MockChannelParticipantCreator() }),
+      new MockUser({ id: 2n, firstName: 'Bob', username: null, participant: new MockChannelParticipantAdmin() }),
+      new MockUser({ id: 3n, firstName: 'Cid', username: 'cid', bot: true, participant: {} }),
+    ], 42));
+
+    const { members, total } = await getChatMembers(entry as any, 'c900', 200, 0);
+
+    expect(total).toBe(42);
+    expect(members).toEqual([
+      { chatId: 'u1', peerId: '1', name: 'Ada Lovelace', username: 'ada', isBot: false, status: 'creator' },
+      { chatId: 'u2', peerId: '2', name: 'Bob', username: null, isBot: false, status: 'admin' },
+      { chatId: 'u3', peerId: '3', name: 'Cid', username: 'cid', isBot: true, status: 'member' },
+    ]);
+  });
+
+  it('caches members as entities so their avatars and sender names resolve', async () => {
+    const group = new MockChannel({ id: 901n, megagroup: true, title: 'Group' });
+    const entry = makeEntry([['c901', group]]);
+
+    mockGetParticipants.mockResolvedValueOnce(participants([
+      new MockUser({ id: 7n, firstName: 'Eve', username: null, participant: {} }),
+    ], 1));
+
+    await getChatMembers(entry as any, 'c901', 200, 0);
+
+    expect(entry.entityCache.get('u7')).toMatchObject({ firstName: 'Eve' });
+  });
+
+  it('passes limit, offset, and search through to Telegram', async () => {
+    const group = new MockChannel({ id: 902n, megagroup: true, title: 'Group' });
+    const entry = makeEntry([['c902', group]]);
+
+    mockGetParticipants.mockResolvedValueOnce(participants([], 0));
+    await getChatMembers(entry as any, 'c902', 50, 100, 'ada');
+
+    expect(mockGetParticipants).toHaveBeenCalledWith(group, { limit: 50, offset: 100, search: 'ada' });
+  });
+
+  it('rejects a one-to-one chat, which has no participants to list', async () => {
+    const entry = makeEntry([['u5', new MockUser({ id: 5n, firstName: 'Solo' })]]);
+    await expect(getChatMembers(entry as any, 'u5', 200, 0)).rejects.toThrow(/members/i);
   });
 });
 

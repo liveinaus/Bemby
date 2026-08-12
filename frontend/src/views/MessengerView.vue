@@ -1020,12 +1020,89 @@
                 >
                   <i class="fa-solid fa-users tgc-profile-row-icon"></i>
                   <div class="tgc-profile-row-body">
-                    <div class="tgc-profile-row-label">Members</div>
+                    <div class="tgc-profile-row-label">{{ t('tgc.members') }}</div>
                     <div class="tgc-profile-row-value">
                       {{ profileDetails.memberCount.toLocaleString() }}
                     </div>
                   </div>
                 </div>
+              </div>
+
+              <!-- Member list (groups only; channels rarely allow it) -->
+              <div v-if="profileDetails.type === 'group'" class="tgc-members">
+                <div class="tgc-members-head">
+                  <span class="tgc-members-title">{{ t('tgc.members') }}</span>
+                  <span v-if="membersTotal" class="tgc-members-count">
+                    {{ filteredMembers.length }}/{{ membersTotal.toLocaleString() }}
+                  </span>
+                </div>
+
+                <div class="tgc-members-search">
+                  <i class="fa-solid fa-magnifying-glass tgc-search-icon"></i>
+                  <input
+                    v-model="memberSearch"
+                    class="tgc-search-input"
+                    :placeholder="t('tgc.searchMembers')"
+                    @input="onMemberSearchInput"
+                  />
+                </div>
+
+                <div v-if="membersError" class="error-msg">{{ membersError }}</div>
+
+                <div class="tgc-member-list">
+                  <div
+                    v-for="m in filteredMembers"
+                    :key="m.chatId"
+                    class="tgc-member-item"
+                    :title="t('tgc.openDm')"
+                    @click="openMemberChat(m)"
+                  >
+                    <div
+                      class="tgc-member-av"
+                      :style="!avatarSrc(m.chatId) ? { background: senderColor(m.chatId) } : {}"
+                      v-avatar-load="m.chatId"
+                    >
+                      <img
+                        v-if="avatarSrc(m.chatId)"
+                        :src="avatarSrc(m.chatId)"
+                        class="tgc-sender-av-photo"
+                        alt=""
+                      />
+                      <template v-else>{{ avatarLetter(m.name) }}</template>
+                    </div>
+                    <div class="tgc-member-body">
+                      <div class="tgc-member-name">
+                        {{ m.name }}
+                        <span
+                          v-if="m.status !== 'member'"
+                          class="tgc-member-badge"
+                        >{{ m.status === 'creator' ? t('tgc.owner') : t('tgc.admin') }}</span>
+                      </div>
+                      <div class="tgc-member-sub">
+                        {{ m.username ? "@" + m.username : m.peerId }}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div v-if="membersLoading" class="tgc-spinner-wrap">
+                    <span class="tgc-spinner"></span>
+                  </div>
+                  <div
+                    v-else-if="!filteredMembers.length && !membersError"
+                    class="tgc-empty-list"
+                  >
+                    {{ t('tgc.noMembers') }}
+                  </div>
+                </div>
+
+                <button
+                  v-if="!memberSearch.trim() && members.length < membersTotal"
+                  class="tgc-members-more"
+                  :disabled="membersLoading"
+                  @click="loadMembers()"
+                >
+                  {{ t('tgc.loadMoreMembers') }}
+                </button>
               </div>
 
               <div class="tgc-profile-actions">
@@ -1826,6 +1903,7 @@ import {
   type TgContact,
   type TgFolder,
   type TgProfile,
+  type TgMember,
   type TgInvitePreview,
   type TgReportReason,
 } from "../api/client";
@@ -1837,6 +1915,8 @@ import {
   loadAccountDisplaySetting,
 } from "../composables/accountDisplay";
 import { displayPeerId } from "../utils/peerId";
+import { fuzzyScore } from "../utils/fuzzy";
+import { debounce } from "../composables/useDebounce";
 import { takeMessengerAccountId } from "../composables/viewNav";
 import { checkPhoneNumber, expectedDigitsText } from "../utils/phoneCountry";
 
@@ -1987,6 +2067,15 @@ const linkOpening = ref(false);
 const openMiniAppInApp = ref(true);
 const profileDetails = ref<TgProfile | null>(null);
 const profileLoading = ref(false);
+// Group members shown in the info panel, plus the fuzzy filter over them
+const MEMBER_PAGE = 200;
+const members = ref<TgMember[]>([]);
+const membersTotal = ref(0);
+const membersLoading = ref(false);
+const membersError = ref("");
+const memberSearch = ref("");
+/** Server-side hits for the current query -- members past the loaded pages. */
+const memberSearchHits = ref<TgMember[]>([]);
 const copyToast = ref("");
 const btnLoadingKey = ref<string | null>(null);
 
@@ -2956,6 +3045,104 @@ async function openProfile() {
   } finally {
     profileLoading.value = false;
   }
+  if (profileDetails.value?.type === "group") loadMembers(true);
+}
+
+function resetMembers() {
+  members.value = [];
+  membersTotal.value = 0;
+  membersError.value = "";
+  memberSearch.value = "";
+  memberSearchHits.value = [];
+}
+
+// `fresh` starts over from the first page; otherwise the next page is appended.
+async function loadMembers(fresh = false) {
+  const chatId = profileDetails.value?.chatId;
+  if (!selectedAccountId.value || !chatId || membersLoading.value) return;
+  if (fresh) resetMembers();
+  membersLoading.value = true;
+  try {
+    const res = await tgClientApi.members(selectedAccountId.value, chatId, {
+      limit: MEMBER_PAGE,
+      offset: members.value.length,
+    });
+    const seen = new Set(members.value.map((m) => m.chatId));
+    members.value.push(...res.members.filter((m) => !seen.has(m.chatId)));
+    membersTotal.value = Math.max(res.total, members.value.length);
+  } catch (e: any) {
+    membersError.value = friendlyTgError(
+      e?.response?.data?.error ?? e?.message ?? "Failed to load members",
+    );
+  } finally {
+    membersLoading.value = false;
+  }
+}
+
+// Telegram's own search reaches members past the loaded pages; only worth a round-trip
+// for a group big enough that the local list is incomplete.
+const searchMembersOnServer = debounce(async () => {
+  const chatId = profileDetails.value?.chatId;
+  const query = memberSearch.value.trim();
+  if (!selectedAccountId.value || !chatId || query.length < 2) return;
+  if (members.value.length >= membersTotal.value) return;
+  try {
+    const res = await tgClientApi.members(selectedAccountId.value, chatId, {
+      limit: MEMBER_PAGE,
+      query,
+    });
+    memberSearchHits.value = res.members;
+  } catch {
+    // Local fuzzy matches still stand
+  }
+}, 350);
+
+function onMemberSearchInput() {
+  memberSearchHits.value = [];
+  if (memberSearch.value.trim().length >= 2) searchMembersOnServer();
+}
+
+const filteredMembers = computed<TgMember[]>(() => {
+  const query = memberSearch.value.trim();
+  if (!query) return members.value;
+
+  const pool = [...members.value];
+  const seen = new Set(pool.map((m) => m.chatId));
+  for (const hit of memberSearchHits.value) {
+    if (!seen.has(hit.chatId)) pool.push(hit);
+  }
+
+  return pool
+    .map((m) => ({
+      m,
+      score: Math.max(
+        fuzzyScore(query, m.name),
+        m.username ? fuzzyScore(query, m.username) : 0,
+      ),
+    }))
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((r) => r.m);
+});
+
+// Members are users, so a click opens the DM with them -- same as the contacts list.
+function openMemberChat(m: TgMember) {
+  showProfile.value = false;
+  const existing = dialogs.value.find((d) => d.chatId === m.chatId);
+  if (existing) {
+    openChat(existing);
+    return;
+  }
+  const synthetic: TgDialog = {
+    chatId: m.chatId,
+    name: m.name,
+    type: m.isBot ? "bot" : "user",
+    username: m.username,
+    unreadCount: 0,
+    lastMessage: null,
+  };
+  dialogs.value.unshift(synthetic);
+  openChat(synthetic);
 }
 
 let copyToastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -4249,6 +4436,7 @@ async function openChat(dialog: TgDialog, addToHistory = false) {
   showMobileChat.value = true;
   showProfile.value = false;
   profileDetails.value = null;
+  resetMembers();
   showThread.value = false;
   threadRootMsg.value = null;
   replyingTo.value = null;
@@ -7536,6 +7724,124 @@ async function saveContactEdit() {
 
 .tgc-gourl-input:focus {
   border-color: #4361ee;
+}
+
+/* ── Group member list ──────────────────────────────────────────────────────── */
+.tgc-members {
+  border-top: 1px solid #f0f2f5;
+  padding: 10px 0 4px;
+}
+
+.tgc-members-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 16px 6px;
+}
+
+.tgc-members-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tgc-members-count {
+  font-size: 12px;
+  color: #999;
+}
+
+.tgc-members-search {
+  position: relative;
+  padding: 4px 12px 8px;
+}
+
+.tgc-members-search .tgc-search-icon {
+  top: 45%;
+}
+
+.tgc-member-list {
+  max-height: 320px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.tgc-member-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.tgc-member-item:hover {
+  background: #f0f2f5;
+}
+
+.tgc-member-av {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  overflow: hidden;
+  user-select: none;
+}
+
+.tgc-member-body {
+  min-width: 0;
+}
+
+.tgc-member-name {
+  font-size: 14px;
+  color: #1a1a2e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tgc-member-badge {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #4361ee;
+  background: #eef1fe;
+  border-radius: 4px;
+  padding: 1px 4px;
+  text-transform: uppercase;
+}
+
+.tgc-member-sub {
+  font-size: 12px;
+  color: #999;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tgc-members-more {
+  display: block;
+  width: calc(100% - 28px);
+  margin: 6px 14px 10px;
+  padding: 7px 10px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fff;
+  color: #444;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tgc-members-more:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* Profile action buttons (block / report) */
