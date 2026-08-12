@@ -32,6 +32,31 @@ export type TgButton = {
   requestPhone: boolean; // reply-keyboard button -- shares our own phone as a contact
 };
 
+/** Membership and housekeeping events Telegram reports as service messages. */
+export type TgServiceKind =
+  | "join"
+  | "joinByRequest"
+  | "added"
+  | "left"
+  | "removed"
+  | "pinned"
+  | "titleChanged"
+  | "photoChanged"
+  | "created";
+
+/**
+ * Who did what to whom. The UI writes the sentence, so it can be translated and can link
+ * the names -- names are null when the peer is not resolvable.
+ */
+export type TgServiceInfo = {
+  kind: TgServiceKind;
+  actorId: string | null;
+  actorName: string | null;
+  targets: { chatId: string; name: string | null }[];
+  /** New chat title for `titleChanged`, else null. */
+  title: string | null;
+};
+
 export type TgMsgPayload = {
   id: number;
   text: string;
@@ -51,6 +76,8 @@ export type TgMsgPayload = {
   replyToText: string | null;
   replyToName: string | null;
   replyCount: number | null;
+  /** Set on service messages (someone joined, left, renamed the group...); null otherwise. */
+  service?: TgServiceInfo | null;
 };
 
 export type TgDialogItem = {
@@ -601,6 +628,30 @@ async function connectLiveClient(accountId: number): Promise<LiveEntry> {
     entry!.subscribers.forEach((sub) => sub(liveMsg));
   }, new NewMessage({}));
 
+  // Membership and housekeeping notices (joins, leaves, renames). The NewMessage builder
+  // only passes real messages through, so these have to come in raw.
+  client.addEventHandler(
+    async (update: Api.UpdateNewMessage | Api.UpdateNewChannelMessage) => {
+      try {
+        const msg = update.message;
+        if (!(msg instanceof Api.MessageService)) return;
+        const chatId = peerToChatId(msg.peerId);
+        if (!chatId) return;
+        const service = (await serviceInfoForPage(entry!, [msg])).get(msg.id);
+        if (!service) return;
+        const liveMsg: TgLiveMessage = {
+          chatId,
+          message: serviceMsgPayload(msg, service),
+        };
+        cacheMessages(accountId, chatId, [liveMsg.message]);
+        entry!.subscribers.forEach((sub) => sub(liveMsg));
+      } catch {
+        // A missed grey line is not worth surfacing
+      }
+    },
+    new Raw({ types: [Api.UpdateNewMessage, Api.UpdateNewChannelMessage] }),
+  );
+
   // Update read status when the recipient reads our outgoing messages (1-to-1 / group chats)
   client.addEventHandler(
     (update: Api.UpdateReadHistoryOutbox) => {
@@ -750,6 +801,147 @@ export async function ensureEntityCached(
   }
 }
 
+/**
+ * Maps a service action to a kind the UI knows how to word. Unsupported actions return null
+ * and the message is dropped, so nothing renders as a blank grey line.
+ */
+function describeServiceAction(
+  action: Api.TypeMessageAction,
+  actorId: string | null,
+): { kind: TgServiceKind; targetIds: string[]; title: string | null } | null {
+  const plain = (kind: TgServiceKind) => ({ kind, targetIds: [], title: null });
+
+  if (action instanceof Api.MessageActionChatAddUser) {
+    const ids = action.users.map((u) => `u${u.toString()}`);
+    // Joining by username or link is reported as the user adding themselves
+    const selfJoin = ids.length === 1 && ids[0] === actorId;
+    return selfJoin
+      ? plain("join")
+      : { kind: "added", targetIds: ids, title: null };
+  }
+  if (action instanceof Api.MessageActionChatJoinedByLink) return plain("join");
+  if (action instanceof Api.MessageActionChatJoinedByRequest)
+    return plain("joinByRequest");
+  if (action instanceof Api.MessageActionChatDeleteUser) {
+    const id = `u${action.userId.toString()}`;
+    return id === actorId
+      ? plain("left")
+      : { kind: "removed", targetIds: [id], title: null };
+  }
+  if (action instanceof Api.MessageActionPinMessage) return plain("pinned");
+  if (action instanceof Api.MessageActionChatEditTitle)
+    return { kind: "titleChanged", targetIds: [], title: action.title };
+  if (
+    action instanceof Api.MessageActionChatEditPhoto ||
+    action instanceof Api.MessageActionChatDeletePhoto
+  )
+    return plain("photoChanged");
+  if (
+    action instanceof Api.MessageActionChatCreate ||
+    action instanceof Api.MessageActionChannelCreate
+  )
+    return plain("created");
+  return null;
+}
+
+/**
+ * Display names for peers a service message names. GramJS keeps the users from the history
+ * response in its own store, so this normally costs no round-trip; loadDialogs is skipped
+ * deliberately, since one grey line is not worth refetching the dialog list for.
+ */
+async function resolveEntityNames(
+  entry: LiveEntry,
+  chatIds: string[],
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  for (const id of new Set(chatIds)) {
+    const cached = entry.entityCache.get(id);
+    if (cached) {
+      names.set(id, entityName(cached));
+      continue;
+    }
+    const peer = chatIdToPeer(id);
+    if (!peer) continue;
+    try {
+      const entity = (await entry.client.getEntity(peer)) as
+        | Api.User
+        | Api.Chat
+        | Api.Channel;
+      if (entity) {
+        entry.entityCache.set(id, entity);
+        names.set(id, entityName(entity));
+      }
+    } catch {
+      // Unresolvable peer -- the UI words the line without a name
+    }
+  }
+  return names;
+}
+
+/** Builds the service payload for each service message on a page, keyed by message id. */
+async function serviceInfoForPage(
+  entry: LiveEntry,
+  msgs: Api.MessageService[],
+): Promise<Map<number, TgServiceInfo>> {
+  const result = new Map<number, TgServiceInfo>();
+  if (!msgs.length) return result;
+
+  const described = msgs.map((msg) => {
+    const actorId = msg.fromId ? peerToChatId(msg.fromId) : null;
+    return { msg, actorId, info: describeServiceAction(msg.action, actorId) };
+  });
+
+  const names = await resolveEntityNames(
+    entry,
+    described.flatMap((d) =>
+      d.info ? [...(d.actorId ? [d.actorId] : []), ...d.info.targetIds] : [],
+    ),
+  );
+
+  for (const { msg, actorId, info } of described) {
+    if (!info) continue;
+    result.set(msg.id, {
+      kind: info.kind,
+      actorId,
+      actorName: actorId ? (names.get(actorId) ?? null) : null,
+      targets: info.targetIds.map((id) => ({
+        chatId: id,
+        name: names.get(id) ?? null,
+      })),
+      title: info.title,
+    });
+  }
+  return result;
+}
+
+/** An empty payload carrying only a service line -- no text, media, or reply of its own. */
+function serviceMsgPayload(
+  msg: Api.MessageService,
+  service: TgServiceInfo,
+): TgMsgPayload {
+  return {
+    id: msg.id,
+    text: "",
+    html: null,
+    date: msg.date,
+    fromMe: Boolean(msg.out),
+    isRead: true,
+    fromId: service.actorId,
+    fromName: service.actorName,
+    hasPhoto: false,
+    hasDocument: false,
+    hasSticker: false,
+    fileName: null,
+    buttons: null,
+    reactions: null,
+    replyToId: null,
+    replyToText: null,
+    replyToName: null,
+    replyCount: null,
+    service,
+  };
+}
+
 export async function getMessages(
   entry: LiveEntry,
   chatId: string,
@@ -761,10 +953,10 @@ export async function getMessages(
   const entity = entry.entityCache.get(chatId);
   if (!entity) throw new Error("Chat not found -- open the dialogs list first");
 
-  // Service messages (join/leave/pin announcements) are dropped, so keep fetching
-  // until a full page of real messages is collected. Returning a short page would
-  // make the frontend believe history is exhausted and stop paginating.
-  const msgs: Api.Message[] = [];
+  // Service messages we have no wording for are dropped, so keep fetching until a full
+  // page is collected. Returning a short page would make the frontend believe history is
+  // exhausted and stop paginating.
+  const msgs: (Api.Message | Api.MessageService)[] = [];
   let cursor = offsetId;
   for (let hop = 0; hop < 5 && msgs.length < limit; hop++) {
     const batch = await entry.client.getMessages(entity, {
@@ -773,12 +965,24 @@ export async function getMessages(
       ...(search ? { search } : {}),
     });
     if (!batch.length) break;
-    for (const m of batch) {
-      if (m instanceof Api.Message && msgs.length < limit) msgs.push(m);
+    // GramJS types the batch as Api.Message[], but service messages come back in it too
+    for (const m of batch as unknown as (Api.Message | Api.MessageService)[]) {
+      if (msgs.length >= limit) break;
+      if (m instanceof Api.Message) msgs.push(m);
+      else if (
+        m instanceof Api.MessageService &&
+        describeServiceAction(m.action, m.fromId ? peerToChatId(m.fromId) : null)
+      )
+        msgs.push(m);
     }
     cursor = batch[batch.length - 1].id;
     if (batch.length < limit) break; // genuine end of history
   }
+
+  const serviceInfo = await serviceInfoForPage(
+    entry,
+    msgs.filter((m): m is Api.MessageService => m instanceof Api.MessageService),
+  );
 
   // Batch-fetch reply-to message texts for quote display
   const replyIdSet = new Set<number>();
@@ -809,7 +1013,12 @@ export async function getMessages(
     }
   }
 
-  return msgs.map((msg) => {
+  const payloads = msgs.map((msg): TgMsgPayload | null => {
+    if (msg instanceof Api.MessageService) {
+      const service = serviceInfo.get(msg.id);
+      return service ? serviceMsgPayload(msg, service) : null;
+    }
+
     let fromName: string | null = null;
     if (msg.fromId) {
       const fid = peerToChatId(msg.fromId as Api.TypePeer);
@@ -842,8 +1051,11 @@ export async function getMessages(
       replyToText: replyInfo?.text ?? null,
       replyToName: replyInfo?.name ?? null,
       replyCount: (msg as any).replies?.replies ?? null,
+      service: null,
     };
   });
+
+  return payloads.filter((p): p is TgMsgPayload => p !== null);
 }
 
 export async function getPinnedMessage(

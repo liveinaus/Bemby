@@ -2150,6 +2150,26 @@ export type TgInvitePreview = {
   chatId?: string;
 };
 
+/** Membership and housekeeping events Telegram reports as service messages. */
+export type TgServiceKind =
+  | "join"
+  | "joinByRequest"
+  | "added"
+  | "left"
+  | "removed"
+  | "pinned"
+  | "titleChanged"
+  | "photoChanged"
+  | "created";
+
+export type TgServiceInfo = {
+  kind: TgServiceKind;
+  actorId: string | null;
+  actorName: string | null;
+  targets: { chatId: string; name: string | null }[];
+  title: string | null;
+};
+
 export type TgMessage = {
   id: number;
   text: string;
@@ -2169,6 +2189,8 @@ export type TgMessage = {
   replyToText: string | null;
   replyToName: string | null;
   replyCount: number | null;
+  /** Set on service messages; absent on payloads cached before they were supported. */
+  service?: TgServiceInfo | null;
 };
 
 export type TgContact = {

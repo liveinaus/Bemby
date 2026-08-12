@@ -428,7 +428,13 @@
                     Unread messages
                   </div>
 
+                  <!-- Service notice (joined, left, renamed...) -->
+                  <div v-if="msg.service" class="tgc-service-msg">
+                    <span>{{ serviceText(msg) }}</span>
+                  </div>
+
                   <div
+                    v-else
                     class="tgc-msg-wrap"
                     :class="[
                       msg.fromMe ? 'tgc-msg-out' : 'tgc-msg-in',
@@ -4149,9 +4155,29 @@ function showSenderAvatar(idx: number): boolean {
   const chat = activeChat.value;
   if (!chat || chat.type !== "group") return false;
   const next = messages.value[idx + 1];
+  // A service notice breaks a run, so the message above it keeps its avatar
   return (
-    !next || next.fromMe || senderAvatarId(next) !== senderAvatarId(msg)
+    !next ||
+    next.fromMe ||
+    Boolean(next.service) ||
+    senderAvatarId(next) !== senderAvatarId(msg)
   );
+}
+
+// The grey centred line Telegram shows for joins, leaves and renames.
+function serviceText(msg: TgMessage): string {
+  const service = msg.service;
+  if (!service) return "";
+  const someone = t("tgc.service.someone");
+  const who = msg.fromMe
+    ? t("tgc.searchYou")
+    : (service.actorName ?? someone);
+  const targets =
+    service.targets.map((x) => x.name ?? someone).join(", ") || someone;
+  return t(`tgc.service.${service.kind}`)
+    .replace("{name}", who)
+    .replace("{targets}", targets)
+    .replace("{title}", service.title ?? "");
 }
 
 function fmtTime(ts: number) {
@@ -4683,13 +4709,13 @@ async function fetchMessages(fresh = false) {
       liveWs.send(JSON.stringify({ type: "activateChat", chatId }));
     }
 
-    // Mark the first unread message so we can scroll to it and show a divider
-    if (unreadCount > 0 && unreadCount < messages.value.length) {
-      firstUnreadId.value =
-        messages.value[messages.value.length - unreadCount].id;
-    } else {
-      firstUnreadId.value = null;
-    }
+    // Mark the first unread message so we can scroll to it and show a divider.
+    // Service notices are not unread anything, so they don't count towards the offset.
+    const realMsgs = messages.value.filter((m) => !m.service);
+    firstUnreadId.value =
+      unreadCount > 0 && unreadCount < realMsgs.length
+        ? realMsgs[realMsgs.length - unreadCount].id
+        : null;
     await scrollToUnread();
     scheduleBotMsgWatch();
   } catch (e: any) {
@@ -5059,8 +5085,9 @@ async function catchUpActiveChatMessages(): Promise<void> {
 }
 
 function onIncomingMessage(chatId: string, msg: TgMessage) {
-  // Update dialog preview
-  const idx = dialogs.value.findIndex((d) => d.chatId === chatId);
+  // Update dialog preview. A service notice carries no text of its own, so it neither
+  // previews nor counts as unread -- the chat keeps the last thing someone actually said.
+  const idx = msg.service ? -1 : dialogs.value.findIndex((d) => d.chatId === chatId);
   if (idx !== -1) {
     const updated = {
       ...dialogs.value[idx],
@@ -5077,9 +5104,11 @@ function onIncomingMessage(chatId: string, msg: TgMessage) {
     // Avoid duplicate if already optimistically appended
     if (!messages.value.find((m) => m.id === msg.id)) {
       messages.value.push(msg);
-      if (!scrolledToBottom && !msg.fromMe) jumpUnseenCount.value++;
+      if (!scrolledToBottom && !msg.fromMe && !msg.service)
+        jumpUnseenCount.value++;
       scrollBottom();
     }
+    if (msg.service) return;
     // Mark as read on TG server and clear local badge
     markChatRead(chatId);
     // If a bot sent this message it may keep editing it -- start the watcher
@@ -5796,6 +5825,25 @@ async function saveContactEdit() {
 }
 .tgc-date-sep::after {
   right: 0;
+}
+
+/* Service notices: joined / left / renamed, centred and unobtrusive */
+.tgc-service-msg {
+  display: flex;
+  justify-content: center;
+  margin: 6px 0;
+}
+
+.tgc-service-msg span {
+  max-width: 80%;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #888;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  word-break: break-word;
 }
 
 .tgc-unread-sep {

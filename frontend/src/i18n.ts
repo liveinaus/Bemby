@@ -1879,6 +1879,18 @@ const zh = {
   tgc: {
     peerId: "ID",
     copyPeerId: "复制 ID，可填入任务/模板的群组或联系人字段（私密群组没有用户名时用它）",
+    service: {
+      someone: "某人",
+      join: "{name}加入了群组",
+      joinByRequest: "{name}通过申请加入了群组",
+      added: "{name}邀请了{targets}",
+      left: "{name}退出了群组",
+      removed: "{name}移除了{targets}",
+      pinned: "{name}置顶了一条消息",
+      titleChanged: "{name}将群名改为“{title}”",
+      photoChanged: "{name}修改了群头像",
+      created: "{name}创建了群组",
+    },
     members: "成员",
     searchMembers: "搜索成员…",
     noMembers: "未找到成员",
@@ -3885,6 +3897,19 @@ const en: typeof zh = {
   tgc: {
     peerId: "ID",
     copyPeerId: "Copy the ID, which a job's group or contact field takes -- the only way to name a private group with no username",
+    // Grey service lines in the message list; {name}/{targets}/{title} are filled in by the view
+    service: {
+      someone: "Someone",
+      join: "{name} joined the group",
+      joinByRequest: "{name} joined the group via a request",
+      added: "{name} added {targets}",
+      left: "{name} left the group",
+      removed: "{name} removed {targets}",
+      pinned: "{name} pinned a message",
+      titleChanged: "{name} changed the group name to “{title}”",
+      photoChanged: "{name} changed the group photo",
+      created: "{name} created the group",
+    },
     members: "Members",
     searchMembers: "Search members…",
     noMembers: "No members found",

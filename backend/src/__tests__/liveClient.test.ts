@@ -8,6 +8,10 @@ const {
   MockMessage, MockChatInvite, MockChatInviteAlready, MockChatInvitePeek,
   MockMessageMediaPhoto, MockMessageMediaDocument, MockMessageMediaContact,
   MockDocument, MockReplyInlineMarkup,
+  MockMessageService, MockActionChatAddUser, MockActionChatJoinedByLink,
+  MockActionChatJoinedByRequest, MockActionChatDeleteUser, MockActionPinMessage,
+  MockActionChatEditTitle, MockActionChatEditPhoto, MockActionChatDeletePhoto,
+  MockActionChatCreate, MockActionChannelCreate, MockActionUnsupported,
   MockChannelParticipantCreator, MockChannelParticipantAdmin,
   MockChatParticipantCreator, MockChatParticipantAdmin,
   MockTelegramClient, mockClientInstance,
@@ -32,6 +36,19 @@ const {
     rows: Array<{ buttons: Array<{ text: string }> }>;
     constructor(d: any) { this.rows = d.rows; }
   }
+
+  class MockMessageService { constructor(d: Record<string, any>) { Object.assign(this, d); } }
+  class MockActionChatAddUser { constructor(d: Record<string, any>) { Object.assign(this, d); } }
+  class MockActionChatJoinedByLink { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
+  class MockActionChatJoinedByRequest {}
+  class MockActionChatDeleteUser { constructor(d: Record<string, any>) { Object.assign(this, d); } }
+  class MockActionPinMessage {}
+  class MockActionChatEditTitle { constructor(d: Record<string, any>) { Object.assign(this, d); } }
+  class MockActionChatEditPhoto {}
+  class MockActionChatDeletePhoto {}
+  class MockActionChatCreate { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
+  class MockActionChannelCreate { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
+  class MockActionUnsupported {}
 
   class MockChannelParticipantCreator { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
   class MockChannelParticipantAdmin { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
@@ -67,6 +84,10 @@ const {
     MockMessage, MockChatInvite, MockChatInviteAlready, MockChatInvitePeek,
     MockMessageMediaPhoto, MockMessageMediaDocument, MockMessageMediaContact,
     MockDocument, MockReplyInlineMarkup,
+    MockMessageService, MockActionChatAddUser, MockActionChatJoinedByLink,
+    MockActionChatJoinedByRequest, MockActionChatDeleteUser, MockActionPinMessage,
+    MockActionChatEditTitle, MockActionChatEditPhoto, MockActionChatDeletePhoto,
+    MockActionChatCreate, MockActionChannelCreate, MockActionUnsupported,
     MockChannelParticipantCreator, MockChannelParticipantAdmin,
     MockChatParticipantCreator, MockChatParticipantAdmin,
     MockTelegramClient, mockClientInstance,
@@ -85,6 +106,17 @@ vi.mock('telegram', () => ({
     PeerChannel:         MockPeerChannel,
     PeerChat:            MockPeerChat,
     Message:             MockMessage,
+    MessageService:      MockMessageService,
+    MessageActionChatAddUser:         MockActionChatAddUser,
+    MessageActionChatJoinedByLink:    MockActionChatJoinedByLink,
+    MessageActionChatJoinedByRequest: MockActionChatJoinedByRequest,
+    MessageActionChatDeleteUser:      MockActionChatDeleteUser,
+    MessageActionPinMessage:          MockActionPinMessage,
+    MessageActionChatEditTitle:       MockActionChatEditTitle,
+    MessageActionChatEditPhoto:       MockActionChatEditPhoto,
+    MessageActionChatDeletePhoto:     MockActionChatDeletePhoto,
+    MessageActionChatCreate:          MockActionChatCreate,
+    MessageActionChannelCreate:       MockActionChannelCreate,
     MessageMediaPhoto:   MockMessageMediaPhoto,
     MessageMediaDocument: MockMessageMediaDocument,
     MessageMediaContact: MockMessageMediaContact,
@@ -429,6 +461,124 @@ describe('getMessages', () => {
     await getMessages(entry as any, 'u13', 20, 0);
 
     expect(mockGetDialogs).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---- getMessages: service notices ------------------------------------------
+
+describe('getMessages service notices', () => {
+  const group = () => new MockChannel({ id: 800n, megagroup: true, title: 'Group' });
+
+  function serviceMsg(id: number, action: any, fromUserId: bigint | null = 55n) {
+    return new MockMessageService({
+      id, date: 1700000000, out: false, action,
+      peerId: new MockPeerChannel({ channelId: 800n }),
+      fromId: fromUserId === null ? null : new MockPeerUser({ userId: fromUserId }),
+    });
+  }
+
+  it('reports a self-join with the actor resolved from the entity cache', async () => {
+    const entry = makeEntry([
+      ['c800', group()],
+      ['u55', new MockUser({ id: 55n, firstName: 'Ada', lastName: 'Lovelace' })],
+    ]);
+
+    mockGetMessages.mockResolvedValueOnce([
+      serviceMsg(9, new MockActionChatAddUser({ users: [55n] })),
+    ]);
+
+    const [msg] = await getMessages(entry as any, 'c800', 20, 0);
+
+    expect(msg.text).toBe('');
+    expect(msg.service).toEqual({
+      kind: 'join',
+      actorId: 'u55',
+      actorName: 'Ada Lovelace',
+      targets: [],
+      title: null,
+    });
+  });
+
+  it('separates someone adding others from joining themselves', async () => {
+    const entry = makeEntry([
+      ['c800', group()],
+      ['u55', new MockUser({ id: 55n, firstName: 'Ada' })],
+      ['u66', new MockUser({ id: 66n, firstName: 'Bob' })],
+    ]);
+
+    mockGetMessages.mockResolvedValueOnce([
+      serviceMsg(10, new MockActionChatAddUser({ users: [66n] })),
+    ]);
+
+    const [msg] = await getMessages(entry as any, 'c800', 20, 0);
+
+    expect(msg.service).toMatchObject({
+      kind: 'added',
+      actorName: 'Ada',
+      targets: [{ chatId: 'u66', name: 'Bob' }],
+    });
+  });
+
+  it('treats a join by invite link as a join', async () => {
+    const entry = makeEntry([['c800', group()], ['u55', new MockUser({ id: 55n, firstName: 'Ada' })]]);
+    mockGetMessages.mockResolvedValueOnce([
+      serviceMsg(11, new MockActionChatJoinedByLink({ inviterId: 1n })),
+    ]);
+
+    const [msg] = await getMessages(entry as any, 'c800', 20, 0);
+    expect(msg.service?.kind).toBe('join');
+  });
+
+  it('tells leaving apart from being removed by someone else', async () => {
+    const entry = makeEntry([
+      ['c800', group()],
+      ['u55', new MockUser({ id: 55n, firstName: 'Ada' })],
+      ['u66', new MockUser({ id: 66n, firstName: 'Bob' })],
+    ]);
+
+    mockGetMessages.mockResolvedValueOnce([
+      serviceMsg(12, new MockActionChatDeleteUser({ userId: 55n })),
+      serviceMsg(13, new MockActionChatDeleteUser({ userId: 66n })),
+    ]);
+
+    const [left, removed] = await getMessages(entry as any, 'c800', 20, 0);
+    expect(left.service?.kind).toBe('left');
+    expect(removed.service).toMatchObject({
+      kind: 'removed',
+      targets: [{ chatId: 'u66', name: 'Bob' }],
+    });
+  });
+
+  it('carries the new title on a rename', async () => {
+    const entry = makeEntry([['c800', group()], ['u55', new MockUser({ id: 55n, firstName: 'Ada' })]]);
+    mockGetMessages.mockResolvedValueOnce([
+      serviceMsg(14, new MockActionChatEditTitle({ title: 'New Name' })),
+    ]);
+
+    const [msg] = await getMessages(entry as any, 'c800', 20, 0);
+    expect(msg.service).toMatchObject({ kind: 'titleChanged', title: 'New Name' });
+  });
+
+  it('drops actions it has no wording for, rather than rendering a blank line', async () => {
+    const entry = makeEntry([['c800', group()]]);
+    mockGetMessages.mockResolvedValueOnce([
+      serviceMsg(15, new MockActionUnsupported()),
+      new MockMessage({ id: 16, message: 'Real', date: 1700000001, out: false, fromId: null, media: null, replyMarkup: null }),
+    ]);
+
+    const result = await getMessages(entry as any, 'c800', 20, 0);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ id: 16, text: 'Real' });
+  });
+
+  it('leaves service null on ordinary messages', async () => {
+    const entry = makeEntry([['c800', group()]]);
+    mockGetMessages.mockResolvedValueOnce([
+      new MockMessage({ id: 17, message: 'Hi', date: 1700000002, out: false, fromId: null, media: null, replyMarkup: null }),
+    ]);
+
+    const [msg] = await getMessages(entry as any, 'c800', 20, 0);
+    expect(msg.service).toBeNull();
   });
 });
 
