@@ -730,20 +730,29 @@ async function playSegment(
   // when a stale row survives a run that never reached its own Stopped report.
   // Having nothing to clear is the normal case, so failures here are ignored.
   throwIfAborted(ctx.signal);
-  await reportStopped(serverUrl, ctx, seg, startSeconds).catch(() => {});
+  await reportStopped(serverUrl, ctx, seg, startSeconds, { anySession: true }).catch(() => {});
 
-  await embyRequest(serverUrl, '/Sessions/Playing', {
-    method: 'POST',
-    ...reqOpts(ctx),
-    body: {
-      ItemId: itemId,
-      MediaSourceId: mediaSourceId,
-      PlaySessionId: ctx.playSessionId,
-      PositionTicks: startTicks,
-      IsPaused: false,
-      CanSeek: true,
-    },
-  });
+  try {
+    await embyRequest(serverUrl, '/Sessions/Playing', {
+      method: 'POST',
+      ...reqOpts(ctx),
+      body: {
+        ItemId: itemId,
+        MediaSourceId: mediaSourceId,
+        PlaySessionId: ctx.playSessionId,
+        PositionTicks: startTicks,
+        IsPaused: false,
+        CanSeek: true,
+      },
+    });
+  } catch (err) {
+    // A failed start report can still have registered the session (a duplicate-row
+    // 500 lands the row, then errors), which holds one of the account's stream
+    // slots until the server times it out. Release it before giving up, or the
+    // next run is refused with "maximum concurrent streams reached".
+    await reportStopped(serverUrl, ctx, seg, startSeconds, { anySession: true }).catch(() => {});
+    throw err;
+  }
 
   // Real Watch: resolve a stream and pull the media bytes a real client would,
   // in step with the reported position. When nothing is servable we record why,
@@ -816,7 +825,18 @@ async function playSegment(
 // cleanup for a cancelled run, so it gets its own timeout instead.
 const STOP_REPORT_TIMEOUT_MS = 10_000;
 
-async function reportStopped(serverUrl: string, ctx: PlayCtx, seg: Segment, positionSeconds: number): Promise<void> {
+/**
+ * `anySession` omits PlaySessionId, which is what clears a row this run did not
+ * open: front-ends that key a session on (user, device, item) match the report on
+ * that triple when no play session is named, and ignore it when the id is unknown.
+ */
+async function reportStopped(
+  serverUrl: string,
+  ctx: PlayCtx,
+  seg: Segment,
+  positionSeconds: number,
+  opts: { anySession?: boolean } = {},
+): Promise<void> {
   await embyRequest(serverUrl, '/Sessions/Playing/Stopped', {
     method: 'POST',
     ua: ctx.ua,
@@ -828,7 +848,7 @@ async function reportStopped(serverUrl: string, ctx: PlayCtx, seg: Segment, posi
     body: {
       ItemId: seg.itemId,
       MediaSourceId: seg.mediaSourceId,
-      PlaySessionId: ctx.playSessionId,
+      ...(opts.anySession ? {} : { PlaySessionId: ctx.playSessionId }),
       PositionTicks: positionSeconds * TICKS_PER_SECOND,
     },
   });

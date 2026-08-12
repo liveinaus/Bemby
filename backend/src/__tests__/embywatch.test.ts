@@ -133,7 +133,13 @@ function streamOf(bytes: number) {
 // stream probe independently.
 function routeFetch(
   streamStatus: number,
-  opts: { directStreamUrl?: string; directStatus?: number; stoppedStatus?: number } = {},
+  opts: {
+    directStreamUrl?: string;
+    directStatus?: number;
+    stoppedStatus?: number;
+    playingStatus?: number;
+    playingMessage?: string;
+  } = {},
 ) {
   const jsonRes = (body: unknown) => ({
     ok: true,
@@ -176,6 +182,14 @@ function routeFetch(
         status: opts.stoppedStatus,
         statusText: 'Internal Server Error',
         text: vi.fn().mockResolvedValue(''),
+      });
+    }
+    if (opts.playingStatus && url.endsWith('/Sessions/Playing')) {
+      return Promise.resolve({
+        ok: false,
+        status: opts.playingStatus,
+        statusText: 'Internal Server Error',
+        text: vi.fn().mockResolvedValue(JSON.stringify({ Message: opts.playingMessage ?? 'start refused' })),
       });
     }
     // Playing / Progress / Stopped / PlayedItems
@@ -749,6 +763,13 @@ describe('embywatch library scoping', () => {
   });
 });
 
+/** Parsed bodies of every /Sessions/Playing/Stopped report, in call order. */
+function stoppedBodies(): any[] {
+  return mockUndiciFetch.mock.calls
+    .filter(c => typeof c[0] === 'string' && (c[0] as string).endsWith('/Sessions/Playing/Stopped'))
+    .map(c => JSON.parse((c[1] as any).body));
+}
+
 describe('embywatch session cleanup', () => {
   it('clears a stale session with Stopped before reporting playback', async () => {
     routeFetch(206);
@@ -767,6 +788,35 @@ describe('embywatch session cleanup', () => {
 
     const result = await runEmbywatch('https://emby.example.com', baseConfig);
     expect(result.title).toBe('Ep');
+  });
+
+  // Servers that key a session on (user, device, item) only honour a Stopped
+  // report that names no play session, so the pre-flight clear must omit it --
+  // otherwise the stale row survives and holds one of the account's stream slots.
+  it('omits PlaySessionId on the pre-flight clear and sends it on the real stop', async () => {
+    routeFetch(206);
+
+    await runEmbywatch('https://emby.example.com', baseConfig);
+
+    const stops = stoppedBodies();
+    expect(stops.length).toBeGreaterThanOrEqual(2);
+    expect(stops[0].PlaySessionId).toBeUndefined();
+    expect(stops[stops.length - 1].PlaySessionId).toMatch(/^bemby-/);
+  });
+
+  it('releases the session when the start report itself fails', async () => {
+    routeFetch(206, {
+      playingStatus: 500,
+      playingMessage: 'duplicate key value violates unique constraint "idx_session_user_device_item"',
+    });
+
+    await expect(runEmbywatch('https://emby.example.com', baseConfig))
+      .rejects.toThrow('idx_session_user_device_item');
+
+    // Pre-flight clear, then the release for the row the failed start left behind.
+    const stops = stoppedBodies();
+    expect(stops).toHaveLength(2);
+    expect(stops[1].PlaySessionId).toBeUndefined();
   });
 });
 
