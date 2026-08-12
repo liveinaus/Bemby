@@ -1879,6 +1879,16 @@ const zh = {
   tgc: {
     peerId: "ID",
     copyPeerId: "复制 ID，可填入任务/模板的群组或联系人字段（私密群组没有用户名时用它）",
+    reply: {
+      message: "消息",
+      photo: "📷 图片",
+      video: "🎬 视频",
+      sticker: "贴纸",
+      voice: "🎤 语音",
+      audio: "🎵 音频",
+      document: "📎 文件",
+      contact: "👤 联系人",
+    },
     service: {
       someone: "某人",
       join: "{name}加入了群组",
@@ -3897,6 +3907,17 @@ const en: typeof zh = {
   tgc: {
     peerId: "ID",
     copyPeerId: "Copy the ID, which a job's group or contact field takes -- the only way to name a private group with no username",
+    // Stand-ins for a quoted message with no text of its own
+    reply: {
+      message: "Message",
+      photo: "📷 Photo",
+      video: "🎬 Video",
+      sticker: "Sticker",
+      voice: "🎤 Voice message",
+      audio: "🎵 Audio",
+      document: "📎 File",
+      contact: "👤 Contact",
+    },
     // Grey service lines in the message list; {name}/{targets}/{title} are filled in by the view
     service: {
       someone: "Someone",

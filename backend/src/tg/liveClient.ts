@@ -32,6 +32,16 @@ export type TgButton = {
   requestPhone: boolean; // reply-keyboard button -- shares our own phone as a contact
 };
 
+/** Media a quoted message carries, so the UI can word a quote with no text of its own. */
+export type TgMediaKind =
+  | "photo"
+  | "video"
+  | "sticker"
+  | "voice"
+  | "audio"
+  | "document"
+  | "contact";
+
 /** Membership and housekeeping events Telegram reports as service messages. */
 export type TgServiceKind =
   | "join"
@@ -76,6 +86,9 @@ export type TgMsgPayload = {
   replyToText: string | null;
   replyToName: string | null;
   replyCount: number | null;
+  /** Media of the quoted message, when it has no text to quote. */
+  replyToMedia?: TgMediaKind | null;
+  replyToFileName?: string | null;
   /** Set on service messages (someone joined, left, renamed the group...); null otherwise. */
   service?: TgServiceInfo | null;
 };
@@ -422,6 +435,31 @@ function displayText(msg: Api.Message | { message?: string; media?: any }): stri
   return (msg as any).message || contactMediaText((msg as any).media);
 }
 
+/**
+ * What kind of media a message carries, so a quote of a text-less message can still say
+ * what it was. Anything not worth naming returns null and reads as a plain message.
+ */
+function mediaKind(
+  media: Api.TypeMessageMedia | null | undefined,
+): TgMediaKind | null {
+  if (media instanceof Api.MessageMediaPhoto) return "photo";
+  if (media instanceof Api.MessageMediaContact) return "contact";
+  if (media instanceof Api.MessageMediaDocument) {
+    const doc = (media as Api.MessageMediaDocument).document;
+    if (!(doc instanceof Api.Document)) return "document";
+    if (doc.attributes.some((a) => a instanceof Api.DocumentAttributeSticker))
+      return "sticker";
+    const audio = doc.attributes.find(
+      (a) => a instanceof Api.DocumentAttributeAudio,
+    ) as Api.DocumentAttributeAudio | undefined;
+    if (audio) return audio.voice ? "voice" : "audio";
+    if (doc.attributes.some((a) => a instanceof Api.DocumentAttributeVideo))
+      return "video";
+    return "document";
+  }
+  return null;
+}
+
 // Filename of a document attachment, if the sender provided one.
 function docFileName(
   media: Api.TypeMessageMedia | null | undefined,
@@ -584,7 +622,7 @@ async function connectLiveClient(accountId: number): Promise<LiveEntry> {
   liveClients.set(accountId, entry);
   evictSurplusClients(accountId);
 
-  client.addEventHandler((event: NewMessageEvent) => {
+  client.addEventHandler(async (event: NewMessageEvent) => {
     const msg = event.message as Api.Message;
     if (!msg?.peerId) return;
 
@@ -597,6 +635,12 @@ async function connectLiveClient(accountId: number): Promise<LiveEntry> {
       const sender = entry!.entityCache.get(fid);
       if (sender) fromName = entityName(sender);
     }
+
+    // Quote details for a reply, so the message reads the same live as on reload
+    const replyToId = (msg.replyTo as any)?.replyToMsgId ?? null;
+    const quote = replyToId
+      ? await replyQuote(entry!, chatId, replyToId)
+      : null;
 
     const liveMsg: TgLiveMessage = {
       chatId,
@@ -617,9 +661,11 @@ async function connectLiveClient(accountId: number): Promise<LiveEntry> {
         fileName: docFileName(msg.media),
         buttons: extractButtons(msg),
         reactions: extractReactions(msg),
-        replyToId: (msg.replyTo as any)?.replyToMsgId ?? null,
-        replyToText: null,
-        replyToName: null,
+        replyToId,
+        replyToText: quote?.text ?? null,
+        replyToName: quote?.name ?? null,
+        replyToMedia: quote?.media ?? null,
+        replyToFileName: quote?.fileName ?? null,
         replyCount: (msg as any).replies?.replies ?? null,
       },
     };
@@ -798,6 +844,38 @@ export async function ensureEntityCached(
     }
   } catch {
     /* not resolvable -- fetchAvatar will cache null and won't retry */
+  }
+}
+
+/**
+ * Quote details for a single reply. Costs a round-trip, so it is only used for messages
+ * arriving live -- history pages batch the same lookup.
+ */
+async function replyQuote(
+  entry: LiveEntry,
+  chatId: string,
+  replyToId: number,
+): Promise<{
+  text: string;
+  name: string | null;
+  media: TgMediaKind | null;
+  fileName: string | null;
+} | null> {
+  const entity = entry.entityCache.get(chatId);
+  if (!entity) return null;
+  try {
+    const [rm] = await entry.client.getMessages(entity, { ids: [replyToId] });
+    if (!rm?.id) return null;
+    const rfid = rm.fromId ? peerToChatId(rm.fromId as Api.TypePeer) : null;
+    const names = rfid ? await resolveEntityNames(entry, [rfid]) : null;
+    return {
+      text: displayText(rm),
+      name: rfid ? (names?.get(rfid) ?? null) : entityName(entity),
+      media: mediaKind(rm.media),
+      fileName: docFileName(rm.media),
+    };
+  } catch {
+    return null; // Quote unavailable -- the UI words it as a plain message
   }
 }
 
@@ -992,21 +1070,38 @@ export async function getMessages(
       replyIdSet.add(rt.replyToMsgId as number);
     }
   }
-  const replyMap = new Map<number, { text: string; name: string | null }>();
+  const replyMap = new Map<
+    number,
+    {
+      text: string;
+      name: string | null;
+      media: TgMediaKind | null;
+      fileName: string | null;
+    }
+  >();
   if (replyIdSet.size > 0) {
     try {
       const replyMsgs = await entry.client.getMessages(entity, {
         ids: [...replyIdSet],
       });
+      // Quote senders are often not in the entity cache, and a quote naming nobody is
+      // most of what makes a reply hard to place
+      const names = await resolveEntityNames(
+        entry,
+        replyMsgs
+          .filter((rm) => rm?.fromId)
+          .map((rm) => peerToChatId(rm.fromId as Api.TypePeer)),
+      );
       for (const rm of replyMsgs) {
         if (!rm?.id) continue;
-        let rname: string | null = null;
-        if (rm.fromId) {
-          const rfid = peerToChatId(rm.fromId as Api.TypePeer);
-          const rsender = entry.entityCache.get(rfid);
-          if (rsender) rname = entityName(rsender);
-        }
-        replyMap.set(rm.id, { text: rm.message ?? "", name: rname });
+        const rfid = rm.fromId ? peerToChatId(rm.fromId as Api.TypePeer) : null;
+        replyMap.set(rm.id, {
+          text: displayText(rm),
+          // No sender means it was posted as the group itself
+          name: rfid ? (names.get(rfid) ?? null) : entityName(entity),
+          media: mediaKind(rm.media),
+          fileName: docFileName(rm.media),
+        });
       }
     } catch {
       // Best effort -- reply quotes may be missing
@@ -1050,6 +1145,8 @@ export async function getMessages(
       replyToId,
       replyToText: replyInfo?.text ?? null,
       replyToName: replyInfo?.name ?? null,
+      replyToMedia: replyInfo?.media ?? null,
+      replyToFileName: replyInfo?.fileName ?? null,
       replyCount: (msg as any).replies?.replies ?? null,
       service: null,
     };

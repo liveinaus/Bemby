@@ -8,6 +8,7 @@ const {
   MockMessage, MockChatInvite, MockChatInviteAlready, MockChatInvitePeek,
   MockMessageMediaPhoto, MockMessageMediaDocument, MockMessageMediaContact,
   MockDocument, MockReplyInlineMarkup,
+  MockDocAttrSticker, MockDocAttrAudio, MockDocAttrVideo, MockDocAttrFilename,
   MockMessageService, MockActionChatAddUser, MockActionChatJoinedByLink,
   MockActionChatJoinedByRequest, MockActionChatDeleteUser, MockActionPinMessage,
   MockActionChatEditTitle, MockActionChatEditPhoto, MockActionChatDeletePhoto,
@@ -16,7 +17,7 @@ const {
   MockChatParticipantCreator, MockChatParticipantAdmin,
   MockTelegramClient, mockClientInstance,
   mockAddEventHandler, mockGetDialogs, mockGetMessages, mockSendMessage, mockInvoke,
-  mockGetParticipants,
+  mockGetParticipants, mockGetEntity,
 } = vi.hoisted(() => {
   class MockUser { constructor(d: Record<string, any>) { Object.assign(this, d); } }
   class MockChat { constructor(d: Record<string, any>) { Object.assign(this, d); } }
@@ -36,6 +37,11 @@ const {
     rows: Array<{ buttons: Array<{ text: string }> }>;
     constructor(d: any) { this.rows = d.rows; }
   }
+
+  class MockDocAttrSticker {}
+  class MockDocAttrAudio { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
+  class MockDocAttrVideo {}
+  class MockDocAttrFilename { constructor(d: Record<string, any>) { Object.assign(this, d); } }
 
   class MockMessageService { constructor(d: Record<string, any>) { Object.assign(this, d); } }
   class MockActionChatAddUser { constructor(d: Record<string, any>) { Object.assign(this, d); } }
@@ -61,6 +67,8 @@ const {
   const mockSendMessage     = vi.fn().mockResolvedValue({ id: 1, date: 1700000000 });
   const mockInvoke          = vi.fn().mockResolvedValue({ users: [], chats: [] });
   const mockGetParticipants = vi.fn().mockResolvedValue([]);
+  // Unresolvable by default: name lookups fall back the same way they do without a cache hit
+  const mockGetEntity       = vi.fn().mockRejectedValue(new Error('not found'));
 
   const mockClientInstance = {
     connect:         vi.fn().mockResolvedValue(undefined),
@@ -74,6 +82,7 @@ const {
     getParticipants: mockGetParticipants,
     downloadMedia:   vi.fn(),
     getInputEntity:  vi.fn().mockResolvedValue({}),
+    getEntity:       mockGetEntity,
   };
 
   const MockTelegramClient = vi.fn().mockReturnValue(mockClientInstance);
@@ -84,6 +93,7 @@ const {
     MockMessage, MockChatInvite, MockChatInviteAlready, MockChatInvitePeek,
     MockMessageMediaPhoto, MockMessageMediaDocument, MockMessageMediaContact,
     MockDocument, MockReplyInlineMarkup,
+    MockDocAttrSticker, MockDocAttrAudio, MockDocAttrVideo, MockDocAttrFilename,
     MockMessageService, MockActionChatAddUser, MockActionChatJoinedByLink,
     MockActionChatJoinedByRequest, MockActionChatDeleteUser, MockActionPinMessage,
     MockActionChatEditTitle, MockActionChatEditPhoto, MockActionChatDeletePhoto,
@@ -92,7 +102,7 @@ const {
     MockChatParticipantCreator, MockChatParticipantAdmin,
     MockTelegramClient, mockClientInstance,
     mockAddEventHandler, mockGetDialogs, mockGetMessages, mockSendMessage, mockInvoke,
-    mockGetParticipants,
+    mockGetParticipants, mockGetEntity,
   };
 });
 
@@ -121,6 +131,10 @@ vi.mock('telegram', () => ({
     MessageMediaDocument: MockMessageMediaDocument,
     MessageMediaContact: MockMessageMediaContact,
     Document:            MockDocument,
+    DocumentAttributeSticker:  MockDocAttrSticker,
+    DocumentAttributeAudio:    MockDocAttrAudio,
+    DocumentAttributeVideo:    MockDocAttrVideo,
+    DocumentAttributeFilename: MockDocAttrFilename,
     ReplyInlineMarkup:   MockReplyInlineMarkup,
     contacts: {
       GetContacts:    vi.fn().mockImplementation((d: any) => d),
@@ -461,6 +475,87 @@ describe('getMessages', () => {
     await getMessages(entry as any, 'u13', 20, 0);
 
     expect(mockGetDialogs).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---- getMessages: reply quotes ---------------------------------------------
+
+describe('getMessages reply quotes', () => {
+  const group = () => new MockChannel({ id: 700n, megagroup: true, title: 'The Group' });
+
+  function reply(id: number, replyToMsgId: number) {
+    return new MockMessage({
+      id, message: 'sure', date: 1700000100, out: false, fromId: null,
+      media: null, replyMarkup: null,
+      replyTo: { className: 'MessageReplyHeader', replyToMsgId },
+    });
+  }
+
+  function quoted(id: number, over: Record<string, any>) {
+    return new MockMessage({
+      id, message: '', date: 1700000000, out: false, media: null, replyMarkup: null,
+      fromId: new MockPeerUser({ userId: 42n }), ...over,
+    });
+  }
+
+  it('names the quoted sender even when they are not in the entity cache', async () => {
+    const entry = makeEntry([['c700', group()]]);
+    mockGetEntity.mockResolvedValueOnce(new MockUser({ id: 42n, firstName: 'Ada' }));
+    mockGetMessages
+      .mockResolvedValueOnce([reply(2, 1)])
+      .mockResolvedValueOnce([quoted(1, { message: 'the original' })]);
+
+    const [msg] = await getMessages(entry as any, 'c700', 20, 0);
+
+    expect(msg.replyToName).toBe('Ada');
+    expect(msg.replyToText).toBe('the original');
+    expect(entry.entityCache.get('u42')).toMatchObject({ firstName: 'Ada' });
+  });
+
+  it('describes a quoted photo, which has no text to show', async () => {
+    const entry = makeEntry([['c700', group()], ['u42', new MockUser({ id: 42n, firstName: 'Ada' })]]);
+    mockGetMessages
+      .mockResolvedValueOnce([reply(4, 3)])
+      .mockResolvedValueOnce([quoted(3, { media: new MockMessageMediaPhoto() })]);
+
+    const [msg] = await getMessages(entry as any, 'c700', 20, 0);
+
+    expect(msg.replyToText).toBe('');
+    expect(msg.replyToMedia).toBe('photo');
+  });
+
+  it('reports a quoted file with its name, so the quote says which file', async () => {
+    const entry = makeEntry([['c700', group()], ['u42', new MockUser({ id: 42n, firstName: 'Ada' })]]);
+    const doc = new MockDocument({ attributes: [new MockDocAttrFilename({ fileName: 'report.pdf' })] });
+    mockGetMessages
+      .mockResolvedValueOnce([reply(6, 5)])
+      .mockResolvedValueOnce([quoted(5, { media: new MockMessageMediaDocument({ document: doc }) })]);
+
+    const [msg] = await getMessages(entry as any, 'c700', 20, 0);
+
+    expect(msg.replyToMedia).toBe('document');
+    expect(msg.replyToFileName).toBe('report.pdf');
+  });
+
+  it('tells a voice message apart from other audio', async () => {
+    const entry = makeEntry([['c700', group()]]);
+    const doc = new MockDocument({ attributes: [new MockDocAttrAudio({ voice: true })] });
+    mockGetMessages
+      .mockResolvedValueOnce([reply(8, 7)])
+      .mockResolvedValueOnce([quoted(7, { media: new MockMessageMediaDocument({ document: doc }) })]);
+
+    const [msg] = await getMessages(entry as any, 'c700', 20, 0);
+    expect(msg.replyToMedia).toBe('voice');
+  });
+
+  it('credits the group itself when the quoted message has no sender', async () => {
+    const entry = makeEntry([['c700', group()]]);
+    mockGetMessages
+      .mockResolvedValueOnce([reply(10, 9)])
+      .mockResolvedValueOnce([quoted(9, { fromId: null, message: 'notice' })]);
+
+    const [msg] = await getMessages(entry as any, 'c700', 20, 0);
+    expect(msg.replyToName).toBe('The Group');
   });
 });
 

@@ -555,10 +555,16 @@
                         <div class="tgc-reply-bar"></div>
                         <div class="tgc-reply-content">
                           <div class="tgc-reply-name">
-                            {{ msg.replyToName || "Message" }}
+                            {{ msg.replyToName || t('tgc.reply.message') }}
                           </div>
                           <div class="tgc-reply-text">
-                            {{ msg.replyToText || "..." }}
+                            {{
+                              quoteText(
+                                msg.replyToText,
+                                msg.replyToMedia,
+                                msg.replyToFileName,
+                              )
+                            }}
                           </div>
                         </div>
                       </div>
@@ -771,7 +777,7 @@
                 <div class="tgc-reply-strip-body">
                   <div class="tgc-reply-strip-name">Edit message</div>
                   <div class="tgc-reply-strip-text">
-                    {{ editingMsg.text || "..." }}
+                    {{ msgPreview(editingMsg) }}
                   </div>
                 </div>
                 <button
@@ -787,10 +793,10 @@
                 <i class="fa-solid fa-reply tgc-reply-strip-icon"></i>
                 <div class="tgc-reply-strip-body">
                   <div class="tgc-reply-strip-name">
-                    {{ replyingTo.fromName || "Message" }}
+                    {{ replyingTo.fromMe ? t('tgc.searchYou') : (replyingTo.fromName || t('tgc.reply.message')) }}
                   </div>
                   <div class="tgc-reply-strip-text">
-                    {{ replyingTo.text || "..." }}
+                    {{ msgPreview(replyingTo) }}
                   </div>
                 </div>
                 <button
@@ -1910,6 +1916,7 @@ import {
   type TgFolder,
   type TgProfile,
   type TgMember,
+  type TgMediaKind,
   type TgInvitePreview,
   type TgReportReason,
 } from "../api/client";
@@ -4164,6 +4171,56 @@ function showSenderAvatar(idx: number): boolean {
   );
 }
 
+// A quote needs to say enough to place the message it points at, so a text-less one is
+// named by its media rather than left blank.
+function quoteText(
+  text: string | null,
+  media?: TgMediaKind | null,
+  fileName?: string | null,
+): string {
+  if (text) return text;
+  if (media === "document") return fileName || t("tgc.reply.document");
+  return media ? t(`tgc.reply.${media}`) : t("tgc.reply.message");
+}
+
+/** Same wording for a message we hold in full, from its own media flags. */
+function msgPreview(msg: TgMessage): string {
+  if (msg.text) return msg.text;
+  const media: TgMediaKind | null = msg.hasSticker
+    ? "sticker"
+    : msg.hasPhoto
+      ? "photo"
+      : msg.hasDocument
+        ? "document"
+        : null;
+  return quoteText(null, media, msg.fileName);
+}
+
+/** Reply fields for a message we append before the server echoes it back. */
+function replyFieldsFor(replyMsg: TgMessage | null | undefined) {
+  if (!replyMsg)
+    return {
+      replyToId: null,
+      replyToText: null,
+      replyToName: null,
+      replyToMedia: null,
+      replyToFileName: null,
+    };
+  return {
+    replyToId: replyMsg.id,
+    replyToText: replyMsg.text,
+    replyToName: replyMsg.fromName,
+    replyToMedia: (replyMsg.hasSticker
+      ? "sticker"
+      : replyMsg.hasPhoto
+        ? "photo"
+        : replyMsg.hasDocument
+          ? "document"
+          : null) as TgMediaKind | null,
+    replyToFileName: replyMsg.fileName,
+  };
+}
+
 // The grey centred line Telegram shows for joins, leaves and renames.
 function serviceText(msg: TgMessage): string {
   const service = msg.service;
@@ -4884,9 +4941,7 @@ async function sendFileMessage() {
       fileName: result.hasDocument ? file.name : null,
       buttons: null,
       reactions: null,
-      replyToId: replyMsg?.id ?? null,
-      replyToText: replyMsg?.text ?? null,
-      replyToName: null,
+      ...replyFieldsFor(replyMsg),
       replyCount: null,
     });
     await scrollBottom(true);
@@ -4954,9 +5009,7 @@ async function sendMessage() {
       fileName: null,
       buttons: null,
       reactions: null,
-      replyToId: replyMsg?.id ?? null,
-      replyToText: replyMsg?.text ?? null,
-      replyToName: null,
+      ...replyFieldsFor(replyMsg),
       replyCount: null,
     });
     await scrollBottom(true);

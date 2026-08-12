@@ -2150,6 +2150,16 @@ export type TgInvitePreview = {
   chatId?: string;
 };
 
+/** Media a quoted message carries, so the UI can word a quote with no text of its own. */
+export type TgMediaKind =
+  | "photo"
+  | "video"
+  | "sticker"
+  | "voice"
+  | "audio"
+  | "document"
+  | "contact";
+
 /** Membership and housekeeping events Telegram reports as service messages. */
 export type TgServiceKind =
   | "join"
@@ -2189,6 +2199,9 @@ export type TgMessage = {
   replyToText: string | null;
   replyToName: string | null;
   replyCount: number | null;
+  /** Media of the quoted message, when it has no text to quote. */
+  replyToMedia?: TgMediaKind | null;
+  replyToFileName?: string | null;
   /** Set on service messages; absent on payloads cached before they were supported. */
   service?: TgServiceInfo | null;
 };
