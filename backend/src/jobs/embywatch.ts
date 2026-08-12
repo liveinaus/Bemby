@@ -724,6 +724,14 @@ async function playSegment(
   const { itemId, mediaSourceId } = seg;
   const startTicks = startSeconds * TICKS_PER_SECOND;
 
+  // Clear any session this device still holds for the item before starting a new
+  // one -- the cleanup a real client performs on exit. Some Emby front-ends key an
+  // active session by (user, device, item) and reject the start report outright
+  // when a stale row survives a run that never reached its own Stopped report.
+  // Having nothing to clear is the normal case, so failures here are ignored.
+  throwIfAborted(ctx.signal);
+  await reportStopped(serverUrl, ctx, seg, startSeconds).catch(() => {});
+
   await embyRequest(serverUrl, '/Sessions/Playing', {
     method: 'POST',
     ...reqOpts(ctx),

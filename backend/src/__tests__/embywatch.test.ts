@@ -133,7 +133,7 @@ function streamOf(bytes: number) {
 // stream probe independently.
 function routeFetch(
   streamStatus: number,
-  opts: { directStreamUrl?: string; directStatus?: number } = {},
+  opts: { directStreamUrl?: string; directStatus?: number; stoppedStatus?: number } = {},
 ) {
   const jsonRes = (body: unknown) => ({
     ok: true,
@@ -145,6 +145,7 @@ function routeFetch(
     status,
     body: { cancel: vi.fn(), getReader: () => streamOf(status === 200 || status === 206 ? 1024 : 0) },
   });
+  let stoppedFailed = false;
   mockUndiciFetch.mockImplementation((url: string) => {
     if (url.includes('/Users/AuthenticateByName')) {
       return Promise.resolve(jsonRes({ AccessToken: 'tok', User: { Id: 'u1', Name: 'Tester' } }));
@@ -165,6 +166,17 @@ function routeFetch(
       return Promise.resolve(jsonRes({
         Items: [{ Id: 'i1', Name: 'Ep', Type: 'Episode', RunTimeTicks: 6000_000_000, MediaSources: [{ Id: 's1' }] }],
       }));
+    }
+    // Fails only the pre-flight Stopped (the first one), leaving the end-of-segment
+    // report to succeed as a real server's would.
+    if (opts.stoppedStatus && url.endsWith('/Sessions/Playing/Stopped') && !stoppedFailed) {
+      stoppedFailed = true;
+      return Promise.resolve({
+        ok: false,
+        status: opts.stoppedStatus,
+        statusText: 'Internal Server Error',
+        text: vi.fn().mockResolvedValue(''),
+      });
     }
     // Playing / Progress / Stopped / PlayedItems
     return Promise.resolve({ ok: true, status: 204, statusText: 'No Content', text: vi.fn().mockResolvedValue('') });
@@ -734,6 +746,27 @@ describe('embywatch library scoping', () => {
     });
     const result = await runEmbywatch('https://emby.example.com', { ...baseConfig, verifyPlayable: true, playDuration: 1, library: 'TV Shows' });
     expect(result.title).toBe('GoodOnServer');
+  });
+});
+
+describe('embywatch session cleanup', () => {
+  it('clears a stale session with Stopped before reporting playback', async () => {
+    routeFetch(206);
+
+    await runEmbywatch('https://emby.example.com', baseConfig);
+
+    const urls = mockUndiciFetch.mock.calls
+      .map(c => (typeof c[0] === 'string' ? c[0] : ''))
+      .filter(u => u.includes('/Sessions/Playing'));
+    expect(urls[0]).toMatch(/\/Sessions\/Playing\/Stopped$/);
+    expect(urls[1]).toMatch(/\/Sessions\/Playing$/);
+  });
+
+  it('reports playback even when clearing the stale session fails', async () => {
+    routeFetch(206, { stoppedStatus: 500 });
+
+    const result = await runEmbywatch('https://emby.example.com', baseConfig);
+    expect(result.title).toBe('Ep');
   });
 });
 
