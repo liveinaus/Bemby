@@ -68,7 +68,7 @@ import {
   type BulkProfileOptions,
 } from "../jobs/bulkProfile";
 import { testGmailImap } from "../jobs/bulkLoginEmail";
-import { msApiConfigured } from "../jobs/msOauth2api";
+import { msApiConfigured, msApiOffReason } from "../jobs/msOauth2api";
 import { parseTgProxy } from "../jobs/runner";
 import { resolveAppClientParams, previewDeviceModel } from "../tg/appClient";
 import { isAuthError, markSessionExpired } from "../tg/liveClient";
@@ -1298,7 +1298,7 @@ router.post("/:id/login-email/auto", bulkMgmtGuard, async (req, res) => {
   };
   if (source === "msapi") {
     if (!msApiConfigured()) {
-      res.status(400).json({ error: "msOauth2api is not configured (see Settings)" });
+      res.status(400).json({ error: msApiOffReason() });
       return;
     }
   } else if (!gmail || !gmail.includes("@") || !appPassword) {

@@ -22,7 +22,7 @@ import {
   startBulkPrivacy,
   startBulkSpamCheck,
 } from "../jobs/bulkOps";
-import { msApiConfigured } from "../jobs/msOauth2api";
+import { msApiConfigured, msApiOffReason } from "../jobs/msOauth2api";
 
 // Background bulk tasks: the panel starts one, polls this list for progress and
 // may terminate it. Task objects carry no secrets -- passwords and Gmail app
@@ -108,7 +108,7 @@ router.post("/login-email", bulkMgmtGuard, (req, res) => {
     };
   if (source === "msapi") {
     if (!msApiConfigured()) {
-      res.status(400).json({ error: "msOauth2api is not configured (see Settings)" });
+      res.status(400).json({ error: msApiOffReason() });
       return;
     }
   } else if (!gmail || !gmail.includes("@") || !appPassword) {

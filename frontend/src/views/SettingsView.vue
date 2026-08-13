@@ -1118,8 +1118,10 @@
       </div>
 
       <!-- msOauth2api: the mailbox pool a login email or a signup step can draw an address
-           from. The key is write-only, the same round trip the bot token makes -->
-      <div class="card s-col-6">
+           from. The key is write-only, the same round trip the bot token makes. The whole
+           card is absent unless the server offers the feature (MSOAUTH2API), so a panel with
+           no install to point at never mentions it -->
+      <div v-if="msApiAvailable" class="card s-col-6">
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.msapi.title") }}</div>
           <p style="font-size: 12px; color: #888; margin: 0 0 12px">
@@ -2502,7 +2504,7 @@ import {
   dataStoreEnabled,
   setDataStoreEnabled,
 } from "../composables/dataStore";
-import { applyMsApiSetting } from "../composables/msApi";
+import { applyMsApiSetting, msApiAvailable } from "../composables/msApi";
 import { setTemplateEditButton } from "../composables/templateEditButton";
 
 const timezones = [
@@ -3770,6 +3772,8 @@ onMounted(async () => {
     msApiKeyMasked.value = s.msapi_api_key_masked ?? "";
     msApiConfigured.value = s.msapi_configured === "true";
     msApiPoolTypeDefault.value = s.msapi_pool_type_default || "Telegram";
+    // Decides whether the card above is rendered at all
+    applyMsApiSetting(s);
   } catch {
     /* ignore */
   }

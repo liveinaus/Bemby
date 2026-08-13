@@ -65,6 +65,18 @@ export function normaliseBaseUrl(raw: string): string {
   return trimmed.replace(/\/api$/i, "");
 }
 
+/**
+ * Whether this deployment offers the integration at all, set by MSOAUTH2API ("1"/"true") the
+ * way the data store is set by DATA_MANAGEMENT. Off is off for everyone: no Settings section,
+ * no address source on a login-email run, no pool steps in the step editor and no API behind
+ * any of it, whatever is stored. Most panels have no msOauth2api install to point at, and are
+ * simpler without the question.
+ */
+export function isMsApiEnabled(): boolean {
+  const v = (process.env.MSOAUTH2API ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
 export function msApiConfig(): MsApiConfig {
   return {
     baseUrl: normaliseBaseUrl(setting(MSAPI_BASE_URL_KEY)),
@@ -73,10 +85,21 @@ export function msApiConfig(): MsApiConfig {
   };
 }
 
-/** Both halves are needed: the endpoints are never public, so a URL alone reaches nothing. */
+/**
+ * Whether a run can actually use the pool: offered by the deployment, and holding both halves
+ * of the credential -- the endpoints are never public, so a URL alone reaches nothing.
+ */
 export function msApiConfigured(): boolean {
+  if (!isMsApiEnabled()) return false;
   const cfg = msApiConfig();
   return Boolean(cfg.baseUrl && cfg.apiKey);
+}
+
+/** Why the pool is unavailable, naming the switch that would change it. */
+export function msApiOffReason(): string {
+  return isMsApiEnabled()
+    ? "msOauth2api is not configured (see Settings)"
+    : "msOauth2api is not enabled on this server (set MSOAUTH2API=1)";
 }
 
 /** The type a run acts on: what it asked for, else the configured default. */
@@ -85,6 +108,7 @@ export function resolvePoolType(requested?: string): string {
 }
 
 function requireConfig(): MsApiConfig {
+  if (!isMsApiEnabled()) throw new Error(msApiOffReason());
   const cfg = msApiConfig();
   if (!cfg.baseUrl)
     throw new Error("no msOauth2api base URL is set (see Settings)");

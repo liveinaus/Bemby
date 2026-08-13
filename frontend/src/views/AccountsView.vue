@@ -2162,7 +2162,9 @@
               }}
             </div>
 
-            <div class="form-group">
+            <!-- Only where the deployment offers the pool: with it off the form is the Gmail
+                 one it has always been, with nothing to choose between -->
+            <div v-if="msApiAvailable" class="form-group">
               <label class="form-label">{{
                 t("accounts.bulkEmail.sourceLabel")
               }}</label>
@@ -3142,6 +3144,7 @@ const settings = ref<{
   default_tg_api_id?: string;
   default_tg_api_hash?: string;
   bulk_account_management?: string;
+  msapi_available?: string;
   msapi_configured?: string;
   msapi_pool_type?: string;
   msapi_pool_type_default?: string;
@@ -3151,8 +3154,13 @@ const bulkMgmtEnabled = computed(
   () => settings.value?.bulk_account_management === "true",
 );
 
-/** Whether a login email can be drawn from the msOauth2api pool at all. */
-const msApiConfigured = computed(() => settings.value?.msapi_configured === "true");
+/** Whether the deployment offers the pool at all; off, nothing here mentions msOauth2api. */
+const msApiAvailable = computed(() => settings.value?.msapi_available === "true");
+
+/** Whether a login email can actually be drawn from it: offered, with a URL and key stored. */
+const msApiConfigured = computed(
+  () => msApiAvailable.value && settings.value?.msapi_configured === "true",
+);
 
 const msApiPoolTypeDefault = computed(
   () =>

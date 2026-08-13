@@ -204,6 +204,7 @@ Railway 支持直接从 Docker Hub 镜像部署，无需 Fork 或连接 GitHub�
 - **TRUST_PROXY** — 通过 `TRUST_PROXY` 环境变量配置反向代理跳数，确保速率限制和 IP 检测在 nginx/Caddy/Railway/Cloudflare 等代理后正常工作
 - **BULK_ACCOUNT_MANAGEMENT** — 设为 `1`（或 `true`）以显示"批量添加账户"和"批量清理"按钮并启用其后端接口（默认关闭）
 - **DATA_MANAGEMENT** — 设为 `1`（或 `true`）以启用数据存储：「数据」菜单、设置中的开关、任务的数据子步骤（读取/保存/删除记录）与 `{data.文件夹.键}` 占位符（默认关闭）。关闭时这些内容一概不出现，面板更简单；需要用 Bemby 长期保存数据的进阶用户再开启
+- **MSOAUTH2API** — 设为 `1`（或 `true`）以启用 msOauth2api 集成：设置中的服务地址/API Key 配置、批量修改登录邮箱时从邮箱池领取独立邮箱，以及网页步骤「领取一个邮箱地址」与从邮箱池读取验证码（默认关闭）。关闭时相关内容一概不出现
 - **内存使用** — 显示当前占用（RSS）、本次启动峰值、外部内存与可用上限；超过上限 75% 时日志告警并指出当时运行的任务；进程因内存不足被强制终止时无法自行留下记录，因此内存数据会定期落盘，下次启动会报告上次退出前的占用量与当时运行的任务
 - **内存上限（小内存机器）** — `TG_LIVE_CLIENT_MAX` 限制同时保持的 Telegram 连接数（默认 8）、`TG_MEDIA_MAX_MB` 与 `TG_UPLOAD_MAX_MB` 限制消息页面收发文件大小（默认 25 / 50MB）、`NODE_OPTIONS` 调整 Node 堆内存上限（镜像默认 `--max-old-space-size=512`，适配 2GB 内存）；完整列表见 `env.example`
 - **管理员凭证** — 修改管理员用户名或密码
@@ -557,6 +558,7 @@ Go to **Settings** to configure:
 - **TRUST_PROXY** — set the `TRUST_PROXY` env var to the number of reverse-proxy hops in front of the app so rate limiting and IP detection work correctly behind nginx, Caddy, Railway, Cloudflare, etc.
 - **BULK_ACCOUNT_MANAGEMENT** — set to `1` (or `true`) to show the "Bulk Add" and "Bulk Clean" buttons and enable their API routes (disabled by default)
 - **DATA_MANAGEMENT** — set to `1` (or `true`) to enable the data store: the Data menu entry, its Settings toggle, the job steps that read/save/delete a record, and the `{data.folder.key}` placeholders (disabled by default). Left off none of it is offered, which keeps the panel simpler; it is for the advanced use of keeping data in Bemby between runs
+- **MSOAUTH2API** — set to `1` (or `true`) to enable the [msOauth2api](https://github.com/liveinaus/msOauth2api) integration: its Settings section (base URL and API key), the option to give a Telegram account a login email leased from its address pool, and the page steps that take an address and read the code sent to it (disabled by default). Left off, none of it is offered and nothing mentions it
 - **Memory Usage** — shows current usage (RSS), the peak for this run, external memory, and the available limit; passing 75% of the limit logs a warning naming the job in flight. A process killed for running out of memory cannot record it, so readings are persisted periodically and the next start reports what the previous process was holding and which job was running
 - **Memory bounds (small hosts)** — `TG_LIVE_CLIENT_MAX` bounds simultaneous Telegram connections (default 8), `TG_MEDIA_MAX_MB` and `TG_UPLOAD_MAX_MB` bound files received and sent in the Messenger (default 25 / 50MB), and `NODE_OPTIONS` sets the Node heap ceiling (the image defaults to `--max-old-space-size=512`, suited to a 2GB host); see `env.example` for the full list
 - **Admin credentials** — change the admin username or password

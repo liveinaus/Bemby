@@ -19,11 +19,12 @@ vi.mock("../db/database", () => ({
 const undiciFetch = vi.fn();
 vi.mock("undici", () => ({ fetch: (...args: unknown[]) => undiciFetch(...args) }));
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   leaseEmail,
   maskApiKey,
   msApiConfigured,
+  msApiOffReason,
   normaliseBaseUrl,
   pollForCode,
   poolStatus,
@@ -42,10 +43,33 @@ function calledUrl(call = 0): URL {
 
 beforeEach(() => {
   undiciFetch.mockReset();
+  process.env.MSOAUTH2API = "1";
   settings = {
     msapi_base_url: "http://pool.example:3000",
     msapi_api_key: "msk_abcdef0123456789",
   };
+});
+
+afterEach(() => {
+  delete process.env.MSOAUTH2API;
+});
+
+// Off at the deployment, nothing about the integration works, whatever is stored
+describe("the MSOAUTH2API gate", () => {
+  it("reports unconfigured and refuses to call out", async () => {
+    delete process.env.MSOAUTH2API;
+    expect(msApiConfigured()).toBe(false);
+    expect(msApiOffReason()).toMatch(/MSOAUTH2API=1/);
+    await expect(poolStatus()).rejects.toThrow(/not enabled on this server/);
+    await expect(leaseEmail()).rejects.toThrow(/not enabled on this server/);
+    expect(undiciFetch).not.toHaveBeenCalled();
+  });
+
+  it("names the Settings section instead once the deployment offers it", () => {
+    settings.msapi_api_key = "";
+    expect(msApiConfigured()).toBe(false);
+    expect(msApiOffReason()).toMatch(/not configured \(see Settings\)/);
+  });
 });
 
 describe("normaliseBaseUrl", () => {

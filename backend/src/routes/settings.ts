@@ -62,9 +62,11 @@ import {
 } from "../tg/proxyProviders";
 import {
   DEFAULT_MSAPI_POOL_TYPE,
+  isMsApiEnabled,
   maskApiKey,
   msApiConfig,
   msApiConfigured,
+  msApiOffReason,
   MSAPI_API_KEY_SETTING,
   MSAPI_BASE_URL_KEY,
   MSAPI_POOL_TYPE_KEY,
@@ -306,12 +308,18 @@ function getClientSettings(): Record<string, string> {
   const botToken = getNotifyConfig().botToken;
   result.notify_bot_configured = botToken ? "true" : "false";
   result.notify_bot_token_masked = botToken ? maskBotToken(botToken) : "";
-  // The msOauth2api key, masked, and whether both halves are set: an address pool with a URL
-  // but no key reaches nothing, so the panel offers that source only once it is configured
-  const msApi = msApiConfig();
-  result.msapi_configured = msApiConfigured() ? "true" : "false";
-  result.msapi_api_key_masked = maskApiKey(msApi.apiKey);
-  result.msapi_pool_type_default = DEFAULT_MSAPI_POOL_TYPE;
+  // msOauth2api. Off at the deployment, nothing about it is served at all -- not the section,
+  // not the stored values, not even a mask -- so a panel that has no install to point at never
+  // mentions it. On, the masked key and whether both halves are set: an address pool with a
+  // URL but no key reaches nothing, so that source is offered only once it is configured.
+  result.msapi_available = isMsApiEnabled() ? "true" : "false";
+  if (isMsApiEnabled()) {
+    result.msapi_configured = msApiConfigured() ? "true" : "false";
+    result.msapi_api_key_masked = maskApiKey(msApiConfig().apiKey);
+    result.msapi_pool_type_default = DEFAULT_MSAPI_POOL_TYPE;
+  } else {
+    for (const key of [MSAPI_BASE_URL_KEY, MSAPI_POOL_TYPE_KEY]) delete result[key];
+  }
   return result;
 }
 
@@ -331,6 +339,15 @@ router.put("/", (req, res) => {
       // The data store's toggle is not there to be flipped on a panel whose deployment does
       // not offer the feature: the toggle is hidden, so this is for a stale page or a script
       if (key === "data_store_enabled" && !isDataManagementEnabled()) continue;
+      // Same for the msOauth2api keys: the section is hidden, so this is a stale page or a
+      // script writing settings the deployment does not offer
+      if (
+        (key === MSAPI_BASE_URL_KEY ||
+          key === MSAPI_API_KEY_SETTING ||
+          key === MSAPI_POOL_TYPE_KEY) &&
+        !isMsApiEnabled()
+      )
+        continue;
       // Skip if the client sent back a masked credential unchanged
       if (
         (key === "default_tg_api_hash" ||
@@ -826,6 +843,10 @@ router.post("/notify/bot/test", async (req, res) => {
 // POST /msapi/test -- ask the address pool for its counts. Proves the URL is reachable, the
 // key is accepted and the type exists, which is everything a login-email run needs.
 router.post("/msapi/test", async (req, res) => {
+  if (!isMsApiEnabled()) {
+    res.status(403).json({ ok: false, error: msApiOffReason() });
+    return;
+  }
   if (!msApiConfigured()) {
     res.status(400).json({ ok: false, error: "Set the base URL and API key first" });
     return;

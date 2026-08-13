@@ -224,7 +224,12 @@
 
       <!-- Read a code out of a mailbox: the password is a secret's name, never the value -->
       <div v-if="s.type === 'web_email_code'">
-        <div class="form-group">
+        <!-- Only where the deployment offers the pool, or on a step already saved as one:
+             with it off the step is the Gmail one it has always been -->
+        <div
+          v-if="msApiAvailable || s.emailSource === 'msapi'"
+          class="form-group"
+        >
           <label class="form-label">{{ t("jobs.web.labelEmailSource") }}</label>
           <select v-model="s.emailSource" class="form-select">
             <option value="gmail">{{ t("jobs.web.emailSourceGmail") }}</option>
@@ -1005,7 +1010,11 @@ import {
   dataStoreEnabled,
   loadDataFolderNames,
 } from "../composables/dataStore";
-import { loadMsApiSetting, msApiConfigured } from "../composables/msApi";
+import {
+  loadMsApiSetting,
+  msApiAvailable,
+  msApiConfigured,
+} from "../composables/msApi";
 import RowControls from "./RowControls.vue";
 
 // The list is mutated in place: the parent holds it inside its own action form object, so

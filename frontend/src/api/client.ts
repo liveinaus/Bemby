@@ -1577,6 +1577,8 @@ export type Settings = {
   jobs_template_edit_button?: string;
   /** "true" turns on the data store: its menu entry, its API and its job steps. */
   data_store_enabled?: string;
+  /** Server-computed: "true" when the deployment offers msOauth2api (MSOAUTH2API). */
+  msapi_available?: string;
   /** Base URL of a msOauth2api install, e.g. http://host:3000. */
   msapi_base_url?: string;
   /** msOauth2api API key. Write-only: reads come back as msapi_api_key_masked. */
