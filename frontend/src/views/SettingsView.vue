@@ -1117,6 +1117,80 @@
         </div>
       </div>
 
+      <!-- msOauth2api: the mailbox pool a login email or a signup step can draw an address
+           from. The key is write-only, the same round trip the bot token makes -->
+      <div class="card s-col-6">
+        <div class="card-body">
+          <div class="card-section-title">{{ t("settings.msapi.title") }}</div>
+          <p style="font-size: 12px; color: #888; margin: 0 0 12px">
+            {{ t("settings.msapi.hint") }}
+          </p>
+
+          <div v-if="msApiMsg" class="success-msg">{{ msApiMsg }}</div>
+          <div v-if="msApiError" class="error-msg">{{ msApiError }}</div>
+
+          <div class="form-group">
+            <label class="form-label">{{ t("settings.msapi.baseUrlLabel") }}</label>
+            <input
+              v-model.trim="msApiForm.baseUrl"
+              class="form-input"
+              autocomplete="off"
+              placeholder="http://host:3000"
+            />
+            <p style="font-size: 12px; color: #888; margin: 4px 0 0">
+              {{ t("settings.msapi.baseUrlHint") }}
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">{{ t("settings.msapi.apiKeyLabel") }}</label>
+            <input
+              v-model.trim="msApiForm.apiKey"
+              class="form-input"
+              autocomplete="off"
+              :placeholder="msApiKeyMasked || 'msk_...'"
+            />
+            <p style="font-size: 12px; color: #888; margin: 4px 0 0">
+              {{ t("settings.msapi.apiKeyHint") }}
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">{{ t("settings.msapi.poolTypeLabel") }}</label>
+            <input
+              v-model.trim="msApiForm.poolType"
+              class="form-input"
+              style="max-width: 220px"
+              :placeholder="msApiPoolTypeDefault"
+            />
+            <p style="font-size: 12px; color: #888; margin: 4px 0 0">
+              {{ t("settings.msapi.poolTypeHint") }}
+            </p>
+          </div>
+
+          <div style="display: flex; gap: 8px; align-items: center">
+            <button
+              class="btn btn-primary btn-sm"
+              :disabled="msApiSaving"
+              @click="saveMsApi"
+            >
+              {{ msApiSaving ? t("common.saving") : t("common.save") }}
+            </button>
+            <button
+              class="btn btn-secondary btn-sm"
+              :disabled="msApiTesting || !msApiConfigured"
+              @click="testMsApi"
+            >
+              <i class="fa-solid fa-plug-circle-check"></i>
+              {{ msApiTesting ? t("settings.msapi.testing") : t("settings.msapi.testBtn") }}
+            </button>
+          </div>
+          <p v-if="msApiPool" style="font-size: 12px; margin: 8px 0 0; color: #2e9e5b">
+            <i class="fa-solid fa-circle-check"></i> {{ msApiPool }}
+          </p>
+        </div>
+      </div>
+
       <!-- Proxies -->
       <div class="card s-col-6">
         <div class="card-body">
@@ -2428,6 +2502,7 @@ import {
   dataStoreEnabled,
   setDataStoreEnabled,
 } from "../composables/dataStore";
+import { applyMsApiSetting } from "../composables/msApi";
 import { setTemplateEditButton } from "../composables/templateEditButton";
 
 const timezones = [
@@ -2510,6 +2585,18 @@ const notifyChats = ref<NotifyBotChat[]>([]);
 const notifyChatsLoading = ref(false);
 const notifyChatsHint = ref("");
 const notifyLegacyOpen = ref(false);
+
+// msOauth2api: the address pool a login-email run or a signup step draws from. The key is
+// write-only here too, so the mask stands in as the placeholder and a blank field keeps it.
+const msApiForm = reactive({ baseUrl: "", apiKey: "", poolType: "" });
+const msApiKeyMasked = ref("");
+const msApiConfigured = ref(false);
+const msApiPoolTypeDefault = ref("Telegram");
+const msApiSaving = ref(false);
+const msApiTesting = ref(false);
+const msApiMsg = ref("");
+const msApiError = ref("");
+const msApiPool = ref("");
 
 // Cloudflare "I am not a bot" solver: an optional headless browser installed on
 // demand into the data dir (keeps the image small).
@@ -3678,6 +3765,11 @@ onMounted(async () => {
       /* ignore */
     }
     void loadNotifyBot(s.notify_bot_configured === "true");
+    msApiForm.baseUrl = s.msapi_base_url ?? "";
+    msApiForm.poolType = s.msapi_pool_type ?? "";
+    msApiKeyMasked.value = s.msapi_api_key_masked ?? "";
+    msApiConfigured.value = s.msapi_configured === "true";
+    msApiPoolTypeDefault.value = s.msapi_pool_type_default || "Telegram";
   } catch {
     /* ignore */
   }
@@ -4190,6 +4282,57 @@ async function saveNotify() {
     notifyError.value = err.response?.data?.error ?? t("settings.saveFailed");
   } finally {
     notifySaving.value = false;
+  }
+}
+
+// ── msOauth2api ────────────────────────────────────────────────────────────────
+
+async function saveMsApi() {
+  msApiMsg.value = "";
+  msApiError.value = "";
+  msApiPool.value = "";
+  msApiSaving.value = true;
+  try {
+    const s = await settingsApi.update({
+      msapi_base_url: msApiForm.baseUrl,
+      msapi_pool_type: msApiForm.poolType,
+      // Blank leaves the stored key alone, so the URL can be edited without retyping it
+      ...(msApiForm.apiKey ? { msapi_api_key: msApiForm.apiKey } : {}),
+    });
+    msApiForm.apiKey = "";
+    msApiKeyMasked.value = s.msapi_api_key_masked ?? "";
+    msApiConfigured.value = s.msapi_configured === "true";
+    // Offer or withdraw the pool source in the step editor without a reload
+    applyMsApiSetting(s);
+    msApiMsg.value = t("settings.saved");
+  } catch (err: any) {
+    msApiError.value = err.response?.data?.error ?? t("settings.saveFailed");
+  } finally {
+    msApiSaving.value = false;
+  }
+}
+
+/** Asks the pool for its counts: the one check that proves URL, key and type together. */
+async function testMsApi() {
+  msApiMsg.value = "";
+  msApiError.value = "";
+  msApiPool.value = "";
+  msApiTesting.value = true;
+  try {
+    const r = await settingsApi.testMsApi(msApiForm.poolType);
+    if (r.ok) {
+      msApiPool.value = t("settings.msapi.poolCounts")
+        .replace("{available}", String(r.available ?? 0))
+        .replace("{leased}", String(r.leased ?? 0))
+        .replace("{confirmed}", String(r.confirmed ?? 0));
+    } else {
+      msApiError.value = r.error ?? t("settings.msapi.testFailed");
+    }
+  } catch (err: any) {
+    msApiError.value =
+      err.response?.data?.error ?? t("settings.msapi.testFailed");
+  } finally {
+    msApiTesting.value = false;
   }
 }
 

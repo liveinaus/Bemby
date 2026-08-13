@@ -53,6 +53,10 @@ export type WebStepForm = {
   target: string;
   /** web_email_code: the mailbox to read. */
   email: string;
+  /** web_email_code: which service holds the mailbox. */
+  emailSource: "gmail" | "msapi";
+  /** web_email_code / web_email_lease: msOauth2api pool type; blank uses the default. */
+  poolType: string;
   /** web_email_code: the secret holding the app password, e.g. `{gmailAppPassword}`. */
   appPassword: string;
   /** web_email_code: only consider mail from a sender containing this. */
@@ -115,6 +119,7 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "web_collect",
   "web_read",
   "web_email_code",
+  "web_email_lease",
   "web_tg_code",
   "web_tg_api_save",
   "web_set",
@@ -150,6 +155,9 @@ export const DATA_WEB_STEP_TYPES: WebStepType[] = [
   "web_data_delete",
 ];
 
+/** Types that reach msOauth2api, so the editor can hide them while it is not configured. */
+export const MSAPI_WEB_STEP_TYPES: WebStepType[] = ["web_email_lease"];
+
 /** Types that hold other steps, and so decide what may be offered inside them. */
 export const LOOP_WEB_STEP_TYPES: WebStepType[] = ["web_repeat", "web_for_each"];
 export const BRANCH_WEB_STEP_TYPE: WebStepType = "web_if";
@@ -160,19 +168,22 @@ export const MAX_WEB_STEP_DEPTH = 3;
 /**
  * What the editor may offer at this point in the nesting. Neither loop can go inside a loop,
  * though both may go inside a branch; nothing may go past the depth limit. The data steps are
- * left out while the store is switched off, since the backend would refuse them anyway --
- * except on a step already saved as one, which stays selectable so it is not silently changed.
+ * left out while the store is switched off, and the msOauth2api steps while it has no URL and
+ * key, since the backend would refuse either anyway -- except on a step already saved as one,
+ * which stays selectable so it is not silently changed.
  */
 export function offeredWebStepTypes(
   depth: number,
   inLoop: boolean,
-  opts: { dataEnabled?: boolean; keep?: WebStepType } = {},
+  opts: { dataEnabled?: boolean; msApiEnabled?: boolean; keep?: WebStepType } = {},
 ): WebStepType[] {
   return WEB_STEP_TYPES.filter((ty) => {
     const container = LOOP_WEB_STEP_TYPES.includes(ty) || ty === BRANCH_WEB_STEP_TYPE;
     if (LOOP_WEB_STEP_TYPES.includes(ty) && inLoop) return false;
     if (container && depth >= MAX_WEB_STEP_DEPTH) return false;
     if (DATA_WEB_STEP_TYPES.includes(ty) && !opts.dataEnabled && ty !== opts.keep) return false;
+    if (MSAPI_WEB_STEP_TYPES.includes(ty) && !opts.msApiEnabled && ty !== opts.keep)
+      return false;
     return true;
   });
 }
@@ -209,6 +220,8 @@ export function defaultWebStep(): WebStepForm {
     valueVar: "",
     target: "",
     email: "",
+    emailSource: "gmail",
+    poolType: "",
     appPassword: "{gmailAppPassword}",
     fromContains: "",
     subjectContains: "",
@@ -341,12 +354,24 @@ export function webStepToConfig(s: WebStepForm): WebStep {
       return {
         type: "web_email_code",
         email: s.email.trim(),
-        appPassword: s.appPassword.trim(),
         varName: s.varName.trim(),
+        // The pool holds its own credentials, so only the Gmail source carries a secret name
+        ...(s.emailSource === "msapi"
+          ? {
+              source: "msapi" as const,
+              ...(s.poolType.trim() ? { poolType: s.poolType.trim() } : {}),
+            }
+          : { appPassword: s.appPassword.trim() }),
         ...(s.fromContains.trim() ? { fromContains: s.fromContains.trim() } : {}),
         ...(s.subjectContains.trim() ? { subjectContains: s.subjectContains.trim() } : {}),
         ...(s.pattern.trim() ? { pattern: s.pattern.trim() } : {}),
         ...(s.waitMs > 0 ? { waitMs: s.waitMs } : {}),
+      };
+    case "web_email_lease":
+      return {
+        type: "web_email_lease",
+        varName: s.varName.trim(),
+        ...(s.poolType.trim() ? { poolType: s.poolType.trim() } : {}),
       };
     case "web_tg_code":
       return {
@@ -572,12 +597,21 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
         ...base,
         type: s.type,
         email: s.email,
-        appPassword: s.appPassword,
+        emailSource: s.source === "msapi" ? "msapi" : "gmail",
+        poolType: s.poolType ?? "",
+        appPassword: s.appPassword ?? base.appPassword,
         varName: s.varName,
         fromContains: s.fromContains ?? "",
         subjectContains: s.subjectContains ?? "",
         pattern: s.pattern ?? "",
         waitMs: s.waitMs ?? 120000,
+      };
+    case "web_email_lease":
+      return {
+        ...base,
+        type: s.type,
+        varName: s.varName,
+        poolType: s.poolType ?? "",
       };
     case "web_tg_code":
       return {

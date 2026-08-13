@@ -22,6 +22,7 @@ import {
   startBulkPrivacy,
   startBulkSpamCheck,
 } from "../jobs/bulkOps";
+import { msApiConfigured } from "../jobs/msOauth2api";
 
 // Background bulk tasks: the panel starts one, polls this list for progress and
 // may terminate it. Task objects carry no secrets -- passwords and Gmail app
@@ -95,14 +96,22 @@ router.post("/fetch-attributes", (req, res) => {
 });
 
 router.post("/login-email", bulkMgmtGuard, (req, res) => {
-  const { ids, gmail, appPassword, tag, gapSeconds } = req.body as {
-    ids?: number[];
-    gmail?: string;
-    appPassword?: string;
-    tag?: string;
-    gapSeconds?: number;
-  };
-  if (!gmail || !gmail.includes("@") || !appPassword) {
+  const { ids, source, gmail, appPassword, tag, poolType, gapSeconds } =
+    req.body as {
+      ids?: number[];
+      source?: "gmail" | "msapi";
+      gmail?: string;
+      appPassword?: string;
+      tag?: string;
+      poolType?: string;
+      gapSeconds?: number;
+    };
+  if (source === "msapi") {
+    if (!msApiConfigured()) {
+      res.status(400).json({ error: "msOauth2api is not configured (see Settings)" });
+      return;
+    }
+  } else if (!gmail || !gmail.includes("@") || !appPassword) {
     res.status(400).json({ error: "gmail and appPassword are required" });
     return;
   }
@@ -110,11 +119,14 @@ router.post("/login-email", bulkMgmtGuard, (req, res) => {
     res,
     startBulkLoginEmail(
       numberList(ids),
-      {
-        gmail: gmail.trim(),
-        appPassword,
-        tag: (tag ?? "").trim(),
-      },
+      source === "msapi"
+        ? { source: "msapi", poolType: (poolType ?? "").trim() }
+        : {
+            source: "gmail",
+            gmail: gmail!.trim(),
+            appPassword,
+            tag: (tag ?? "").trim(),
+          },
       optionalSeconds(gapSeconds),
     ),
   );

@@ -224,7 +224,24 @@
 
       <!-- Read a code out of a mailbox: the password is a secret's name, never the value -->
       <div v-if="s.type === 'web_email_code'">
-        <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">{{ t("jobs.web.labelEmailSource") }}</label>
+          <select v-model="s.emailSource" class="form-select">
+            <option value="gmail">{{ t("jobs.web.emailSourceGmail") }}</option>
+            <option value="msapi" :disabled="!msApiEnabled">
+              {{ t("jobs.web.emailSourceMsApi") }}
+            </option>
+          </select>
+          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            {{
+              msApiEnabled
+                ? t("jobs.web.emailSourceHint")
+                : t("jobs.web.msApiNotConfigured")
+            }}
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top: 8px">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelEmail") }}</label>
             <input
@@ -246,7 +263,7 @@
           {{ t("jobs.web.emailCodeHint") }}
         </div>
 
-        <div class="form-group" style="margin-top: 8px">
+        <div v-if="s.emailSource !== 'msapi'" class="form-group" style="margin-top: 8px">
           <label class="form-label">{{ t("jobs.web.labelAppPassword") }}</label>
           <input
             v-model.trim="s.appPassword"
@@ -255,6 +272,18 @@
           />
           <div style="font-size: 11px; color: #aaa; margin-top: 3px">
             {{ t("jobs.web.appPasswordHint") }}
+          </div>
+        </div>
+
+        <div v-else class="form-group" style="margin-top: 8px">
+          <label class="form-label">{{ t("jobs.web.labelPoolType") }}</label>
+          <input
+            v-model.trim="s.poolType"
+            class="form-input"
+            :placeholder="t('jobs.web.poolTypePlaceholder')"
+          />
+          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            {{ t("jobs.web.poolTypeHint") }}
           </div>
         </div>
 
@@ -299,6 +328,31 @@
               {{ t("jobs.web.mailWaitHint") }}
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Take an address from the msOauth2api pool for a signup form to use -->
+      <div v-if="s.type === 'web_email_lease'">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelEmailVarName") }}</label>
+            <input
+              v-model.trim="s.varName"
+              class="form-input"
+              :placeholder="t('jobs.web.emailVarNamePlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelPoolType") }}</label>
+            <input
+              v-model.trim="s.poolType"
+              class="form-input"
+              :placeholder="t('jobs.web.poolTypePlaceholder')"
+            />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.emailLeaseHint") }}
         </div>
       </div>
 
@@ -951,6 +1005,7 @@ import {
   dataStoreEnabled,
   loadDataFolderNames,
 } from "../composables/dataStore";
+import { loadMsApiSetting, msApiConfigured } from "../composables/msApi";
 import RowControls from "./RowControls.vue";
 
 // The list is mutated in place: the parent holds it inside its own action form object, so
@@ -973,11 +1028,18 @@ const props = defineProps<{
 function typesFor(current: WebStepType): WebStepType[] {
   return offeredWebStepTypes(props.depth ?? 0, props.inLoop ?? false, {
     dataEnabled: dataStoreEnabled.value,
+    msApiEnabled: msApiConfigured.value,
     keep: current,
   });
 }
 
-onMounted(loadDataFolderNames);
+/** Whether the pool source is on offer; the editor says so rather than failing at run time. */
+const msApiEnabled = msApiConfigured;
+
+onMounted(() => {
+  loadDataFolderNames();
+  void loadMsApiSetting();
+});
 
 // Suggestions for the key field. Not the whole set -- any letter or digit is a key too, and
 // the field stays free text for those; these are the ones a page usually goes by. The backend

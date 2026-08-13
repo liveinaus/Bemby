@@ -678,13 +678,18 @@ export type WebStep =
     }
   | {
       /**
-       * Read a verification code out of a Gmail mailbox and hold it under a name. The app
-       * password is not stored here: `appPassword` names a secret set in Settings, written
-       * {gmailAppPassword}, and only the backend ever reads its value.
+       * Read a verification code out of a mailbox and hold it under a name. Gmail over IMAP,
+       * or the msOauth2api mailbox a `web_email_lease` took. The app password is not stored
+       * here: `appPassword` names a secret set in Settings, written {gmailAppPassword}, and
+       * only the backend ever reads its value; the msOauth2api key is a setting.
        */
       type: "web_email_code";
+      /** Where to read from; blank is Gmail. */
+      source?: "gmail" | "msapi";
       email: string;
-      appPassword: string;
+      appPassword?: string;
+      /** msOauth2api pool type; blank uses the configured default. */
+      poolType?: string;
       varName: string;
       fromContains?: string;
       subjectContains?: string;
@@ -692,6 +697,16 @@ export type WebStep =
       pattern?: string;
       /** How long to wait for the mail. Blank/0 waits 120s. */
       waitMs?: number;
+    }
+  | {
+      /**
+       * Take an address from the msOauth2api pool and hold it under a name, for a signup form
+       * to type and a later `web_email_code` to read the code from.
+       */
+      type: "web_email_lease";
+      varName: string;
+      /** Pool type to lease from, e.g. Telegram. Blank uses the configured default. */
+      poolType?: string;
     }
   | {
       /**
@@ -1274,13 +1289,14 @@ export const accountsApi = {
     api
       .post<{ email: string | null }>(`/accounts/${id}/login-email/verify`, { code })
       .then((r) => r.data),
-  autoLoginEmail: (id: number, gmail: string, appPassword: string, tag: string) =>
+  autoLoginEmail: (
+    id: number,
+    opts:
+      | { source?: "gmail"; gmail: string; appPassword: string; tag: string }
+      | { source: "msapi"; poolType?: string },
+  ) =>
     api
-      .post<{ email: string }>(`/accounts/${id}/login-email/auto`, {
-        gmail,
-        appPassword,
-        tag,
-      })
+      .post<{ email: string }>(`/accounts/${id}/login-email/auto`, opts)
       .then((r) => r.data),
   testGmail: (gmail: string, appPassword: string) =>
     api
@@ -1561,6 +1577,18 @@ export type Settings = {
   jobs_template_edit_button?: string;
   /** "true" turns on the data store: its menu entry, its API and its job steps. */
   data_store_enabled?: string;
+  /** Base URL of a msOauth2api install, e.g. http://host:3000. */
+  msapi_base_url?: string;
+  /** msOauth2api API key. Write-only: reads come back as msapi_api_key_masked. */
+  msapi_api_key?: string;
+  /** Pool type leases are scoped to, e.g. Telegram. Blank uses msapi_pool_type_default. */
+  msapi_pool_type?: string;
+  /** Server-computed: "true" when both a base URL and an API key are stored. */
+  msapi_configured?: string;
+  /** Server-computed: the stored key as msk_ab****wxyz. Never the raw value. */
+  msapi_api_key_masked?: string;
+  /** Server-computed: the pool type used when none is set. */
+  msapi_pool_type_default?: string;
   /** Days to keep job logs; "0" keeps all logs. */
   log_retention_days?: string;
   /** Minimum minutes between scheduled runs; "0" disables staggering. */
@@ -1889,6 +1917,17 @@ export const settingsApi = {
         ...(target ? { target } : {}),
         ...(token ? { token } : {}),
       })
+      .then((r) => r.data),
+  /** Asks the msOauth2api address pool for its counts: proves URL, key and type together. */
+  testMsApi: (type?: string) =>
+    api
+      .post<{
+        ok: boolean;
+        error?: string;
+        available?: number;
+        leased?: number;
+        confirmed?: number;
+      }>("/settings/msapi/test", { ...(type ? { type } : {}) })
       .then((r) => r.data),
 };
 
@@ -2871,7 +2910,9 @@ export const bulkTasksApi = {
       .then((r) => r.data),
   loginEmail: (
     ids: number[],
-    opts: { gmail: string; appPassword: string; tag: string },
+    opts:
+      | { source?: "gmail"; gmail: string; appPassword: string; tag: string }
+      | { source: "msapi"; poolType?: string },
     gapSeconds?: number,
   ) =>
     api

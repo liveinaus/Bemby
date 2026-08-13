@@ -114,9 +114,13 @@ export function startBulkFetchAttributes(
 }
 
 export type BulkLoginEmailOptions = {
-  gmail: string;
-  appPassword: string;
-  tag: string;
+  /** Where the address comes from; blank is Gmail, as it was before the pool existed. */
+  source?: "gmail" | "msapi";
+  gmail?: string;
+  appPassword?: string;
+  tag?: string;
+  /** Pool type for the msapi source; blank uses the configured default. */
+  poolType?: string;
 };
 
 export function startBulkLoginEmail(
@@ -128,17 +132,22 @@ export function startBulkLoginEmail(
   if (!entries) return NO_ACCOUNTS;
   // Kept in the closure only: the Gmail app password must never reach the task
   // list the panel polls.
-  const { gmail, appPassword, tag } = options;
+  const { source, gmail, appPassword, tag, poolType } = options;
+  const opts =
+    source === "msapi"
+      ? ({ source: "msapi", poolType } as const)
+      : ({
+          source: "gmail",
+          gmail: gmail ?? "",
+          appPassword: appPassword ?? "",
+          tag: tag ?? "",
+        } as const);
   return startBulkTask({
     kind: "login-email",
     entries,
     gapSeconds: gapSeconds ?? DEFAULT_TG_GAP_SECONDS,
     handler: async (item) => {
-      const { email } = await changeLoginEmailForAccount(item.refId, {
-        gmail,
-        appPassword,
-        tag,
-      });
+      const { email } = await changeLoginEmailForAccount(item.refId, opts);
       return { message: email, data: { email } };
     },
   });

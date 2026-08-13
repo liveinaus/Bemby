@@ -41,6 +41,8 @@ export const SENSITIVE_SETTING_KEYS = [
   'webshare_api_key',
   // Whoever holds the notification bot's token can act as that bot
   'notify_bot_token',
+  // Whoever holds the msOauth2api key can read every mailbox that install holds
+  'msapi_api_key',
 ];
 
 // Config keys that carry a credential (e.g. Emby login) inside a job/template config blob.

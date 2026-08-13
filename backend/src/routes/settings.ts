@@ -61,6 +61,16 @@ import {
   type ProxyProvider,
 } from "../tg/proxyProviders";
 import {
+  DEFAULT_MSAPI_POOL_TYPE,
+  maskApiKey,
+  msApiConfig,
+  msApiConfigured,
+  MSAPI_API_KEY_SETTING,
+  MSAPI_BASE_URL_KEY,
+  MSAPI_POOL_TYPE_KEY,
+  poolStatus,
+} from "../jobs/msOauth2api";
+import {
   getBotInfo,
   getNotifyConfig,
   maskBotToken,
@@ -105,6 +115,9 @@ export const ALLOWED_KEYS = [
   CF_PROFILE_ID_KEY,
   CF_BROWSER_LANG_KEY,
   CF_TUNING_KEY,
+  MSAPI_BASE_URL_KEY,
+  MSAPI_API_KEY_SETTING,
+  MSAPI_POOL_TYPE_KEY,
 ];
 
 /** Settings keys that must never be sent to the client. */
@@ -122,6 +135,8 @@ export const CLIENT_HIDDEN_KEYS = new Set([
   "proxy_providers",
   // Notification bot token: served masked, under a separate key
   NOTIFY_BOT_TOKEN_KEY,
+  // msOauth2api API key: served masked, under a separate key
+  MSAPI_API_KEY_SETTING,
 ]);
 
 /** True when an AI key exists anywhere the runtime looks: a supplier, the legacy setting or the env. */
@@ -291,6 +306,12 @@ function getClientSettings(): Record<string, string> {
   const botToken = getNotifyConfig().botToken;
   result.notify_bot_configured = botToken ? "true" : "false";
   result.notify_bot_token_masked = botToken ? maskBotToken(botToken) : "";
+  // The msOauth2api key, masked, and whether both halves are set: an address pool with a URL
+  // but no key reaches nothing, so the panel offers that source only once it is configured
+  const msApi = msApiConfig();
+  result.msapi_configured = msApiConfigured() ? "true" : "false";
+  result.msapi_api_key_masked = maskApiKey(msApi.apiKey);
+  result.msapi_pool_type_default = DEFAULT_MSAPI_POOL_TYPE;
   return result;
 }
 
@@ -310,9 +331,11 @@ router.put("/", (req, res) => {
       // The data store's toggle is not there to be flipped on a panel whose deployment does
       // not offer the feature: the toggle is hidden, so this is for a stale page or a script
       if (key === "data_store_enabled" && !isDataManagementEnabled()) continue;
-      // Skip if the client sent back the masked hash or bot token unchanged
+      // Skip if the client sent back a masked credential unchanged
       if (
-        (key === "default_tg_api_hash" || key === NOTIFY_BOT_TOKEN_KEY) &&
+        (key === "default_tg_api_hash" ||
+          key === NOTIFY_BOT_TOKEN_KEY ||
+          key === MSAPI_API_KEY_SETTING) &&
         String(updates[key]).includes("****")
       )
         continue;
@@ -797,6 +820,21 @@ router.post("/notify/bot/test", async (req, res) => {
     res.json({ ok: true });
   } catch (err: any) {
     res.status(502).json({ ok: false, error: err?.message ?? "Send failed" });
+  }
+});
+
+// POST /msapi/test -- ask the address pool for its counts. Proves the URL is reachable, the
+// key is accepted and the type exists, which is everything a login-email run needs.
+router.post("/msapi/test", async (req, res) => {
+  if (!msApiConfigured()) {
+    res.status(400).json({ ok: false, error: "Set the base URL and API key first" });
+    return;
+  }
+  try {
+    const stats = await poolStatus((req.body?.type as string | undefined) ?? "");
+    res.json({ ok: true, ...stats });
+  } catch (err: any) {
+    res.status(502).json({ ok: false, error: err?.message ?? "Request failed" });
   }
 });
 

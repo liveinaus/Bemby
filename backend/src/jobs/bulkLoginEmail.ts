@@ -7,6 +7,7 @@ import {
   type TgDeviceParams,
 } from "../auth/tgAuth";
 import { expandCommand } from "./checkin";
+import { leaseEmail, pollForCode, releaseEmail } from "./msOauth2api";
 import type { TgProxy } from "../types";
 
 // Automates a Telegram login-email change against a Gmail inbox: each account
@@ -211,4 +212,72 @@ export async function changeLoginEmailViaGmail(
   );
 
   return { email: toAddress };
+}
+
+/** How long a pool address is given to receive Telegram's code before the run gives up. */
+const POOL_CODE_WAIT_MS = 120_000;
+
+/**
+ * Telegram's own mail. Sent as the sender filter so a code left in the mailbox by something
+ * else is not read as this one; the pool type's rules in the msOauth2api panel still apply
+ * on top.
+ */
+const TELEGRAM_SENDER = "telegram";
+
+export type ChangeLoginEmailViaPoolParams = {
+  apiId: number;
+  apiHash: string;
+  sessionString: string;
+  proxy?: TgProxy;
+  deviceParams?: TgDeviceParams;
+  /** Pool type to lease from; blank uses the configured default. */
+  poolType?: string;
+};
+
+/**
+ * The same flow against msOauth2api's address pool: lease a mailbox nobody has used for this
+ * type, point Telegram at it, read the code back and confirm. A run that fails anywhere after
+ * the lease hands the address back, so a Telegram error does not burn one.
+ */
+export async function changeLoginEmailViaPool(
+  params: ChangeLoginEmailViaPoolParams,
+): Promise<{ email: string }> {
+  const { apiId, apiHash, sessionString, proxy, deviceParams } = params;
+  const lease = await leaseEmail(params.poolType);
+
+  try {
+    await sendLoginEmailCode(
+      apiId,
+      apiHash,
+      sessionString,
+      lease.email,
+      proxy,
+      deviceParams,
+    );
+
+    // No `since`: the pool defaults it to the lease, which is exactly the window this run owns
+    const found = await pollForCode({
+      email: lease.email,
+      type: lease.type,
+      fromContains: TELEGRAM_SENDER,
+      waitMs: POOL_CODE_WAIT_MS,
+    });
+    if (!found)
+      throw new Error(
+        `no verification code reached ${lease.email} within ${POOL_CODE_WAIT_MS / 1000}s`,
+      );
+
+    await verifyLoginEmail(
+      apiId,
+      apiHash,
+      sessionString,
+      found.code,
+      proxy,
+      deviceParams,
+    );
+    return { email: lease.email };
+  } catch (err) {
+    await releaseEmail(lease.email, lease.type);
+    throw err;
+  }
 }

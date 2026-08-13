@@ -68,6 +68,7 @@ import {
   type BulkProfileOptions,
 } from "../jobs/bulkProfile";
 import { testGmailImap } from "../jobs/bulkLoginEmail";
+import { msApiConfigured } from "../jobs/msOauth2api";
 import { parseTgProxy } from "../jobs/runner";
 import { resolveAppClientParams, previewDeviceModel } from "../tg/appClient";
 import { isAuthError, markSessionExpired } from "../tg/liveClient";
@@ -1248,8 +1249,12 @@ router.get("/:id/password-info", async (req, res) => {
     const proxy = parseTgProxy(proxyUrl);
     const deviceParams = resolveAppClientParams(account.id, account.app_client_id);
     const info = await getPasswordInfo(apiId, apiHash, account.session_string, proxy, deviceParams);
-    // Store hasEmail only when a login email is found; drop the flag otherwise.
-    patchAttributes(account.id, { hasEmail: info.loginEmailPattern ? true : undefined });
+    // Store hasEmail only when a login email is found; drop the flag -- and any address
+    // Bemby recorded, which cannot still be in force -- otherwise.
+    patchAttributes(account.id, {
+      hasEmail: info.loginEmailPattern ? true : undefined,
+      ...(info.loginEmailPattern ? {} : { loginEmail: undefined }),
+    });
     res.json(info);
   } catch (err: any) {
     if (isAuthError(err?.message ?? "")) markSessionExpired(account!.id);
@@ -1278,26 +1283,40 @@ router.post("/:id/login-email/send-code", async (req, res) => {
   }
 });
 
-// POST /:id/login-email/auto -- set a Gmail plus-address login email and read
-// the confirmation code back over IMAP. Gated by BULK_ACCOUNT_MANAGEMENT.
+// POST /:id/login-email/auto -- set a new login email and read the confirmation code back
+// automatically: a Gmail plus-address over IMAP, or a mailbox leased from the msOauth2api
+// pool. Gated by BULK_ACCOUNT_MANAGEMENT.
 router.post("/:id/login-email/auto", bulkMgmtGuard, async (req, res) => {
   const account = loadAccount(req.params.id) as AccountRow | undefined;
   if (!requireAuth(account, res)) return;
-  const { gmail, appPassword, tag } = req.body as {
+  const { source, gmail, appPassword, tag, poolType } = req.body as {
+    source?: "gmail" | "msapi";
     gmail?: string;
     appPassword?: string;
     tag?: string;
+    poolType?: string;
   };
-  if (!gmail || !gmail.includes("@") || !appPassword) {
+  if (source === "msapi") {
+    if (!msApiConfigured()) {
+      res.status(400).json({ error: "msOauth2api is not configured (see Settings)" });
+      return;
+    }
+  } else if (!gmail || !gmail.includes("@") || !appPassword) {
     res.status(400).json({ error: "gmail and appPassword are required" });
     return;
   }
   try {
-    const result = await changeLoginEmailForAccount(account.id, {
-      gmail: gmail.trim(),
-      appPassword,
-      tag: (tag ?? "").trim(),
-    });
+    const result = await changeLoginEmailForAccount(
+      account.id,
+      source === "msapi"
+        ? { source: "msapi", poolType: (poolType ?? "").trim() }
+        : {
+            source: "gmail",
+            gmail: gmail!.trim(),
+            appPassword: appPassword!,
+            tag: (tag ?? "").trim(),
+          },
+    );
     res.json(result);
   } catch (err: any) {
     if (rpcBadRequest(res, err, "login-email/auto")) return;

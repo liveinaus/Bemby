@@ -333,6 +333,8 @@ export type LoadOptions = {
   notify?: (text: string, target?: string) => Promise<void>;
   /** Reads a code out of a mailbox, for the `web_email_code` sub-step. */
   emailCode?: WebStepHooks["emailCode"];
+  /** Takes an address from the msOauth2api pool, for the `web_email_lease` sub-step. */
+  emailLease?: WebStepHooks["emailLease"];
   /** Waits for Telegram's own login code, for the `web_tg_code` sub-step. */
   tgCode?: WebStepHooks["tgCode"];
   /** Writes API credentials onto the account, for the `web_tg_api_save` sub-step. */
@@ -2572,14 +2574,24 @@ export type WebStepHooks = {
    * side does not read. Absent, the step says so rather than passing silently.
    */
   emailCode?: (query: {
+    /** Which mailbox service to read; blank is Gmail. */
+    source?: "gmail" | "msapi";
     email: string;
-    /** As written in the config, e.g. `{gmailAppPassword}`; resolved by the caller. */
-    appPasswordRef: string;
+    /** As written in the config, e.g. `{gmailAppPassword}`; resolved by the caller. Gmail only. */
+    appPasswordRef?: string;
+    /** Pool type for the msapi source; blank uses the configured default. */
+    poolType?: string;
     fromContains?: string;
     subjectContains?: string;
     pattern?: string;
     waitMs: number;
   }) => Promise<{ code: string; subject: string; from: string; mailbox?: string } | null>;
+  /**
+   * Takes an address from the msOauth2api pool, for a `web_email_lease` step. Supplied by the
+   * caller for the same reason as the rest: the service's URL and key are settings, which this
+   * side does not read. Absent, the step says so rather than passing silently.
+   */
+  emailLease?: (query: { poolType?: string }) => Promise<{ email: string }>;
   /**
    * Waits for the login code Telegram delivers to the account, for a `web_tg_code` step.
    * Supplied by the caller: the code arrives over MTProto on the account's own client, which
@@ -3279,23 +3291,30 @@ async function runStepList(
           if (!name) throw new Error("no name given to hold the code under");
           const email = fillVars(step.email ?? "", run.current).trim();
           if (!email) throw new Error("no mailbox given to read");
-          // Only a `{name}` reference: a password pasted in here would sit in the config,
-          // in every export of it, and in anything the template is shared with -- which is
-          // the whole reason the value lives in the secrets store instead
+          // msOauth2api holds its own credentials in the settings, so only the Gmail path
+          // needs a secret named here
+          const viaPool = step.source === "msapi";
           const ref = (step.appPassword ?? "").trim();
-          if (!ref) throw new Error("no app-password secret named");
-          if (!/^\{\w+\}$/.test(ref))
-            throw new Error(
-              "the app password must name a secret, e.g. `{gmailAppPassword}`, not the password itself",
-            );
+          if (!viaPool) {
+            // Only a `{name}` reference: a password pasted in here would sit in the config,
+            // in every export of it, and in anything the template is shared with -- which is
+            // the whole reason the value lives in the secrets store instead
+            if (!ref) throw new Error("no app-password secret named");
+            if (!/^\{\w+\}$/.test(ref))
+              throw new Error(
+                "the app password must name a secret, e.g. `{gmailAppPassword}`, not the password itself",
+              );
+          }
 
           // Capped at what is left of the action's budget: waiting for mail past the
           // deadline only means the steps after it have no time to use the code
           const asked = step.waitMs && step.waitMs > 0 ? step.waitMs : EMAIL_CODE_WAIT_MS;
           const waitMs = Math.max(0, Math.min(asked, msLeft(deadline)));
           const found = await hooks.emailCode({
+            source: step.source,
             email,
             appPasswordRef: ref,
+            poolType: fillVars(step.poolType ?? "", run.current).trim() || undefined,
             fromContains: fillVars(step.fromContains ?? "", run.current).trim() || undefined,
             subjectContains:
               fillVars(step.subjectContains ?? "", run.current).trim() || undefined,
@@ -3313,6 +3332,19 @@ async function runStepList(
           const where =
             found.mailbox && found.mailbox !== "INBOX" ? `, in ${found.mailbox}` : "";
           log.outcome = `{${name}} = ${found.code} (from ${oneLine(found.from)}${where})`;
+          break;
+        }
+
+        case "web_email_lease": {
+          if (!hooks.emailLease)
+            throw new Error("leasing an address is not available here");
+          const name = step.varName.trim();
+          if (!name) throw new Error("no name given to hold the address under");
+          const leased = await hooks.emailLease({
+            poolType: fillVars(step.poolType ?? "", run.current).trim() || undefined,
+          });
+          run.current.set(name, leased.email);
+          log.outcome = `{${name}} = ${leased.email}`;
           break;
         }
 
@@ -4133,6 +4165,8 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
       return `Read \`${fill(step.selector)}\` into {${step.varName}}`;
     case "web_email_code":
       return `Read a code from ${fill(step.email ?? "")} into {${step.varName}}`;
+    case "web_email_lease":
+      return `Take an address${step.poolType?.trim() ? ` for ${fill(step.poolType.trim())}` : ""} into {${step.varName}}`;
     case "web_tg_code":
       return `Wait for Telegram's login code, into {${step.varName}}`;
     case "web_tg_api_save":

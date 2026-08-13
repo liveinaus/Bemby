@@ -671,19 +671,26 @@ export type WebStep =
        * `web_input` to type as `{name}`. What a signup that emails a code needs: without it
        * the run stops at the confirmation box.
        *
-       * Gmail only, over IMAP with an app password. The inbox and the junk folder are both
-       * read, since a code from an unfamiliar domain is often filtered as spam.
+       * Two sources. Gmail, over IMAP with an app password, reading the inbox and the junk
+       * folder -- a code from an unfamiliar domain is often filtered as spam. Or msOauth2api,
+       * which reads the mailbox for the address a `web_email_lease` step took, so a signup
+       * gets an address of its own rather than a plus-tag on a shared inbox.
        *
-       * The password is not part of the config:
-       * `appPassword` names a secret set in Settings, written `{gmailAppPassword}`, and the
-       * value is read on the backend where the step runs. Nothing hands it to the browser,
-       * and a shared or exported template carries the name alone.
+       * The Gmail password is not part of the config: `appPassword` names a secret set in
+       * Settings, written `{gmailAppPassword}`, and the value is read on the backend where
+       * the step runs. Nothing hands it to the browser, and a shared or exported template
+       * carries the name alone. The msOauth2api key is a setting, so it is never in a
+       * template at all.
        */
       type: "web_email_code";
-      /** The mailbox to read, e.g. me@gmail.com. */
+      /** Where to read from; blank is Gmail. */
+      source?: "gmail" | "msapi";
+      /** The mailbox to read, e.g. me@gmail.com, or `{name}` from a `web_email_lease`. */
       email: string;
-      /** Secret holding the Gmail app password, written `{gmailAppPassword}`. */
-      appPassword: string;
+      /** Secret holding the Gmail app password, written `{gmailAppPassword}`. Gmail only. */
+      appPassword?: string;
+      /** Pool type the address was leased under; blank uses the configured default. */
+      poolType?: string;
       /** Name to hold the code under. */
       varName: string;
       /** Only consider mail whose sender contains this. Case is ignored. */
@@ -698,6 +705,22 @@ export type WebStep =
       pattern?: string;
       /** How long to wait for the mail to arrive. Blank/0 waits 120s. */
       waitMs?: number;
+    }
+  | {
+      /**
+       * Take an address from the msOauth2api pool and hold it under a name, for a later
+       * `web_input` to type as `{name}`. What a signup needs before it can ask for a code:
+       * an address nothing has used for this service yet.
+       *
+       * The claim lapses on its own if no code ever arrives, so an abandoned run does not
+       * consume an address. A `web_email_code` step pointed at the same name reads the code
+       * back, which is also what makes the claim permanent.
+       */
+      type: "web_email_lease";
+      /** Name to hold the address under. */
+      varName: string;
+      /** Pool type to lease from, e.g. Telegram. Blank uses the configured default. */
+      poolType?: string;
     }
   | {
       /**

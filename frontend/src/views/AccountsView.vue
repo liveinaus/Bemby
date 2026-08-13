@@ -297,9 +297,18 @@
                     :key="b.label"
                     class="badge"
                     :class="b.cls"
-                    style="font-size: 10px"
+                    :title="b.title"
+                    :style="{ fontSize: '10px', cursor: b.reveal ? 'pointer' : '' }"
+                    @click.stop="b.reveal ? toggleEmailReveal(a) : undefined"
                     >{{ b.label }}</span
                   >
+                </div>
+                <div
+                  v-if="revealedEmails.has(a.id) && accountLoginEmail(a)"
+                  class="revealed-email"
+                  @click.stop
+                >
+                  {{ accountLoginEmail(a) }}
                 </div>
                 <span v-if="a.notes">{{ a.notes }}</span>
               </td>
@@ -2131,16 +2140,68 @@
           <template v-else>
             <p class="bulk-add-hint">
               {{
-                t("accounts.bulkEmail.intro").replace(
-                  "{n}",
-                  String(bulkEmailTargets.length),
-                )
+                t(
+                  bulkEmailForm.source === "msapi"
+                    ? "accounts.bulkEmail.introMsApi"
+                    : "accounts.bulkEmail.intro",
+                ).replace("{n}", String(bulkEmailTargets.length))
               }}
             </p>
             <div v-if="bulkEmailError" class="error-msg">
               {{ bulkEmailError }}
             </div>
+
+            <!-- Telegram will only replace a login email, never add one, so an account with
+                 none linked fails the run -->
+            <div v-if="bulkEmailNoEmailCount" class="warn-box">
+              {{
+                t("accounts.bulkEmail.replaceOnly").replace(
+                  "{n}",
+                  String(bulkEmailNoEmailCount),
+                )
+              }}
+            </div>
+
             <div class="form-group">
+              <label class="form-label">{{
+                t("accounts.bulkEmail.sourceLabel")
+              }}</label>
+              <select v-model="bulkEmailForm.source" class="form-select">
+                <option value="gmail">
+                  {{ t("accounts.bulkEmail.sourceGmail") }}
+                </option>
+                <option value="msapi" :disabled="!msApiConfigured">
+                  {{ t("accounts.bulkEmail.sourceMsApi") }}
+                </option>
+              </select>
+              <div class="form-hint">
+                {{
+                  msApiConfigured
+                    ? t("accounts.bulkEmail.sourceHint")
+                    : t("accounts.bulkEmail.msApiNotConfigured")
+                }}
+              </div>
+            </div>
+
+            <div
+              v-if="bulkEmailForm.source === 'msapi'"
+              class="form-group"
+            >
+              <label class="form-label">{{
+                t("accounts.bulkEmail.poolTypeLabel")
+              }}</label>
+              <input
+                v-model.trim="bulkEmailForm.poolType"
+                class="form-input"
+                :placeholder="msApiPoolTypeDefault"
+                autocomplete="off"
+              />
+              <div class="form-hint">
+                {{ t("accounts.bulkEmail.poolTypeHint") }}
+              </div>
+            </div>
+
+            <div v-if="bulkEmailForm.source === 'gmail'" class="form-group">
               <label class="form-label">{{
                 t("accounts.bulkEmail.gmailLabel")
               }}</label>
@@ -2154,7 +2215,7 @@
                 {{ t("accounts.bulkEmail.gmailHint") }}
               </div>
             </div>
-            <div class="form-group">
+            <div v-if="bulkEmailForm.source === 'gmail'" class="form-group">
               <label class="form-label">{{
                 t("accounts.bulkEmail.appPasswordLabel")
               }}</label>
@@ -2168,7 +2229,7 @@
                 {{ t("accounts.bulkEmail.appPasswordHint") }}
               </div>
             </div>
-            <div class="bulk-email-test">
+            <div v-if="bulkEmailForm.source === 'gmail'" class="bulk-email-test">
               <span v-if="bulkEmailTestOk === true" class="bulk-email-test-ok">
                 <i class="fa-solid fa-circle-check"></i> {{ bulkEmailTestMsg }}
               </span>
@@ -2191,7 +2252,7 @@
                 }}
               </button>
             </div>
-            <div class="form-group">
+            <div v-if="bulkEmailForm.source === 'gmail'" class="form-group">
               <label class="form-label">{{
                 t("accounts.bulkEmail.tagLabel")
               }}</label>
@@ -2234,9 +2295,9 @@
             <button
               v-if="bulkEmailTargets.length"
               class="btn btn-primary"
-              :disabled="bulkEmailTestOk !== true"
+              :disabled="bulkEmailForm.source === 'gmail' && bulkEmailTestOk !== true"
               :title="
-                bulkEmailTestOk !== true
+                bulkEmailForm.source === 'gmail' && bulkEmailTestOk !== true
                   ? t('accounts.bulkEmail.testRequired')
                   : ''
               "
@@ -3081,10 +3142,23 @@ const settings = ref<{
   default_tg_api_id?: string;
   default_tg_api_hash?: string;
   bulk_account_management?: string;
+  msapi_configured?: string;
+  msapi_pool_type?: string;
+  msapi_pool_type_default?: string;
 } | null>(null);
 
 const bulkMgmtEnabled = computed(
   () => settings.value?.bulk_account_management === "true",
+);
+
+/** Whether a login email can be drawn from the msOauth2api pool at all. */
+const msApiConfigured = computed(() => settings.value?.msapi_configured === "true");
+
+const msApiPoolTypeDefault = computed(
+  () =>
+    settings.value?.msapi_pool_type ||
+    settings.value?.msapi_pool_type_default ||
+    "Telegram",
 );
 
 const hasGlobalTgCreds = computed(
@@ -3438,13 +3512,33 @@ const extraColClass = computed(() =>
 // Badges shown in the Extra Info column: the passkey state plus any flags Bemby has
 // recorded in the account's additional_attributes bag (e.g. hasEmail).
 const EXTRA_ATTR_LABELS: Record<string, string> = { hasEmail: "attrEmail" };
-function accountExtraInfo(a: Account): { label: string; cls: string }[] {
-  const badges: { label: string; cls: string }[] = [];
+type ExtraBadge = {
+  label: string;
+  cls: string;
+  title?: string;
+  /** Pressing it shows the stored login email, which the badge itself never spells out. */
+  reveal?: boolean;
+};
+
+function accountExtraInfo(a: Account): ExtraBadge[] {
+  const badges: ExtraBadge[] = [];
   if (a.hasBembyPasskey)
     badges.push({ label: t("accounts.attrBembyPasskey"), cls: "badge-green" });
   else if (a.hasPasskey)
     badges.push({ label: t("accounts.attrPasskey"), cls: "badge-grey" });
   const attrs = a.attributes ?? {};
+  // The login email, the same pair the passkey makes: green when Bemby set it, plain when
+  // Telegram just reports that one exists. The address goes in the tooltip rather than the
+  // badge, which is uppercased and would shout it.
+  if (typeof attrs.loginEmail === "string" && attrs.loginEmail)
+    badges.push({
+      label: t("accounts.attrBembyEmail"),
+      cls: "badge-green",
+      title: t("accounts.attrBembyEmailReveal"),
+      reveal: true,
+    });
+  else if (attrs.hasEmail === true)
+    badges.push({ label: t("accounts.attrEmail"), cls: "badge-blue" });
   // Restriction: coloured status badge reusing the spam status labels/colours.
   if (typeof attrs.restriction === "string") {
     const colour: Record<string, string> = {
@@ -3459,7 +3553,14 @@ function accountExtraInfo(a: Account): { label: string; cls: string }[] {
   }
   for (const [key, value] of Object.entries(attrs)) {
     // Skip keys shown above and any non-primitive values (no "[object Object]").
-    if (key === "hasPasskey" || key === "passkey" || key === "restriction") continue;
+    if (
+      key === "hasPasskey" ||
+      key === "passkey" ||
+      key === "restriction" ||
+      key === "hasEmail" ||
+      key === "loginEmail"
+    )
+      continue;
     if (value === false || value == null || typeof value === "object") continue;
     const base = EXTRA_ATTR_LABELS[key] ? t(`accounts.${EXTRA_ATTR_LABELS[key]}`) : key;
     badges.push({
@@ -3468,6 +3569,22 @@ function accountExtraInfo(a: Account): { label: string; cls: string }[] {
     });
   }
   return badges;
+}
+
+// The address Bemby gave the account, kept out of sight until asked for: the column is dense,
+// and a mailbox is worth no more than a glance in passing.
+const revealedEmails = ref<Set<number>>(new Set());
+
+function accountLoginEmail(a: Account): string {
+  const value = a.attributes?.loginEmail;
+  return typeof value === "string" ? value : "";
+}
+
+function toggleEmailReveal(a: Account): void {
+  const next = new Set(revealedEmails.value);
+  if (next.has(a.id)) next.delete(a.id);
+  else next.add(a.id);
+  revealedEmails.value = next;
 }
 
 // ── Bulk notes state ──────────────────────────────────────────────────────────
@@ -4193,11 +4310,21 @@ const bulkEmailTargets = ref<Account[]>([]);
 const bulkEmailTaskId = ref<string | null>(null);
 const bulkEmailTask = computed(() => taskById(bulkEmailTaskId.value));
 const bulkEmailForm = reactive({
+  source: "gmail" as "gmail" | "msapi",
   gmail: "",
   appPassword: "",
   tag: "{phoneNum}",
+  /** msOauth2api pool type; blank uses the configured default. */
+  poolType: "",
   gapSeconds: 30,
 });
+
+// Telegram replaces a login email but never adds one, so an account with none linked cannot
+// be given one here. Counted off the attribute a fetch records, so it is a warning rather
+// than a filter: an account whose attributes were never fetched is simply unknown.
+const bulkEmailNoEmailCount = computed(
+  () => bulkEmailTargets.value.filter((a) => a.attributes?.hasEmail !== true).length,
+);
 
 const bulkEmailTesting = ref(false);
 const bulkEmailTestOk = ref<boolean | null>(null);
@@ -4261,9 +4388,11 @@ function openBulkEmail() {
     (a) => selectedIds.value.has(a.id) && a.authStatus === "authenticated",
   );
   bulkEmailError.value = "";
+  bulkEmailForm.source = msApiConfigured.value ? "msapi" : "gmail";
   bulkEmailForm.gmail = "";
   bulkEmailForm.appPassword = "";
   bulkEmailForm.tag = "{phoneNum}";
+  bulkEmailForm.poolType = "";
   bulkEmailTesting.value = false;
   bulkEmailTestOk.value = null;
   bulkEmailTestMsg.value = "";
@@ -4312,32 +4441,42 @@ async function testBulkEmailGmail() {
 
 async function startBulkEmail() {
   bulkEmailError.value = "";
-  if (!bulkEmailForm.gmail.includes("@")) {
-    bulkEmailError.value = t("accounts.bulkEmail.errors.gmailRequired");
+  const viaPool = bulkEmailForm.source === "msapi";
+  if (viaPool && !msApiConfigured.value) {
+    bulkEmailError.value = t("accounts.bulkEmail.msApiNotConfigured");
     return;
   }
-  if (!bulkEmailForm.appPassword) {
-    bulkEmailError.value = t("accounts.bulkEmail.errors.appPasswordRequired");
-    return;
-  }
-  if (bulkEmailTestOk.value !== true) {
-    bulkEmailError.value = t("accounts.bulkEmail.testRequired");
-    return;
-  }
-  if (!bulkEmailForm.tag.trim()) {
-    bulkEmailError.value = t("accounts.bulkEmail.errors.tagRequired");
-    return;
+  if (!viaPool) {
+    if (!bulkEmailForm.gmail.includes("@")) {
+      bulkEmailError.value = t("accounts.bulkEmail.errors.gmailRequired");
+      return;
+    }
+    if (!bulkEmailForm.appPassword) {
+      bulkEmailError.value = t("accounts.bulkEmail.errors.appPasswordRequired");
+      return;
+    }
+    if (bulkEmailTestOk.value !== true) {
+      bulkEmailError.value = t("accounts.bulkEmail.testRequired");
+      return;
+    }
+    if (!bulkEmailForm.tag.trim()) {
+      bulkEmailError.value = t("accounts.bulkEmail.errors.tagRequired");
+      return;
+    }
   }
   if (!bulkEmailTargets.value.length) return;
 
   try {
     const task = await bulkTasksApi.loginEmail(
       bulkEmailTargets.value.map((a) => a.id),
-      {
-        gmail: bulkEmailForm.gmail,
-        appPassword: bulkEmailForm.appPassword,
-        tag: bulkEmailForm.tag,
-      },
+      viaPool
+        ? { source: "msapi", poolType: bulkEmailForm.poolType }
+        : {
+            source: "gmail",
+            gmail: bulkEmailForm.gmail,
+            appPassword: bulkEmailForm.appPassword,
+            tag: bulkEmailForm.tag,
+          },
       bulkEmailForm.gapSeconds,
     );
     trackStartedTask(task);
@@ -6061,6 +6200,17 @@ tr.drag-over td {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
   background: #fbfbfd;
+}
+
+/* The revealed login email: selectable, and spelled as stored rather than uppercased the
+   way the badge beside it is */
+.revealed-email {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: #475569;
+  word-break: break-all;
+  margin-bottom: 4px;
+  user-select: text;
 }
 
 .bulk-add-multiselect {

@@ -233,6 +233,8 @@ const zh = {
     attrBembyPasskey: "Bemby 通行密钥",
     attrPasskey: "通行密钥",
     attrEmail: "登录邮箱",
+    attrBembyEmail: "Bemby 邮箱",
+    attrBembyEmailReveal: "点击显示 Bemby 设置的登录邮箱",
     attrRestriction: "限制状态",
     setNotesSelected: "设置备注",
     labelNotes: "备注",
@@ -359,7 +361,19 @@ const zh = {
       title: "批量修改登录邮箱",
       intro:
         "将为所选 {n} 个已认证账户设置登录邮箱，地址由下方模板生成，并通过 IMAP 从 Gmail 读取验证码。",
+      introMsApi:
+        "将为所选 {n} 个已认证账户设置登录邮箱：每个账户从 msOauth2api 邮箱池领取一个独立地址，验证码由邮箱池读取。",
       noTargets: "所选账户中没有已认证的账户。",
+      replaceOnly:
+        "所选账户中有 {n} 个尚未绑定登录邮箱。Telegram 只能替换已有的登录邮箱，无法新增，这些账户会执行失败。",
+      sourceLabel: "邮箱来源",
+      sourceGmail: "Gmail 别名地址（+标签）",
+      sourceMsApi: "msOauth2api 邮箱池",
+      sourceHint:
+        "邮箱池会为每个账户分配一个独立邮箱；失败时该邮箱会自动归还。",
+      msApiNotConfigured: "尚未配置 msOauth2api（请在设置中填写地址与 API Key）",
+      poolTypeLabel: "邮箱池用途标签",
+      poolTypeHint: "留空则使用设置中的默认值。同一邮箱对每个标签只会被使用一次。",
       gmailLabel: "Gmail 地址",
       gmailHint: "用于 IMAP 登录的邮箱（收件邮箱）",
       tagLabel: "地址标签模板（+ 后部分）",
@@ -897,6 +911,7 @@ const zh = {
         web_collect: "收集全部元素（存为列表）",
         web_read: "读取页面文字（存为变量）",
         web_email_code: "从邮箱获取验证码（存为变量）",
+        web_email_lease: "领取一个邮箱地址（存为变量）",
         web_tg_code: "等待 Telegram 登录验证码（存为变量）",
         web_tg_api_save: "保存 API ID / Hash 到账号",
         web_set: "设置变量（自定义取值，可多个）",
@@ -928,6 +943,19 @@ const zh = {
       labelOffsetY: "纵向偏移（像素）",
       holdOffsetHint:
         "适用于目标无法用选择器选中的情况（canvas、shadow DOM、iframe 内部）。可为负数。日志中该步骤的截图会标出实际按下的位置和坐标，照着调整偏移量即可",
+      labelEmailSource: "邮箱来源",
+      emailSourceGmail: "Gmail（IMAP）",
+      emailSourceMsApi: "msOauth2api 邮箱池",
+      emailSourceHint:
+        "选择邮箱池时，地址一般填上一步「领取一个邮箱地址」得到的 {变量名}，验证码由 msOauth2api 读取，无需应用专用密码",
+      msApiNotConfigured: "尚未配置 msOauth2api（请在【设置 → msOauth2api 邮箱池】中填写）",
+      labelPoolType: "用途标签",
+      poolTypePlaceholder: "Telegram",
+      poolTypeHint: "留空则使用设置中的默认值",
+      labelEmailVarName: "变量名",
+      emailVarNamePlaceholder: "email",
+      emailLeaseHint:
+        "从 msOauth2api 邮箱池领取一个该用途下尚未使用过的邮箱地址，存为变量供表单填写（{变量名}）。领取有时效，如果最终没有收到验证码，地址会自动回到池中",
       labelEmail: "Gmail 邮箱地址",
       emailPlaceholder: "me@gmail.com",
       labelCodeVarName: "变量名",
@@ -1539,6 +1567,22 @@ const zh = {
     secretsWriteOnlyHint:
       "密钥内容只写不读：后端不会把它返回给前端，页面也无法查看或导出。已存在的名称会被覆盖",
     secretSaved: "已保存 {name}",
+    msapi: {
+      title: "msOauth2api 邮箱池",
+      hint: "外部邮箱服务（msOauth2api）。配置后，可从邮箱池为 Telegram 账户分配独立的登录邮箱，网页步骤也可以领取地址并读取验证码。",
+      baseUrlLabel: "服务地址",
+      baseUrlHint: "例如 http://host:3000，末尾的 /api 可写可不写。",
+      apiKeyLabel: "API Key",
+      apiKeyHint:
+        "在 msOauth2api 的「设置 → API keys」中生成（msk_ 开头）。只写不读：保存后仅显示掩码，留空表示不修改。",
+      poolTypeLabel: "默认用途标签",
+      poolTypeHint:
+        "邮箱池按用途标签分配地址，例如 Telegram。同一邮箱对每个标签只会被分配一次。",
+      testBtn: "测试连接",
+      testing: "测试中...",
+      testFailed: "连接失败",
+      poolCounts: "连接成功：可用 {available}，占用中 {leased}，已使用 {confirmed}",
+    },
     accountDisplaySection: "TG 账号显示",
     accountDisplayToggle: "以「Bemby 账户名 - TG 账号名」显示账户",
     accountDisplayHint:
@@ -2255,6 +2299,8 @@ const en: typeof zh = {
     attrBembyPasskey: "Bemby Passkey",
     attrPasskey: "Passkey",
     attrEmail: "Login Email",
+    attrBembyEmail: "Bemby Email",
+    attrBembyEmailReveal: "Show the login email Bemby set",
     attrRestriction: "Restriction",
     setNotesSelected: "Set Notes",
     labelNotes: "Notes",
@@ -2382,7 +2428,21 @@ const en: typeof zh = {
       title: "Bulk Change Login Email",
       intro:
         "Sets a login email on {n} selected authenticated account(s). The address is built from the template below and the code is read from Gmail over IMAP.",
+      introMsApi:
+        "Sets a login email on {n} selected authenticated account(s). Each one leases an address of its own from the msOauth2api pool, which also reads the code back.",
       noTargets: "None of the selected accounts are authenticated.",
+      replaceOnly:
+        "{n} of the selected accounts have no login email linked. Telegram can only replace an existing one, never add one, so those will fail.",
+      sourceLabel: "Address source",
+      sourceGmail: "Gmail plus-address (+tag)",
+      sourceMsApi: "msOauth2api address pool",
+      sourceHint:
+        "The pool gives each account a mailbox of its own, and hands the address back if the run fails.",
+      msApiNotConfigured:
+        "msOauth2api is not configured (set its URL and API key in Settings)",
+      poolTypeLabel: "Pool type",
+      poolTypeHint:
+        "Blank uses the default from Settings. An address is handed out once per type.",
       gmailLabel: "Gmail address",
       gmailHint: "The mailbox used to log in over IMAP (where codes arrive)",
       tagLabel: "Address tag template (after the +)",
@@ -2939,6 +2999,7 @@ const en: typeof zh = {
         web_collect: "Collect every element (into a list)",
         web_read: "Read text off the page (into a name)",
         web_email_code: "Get a verification code from email (into a name)",
+        web_email_lease: "Take an email address from the pool (into a name)",
         web_tg_code: "Wait for Telegram's login code (into a name)",
         web_tg_api_save: "Save an API ID / hash onto the account",
         web_set: "Set variables (values of your own)",
@@ -2970,6 +3031,20 @@ const en: typeof zh = {
       labelOffsetY: "Offset down (px)",
       holdOffsetHint:
         "For a target no selector can reach: inside a canvas, a shadow root or a frame. Either figure may be negative. This step's screenshot in the log marks where the press actually landed, with the coordinates, so the offset can be read off it and corrected",
+      labelEmailSource: "Mailbox source",
+      emailSourceGmail: "Gmail (IMAP)",
+      emailSourceMsApi: "msOauth2api address pool",
+      emailSourceHint:
+        "With the pool, the address is usually the {name} an earlier \"Take an email address\" step set, msOauth2api reads the code, and no app password is needed",
+      msApiNotConfigured:
+        "msOauth2api is not configured (see Settings -> msOauth2api address pool)",
+      labelPoolType: "Pool type",
+      poolTypePlaceholder: "Telegram",
+      poolTypeHint: "Blank uses the default from Settings",
+      labelEmailVarName: "Name",
+      emailVarNamePlaceholder: "email",
+      emailLeaseHint:
+        "Takes an address the pool has not used for this type yet and holds it under a name, for a signup form to type as {name}. The claim lapses on its own, so an address is not wasted when no code ever arrives",
       labelEmail: "Gmail address",
       emailPlaceholder: "me@gmail.com",
       labelCodeVarName: "Name",
@@ -3602,6 +3677,23 @@ const en: typeof zh = {
     secretsWriteOnlyHint:
       "Write-only: the backend never sends a value back, so nothing here can display or export one. Saving an existing name replaces its value",
     secretSaved: "Saved {name}",
+    msapi: {
+      title: "msOauth2api address pool",
+      hint: "An external mailbox service (msOauth2api). Once configured, a Telegram account can be given a login email of its own from the pool, and page steps can take an address and read the code sent to it.",
+      baseUrlLabel: "Base URL",
+      baseUrlHint: "e.g. http://host:3000. A trailing /api is accepted either way.",
+      apiKeyLabel: "API key",
+      apiKeyHint:
+        "Created under Settings -> API keys in msOauth2api (starts with msk_). Write-only: only a mask is shown afterwards, and a blank field leaves the stored key alone.",
+      poolTypeLabel: "Default pool type",
+      poolTypeHint:
+        "The pool hands out addresses per type, e.g. Telegram. An address is used once per type.",
+      testBtn: "Test connection",
+      testing: "Testing...",
+      testFailed: "Connection failed",
+      poolCounts:
+        "Connected: {available} available, {leased} leased, {confirmed} used",
+    },
     accountDisplaySection: "TG account display",
     accountDisplayToggle: "Show accounts as {Bemby name} - {TG name}",
     accountDisplayHint:

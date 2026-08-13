@@ -50,6 +50,7 @@ import { cfTuning } from "./cfTuning";
 import { rememberWebValue, usedWebValues } from "./webMemory";
 import { getNotifyConfig, sendBotNotify } from "./notify";
 import { EMAIL_CODE_LOOKBACK_MS, fetchGmailCode } from "./emailCode";
+import { leaseEmail, pollForCode } from "./msOauth2api";
 import { saveAccountApiCredentials, waitForTgLoginCode } from "./tgApiCredentials";
 import { fillSecrets, missingSecretRefs } from "../db/secrets";
 import { displayForRun } from "./runDisplays";
@@ -3143,15 +3144,34 @@ export async function runCustom(
                     await sendBotNotify(cfg.botToken, chat, text);
                   },
                   // And once more for a `web_email_code` step: the app password is a stored
-                  // secret, which the browser side neither reads nor is handed. The config
-                  // carries the name of one (`{gmailAppPassword}`) and it is resolved here.
+                  // secret and the msOauth2api credentials are settings, neither of which the
+                  // browser side reads. The config carries the name of a secret
+                  // (`{gmailAppPassword}`) and it is resolved here.
                   emailCode: async (q) => {
-                    const missing = missingSecretRefs(q.appPasswordRef);
+                    if (q.source === "msapi") {
+                      const found = await pollForCode({
+                        email: q.email,
+                        type: q.poolType,
+                        fromContains: q.fromContains,
+                        subjectContains: q.subjectContains,
+                        waitMs: q.waitMs,
+                        signal,
+                      });
+                      return found
+                        ? {
+                            code: found.code,
+                            subject: found.subject ?? "",
+                            from: found.from ?? "",
+                            mailbox: found.mailbox,
+                          }
+                        : null;
+                    }
+                    const missing = missingSecretRefs(q.appPasswordRef ?? "");
                     if (missing.length)
                       throw new Error(
                         `no secret is stored under ${missing.map((m) => `{${m}}`).join(", ")} (see Settings)`,
                       );
-                    const appPassword = fillSecrets(q.appPasswordRef).trim();
+                    const appPassword = fillSecrets(q.appPasswordRef ?? "").trim();
                     if (!appPassword) throw new Error("the app-password secret is empty");
                     return fetchGmailCode({
                       email: q.email,
@@ -3164,6 +3184,9 @@ export async function runCustom(
                       sinceMs: Date.now() - EMAIL_CODE_LOOKBACK_MS,
                     });
                   },
+                  // And for a `web_email_lease` step: which pool to draw from, and the key to
+                  // draw with, are settings this side reads
+                  emailLease: async (q) => leaseEmail(q.poolType, signal),
                   // And for a `web_tg_code` step: my.telegram.org posts its login code to
                   // the account inside Telegram, so the client this job is already running
                   // on is what reads it -- nothing about it reaches the browser

@@ -15,7 +15,7 @@ import {
 } from "../auth/tgAuth";
 import type { Passkey, PasskeyLoginVerification } from "../tg/passkeys";
 import { checkSpamStatus } from "./checkin";
-import { changeLoginEmailViaGmail } from "./bulkLoginEmail";
+import { changeLoginEmailViaGmail, changeLoginEmailViaPool } from "./bulkLoginEmail";
 import { parseTgProxy } from "./runner";
 import { resolveAppClientParams } from "../tg/appClient";
 import {
@@ -242,8 +242,11 @@ export async function fetchAttributesForAccount(
       ctx.proxy,
       ctx.deviceParams,
     );
+    // A Telegram account with no login email cannot still have one Bemby set, so the stored
+    // address goes with the flag rather than lingering as a stale badge
     patchAttributes(accountId, {
       hasEmail: info.loginEmailPattern ? true : undefined,
+      ...(info.loginEmailPattern ? {} : { loginEmail: undefined }),
     });
   });
   await runStep("passkeys", async () => {
@@ -404,25 +407,47 @@ export async function terminateOtherSessionsForAccount(
   }
 }
 
-/** Points the account's login email at a Gmail plus-address and confirms it over IMAP. */
+/**
+ * Where the new login email comes from: a plus-address on one Gmail inbox, read over IMAP, or
+ * a mailbox of its own leased from the msOauth2api pool.
+ */
+export type LoginEmailSource =
+  | { source?: "gmail"; gmail: string; appPassword: string; tag: string }
+  | { source: "msapi"; poolType?: string };
+
+/** Points the account's login email at a new address and confirms it with the emailed code. */
 export async function changeLoginEmailForAccount(
   accountId: number,
-  opts: { gmail: string; appPassword: string; tag: string },
+  opts: LoginEmailSource,
 ): Promise<{ email: string }> {
   const ctx = accountOpContext(accountId);
   try {
-    return await changeLoginEmailViaGmail({
-      apiId: ctx.apiId,
-      apiHash: ctx.apiHash,
-      sessionString: ctx.account.session_string,
-      phoneNumber: ctx.account.phone_number,
-      accountId,
-      proxy: ctx.proxy,
-      deviceParams: ctx.deviceParams,
-      gmail: opts.gmail,
-      appPassword: opts.appPassword,
-      tag: opts.tag,
-    });
+    const result =
+      opts.source === "msapi"
+        ? await changeLoginEmailViaPool({
+            apiId: ctx.apiId,
+            apiHash: ctx.apiHash,
+            sessionString: ctx.account.session_string,
+            proxy: ctx.proxy,
+            deviceParams: ctx.deviceParams,
+            poolType: opts.poolType,
+          })
+        : await changeLoginEmailViaGmail({
+            apiId: ctx.apiId,
+            apiHash: ctx.apiHash,
+            sessionString: ctx.account.session_string,
+            phoneNumber: ctx.account.phone_number,
+            accountId,
+            proxy: ctx.proxy,
+            deviceParams: ctx.deviceParams,
+            gmail: opts.gmail,
+            appPassword: opts.appPassword,
+            tag: opts.tag,
+          });
+    // The address itself is worth keeping: with a pool mailbox it is the only record of which
+    // one this account was given
+    patchAttributes(accountId, { hasEmail: true, loginEmail: result.email });
+    return result;
   } catch (err) {
     rethrowTracking(accountId, err);
   }
