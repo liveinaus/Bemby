@@ -1321,6 +1321,27 @@ export type LaunchedBrowser = {
  * Timezone and locale are passed to CloakBrowser rather than emulated over CDP, because
  * the binary applies them as launch flags -- CDP emulation is itself detectable.
  */
+/**
+ * How long a freshly launched keyed browser is watched before it is trusted. A build that
+ * cannot hold its licence session quits about a second in, so this only has to outlast that;
+ * it is added to every keyed launch, which is why it is not longer.
+ */
+const KEYED_LIVENESS_MS = 2_500;
+
+/**
+ * Did this context close inside `waitMs`? Resolves as soon as it does, so a browser that
+ * stays up costs the full wait and one that quits costs only as long as it lasted.
+ */
+export async function exitedAtOnce(context: BrowserContext, waitMs: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => resolve(false), waitMs);
+    context.once("close", () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
+}
+
 /** Ceiling on a browser shutdown, so a wedged one cannot hold its licence seat. */
 const CLOSE_TIMEOUT_MS = 10_000;
 
@@ -1588,6 +1609,22 @@ export async function launchCfBrowser(
   let usedTier: BuildTier = lease.key ? "keyed" : "free";
   try {
     context = await open(executablePath, lease.key);
+    // A keyed build that could not hold a licence session does not fail the launch: it comes
+    // up, answers the driver, and quits about a second later -- so the run reads as a browser
+    // that died mid-navigation, whatever it was pointed at. The seat is free locally, so
+    // nothing here can tell the difference except by watching whether it stays. Give it a
+    // moment, and treat an instant exit the way a refused launch is treated.
+    if (lease.key && freeBuild && opts.tier !== "keyed") {
+      const gone = await exitedAtOnce(context, KEYED_LIVENESS_MS);
+      if (gone) {
+        console.warn(
+          "[cfBrowser] the keyed browser quit right after starting, which is what losing the " +
+            "licence session looks like; falling back to the free build for this run",
+        );
+        await context.close().catch(() => {});
+        throw new Error("the keyed build quit right after starting");
+      }
+    }
   } catch (err: any) {
     // The keyed build takes its licence at startup and quits on the spot when it cannot
     // hold a session -- another instance on the same key, or one the licence service has

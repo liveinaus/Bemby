@@ -479,6 +479,96 @@
                 : t("jobs.web.pickHint")
           }}
         </div>
+        <!-- A value that is a login of its own belongs nowhere near the run log -->
+        <label v-if="s.type === 'web_read'" class="form-checkbox-label" style="margin-top: 8px">
+          <input v-model="s.secret" type="checkbox" />
+          {{ t("jobs.web.labelReadSecret") }}
+        </label>
+        <div
+          v-if="s.type === 'web_read'"
+          style="font-size: 11px; color: #aaa; margin-top: 3px"
+        >
+          {{ t("jobs.web.readSecretHint") }}
+        </div>
+      </div>
+
+      <!-- Telegram's own login code, read off the account the job runs as -->
+      <div v-if="s.type === 'web_tg_code'">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelCodeVarName") }}</label>
+            <input
+              v-model.trim="s.varName"
+              class="form-input"
+              :placeholder="t('jobs.web.tgCodeVarNamePlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelTgCodeWait") }}</label>
+            <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.tgCodeHint") }}
+        </div>
+        <div class="form-group" style="margin-top: 8px">
+          <label class="form-label">{{ t("jobs.web.labelCodePattern") }}</label>
+          <input
+            v-model.trim="s.pattern"
+            class="form-input"
+            :placeholder="t('jobs.web.tgCodePatternPlaceholder')"
+          />
+          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            {{ t("jobs.web.tgCodePatternHint") }}
+          </div>
+        </div>
+      </div>
+
+      <!-- The pair my.telegram.org hands back, written onto the account it belongs to -->
+      <div v-if="s.type === 'web_tg_api_save'">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelApiId") }}</label>
+            <input
+              v-model.trim="s.apiId"
+              class="form-input"
+              :placeholder="t('jobs.web.apiIdPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelApiHash") }}</label>
+            <input
+              v-model.trim="s.apiHash"
+              class="form-input"
+              :placeholder="t('jobs.web.apiHashPlaceholder')"
+            />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.tgApiSaveHint") }}
+        </div>
+        <div class="form-row" style="margin-top: 8px">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelApiCopyFolder") }}</label>
+            <input
+              v-model.trim="s.folder"
+              class="form-input"
+              :list="folderListId"
+              :placeholder="t('jobs.web.apiCopyFolderPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataKey") }}</label>
+            <input
+              v-model.trim="s.recordKey"
+              class="form-input"
+              :placeholder="t('jobs.web.apiCopyKeyPlaceholder')"
+            />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.apiCopyHint") }}
+        </div>
       </div>
 
       <div v-if="s.type === 'web_pick' || s.type === 'web_collect'" style="margin-top: 8px">

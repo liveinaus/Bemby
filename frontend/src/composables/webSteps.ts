@@ -59,6 +59,12 @@ export type WebStepForm = {
   fromContains: string;
   /** web_email_code: only consider mail whose subject contains this. */
   subjectContains: string;
+  /** web_read: keep what was read out of the log. */
+  secret: boolean;
+  /** web_tg_api_save: the api_id to write, e.g. `{apiId}`. */
+  apiId: string;
+  /** web_tg_api_save: the api_hash to write, e.g. `{apiHash}`. */
+  apiHash: string;
   /** web_hold / web_hold_offset: how long to keep the pointer down. */
   holdMs: number;
   /** web_hold_offset: where on the anchor the offset is measured from. */
@@ -109,6 +115,8 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "web_collect",
   "web_read",
   "web_email_code",
+  "web_tg_code",
+  "web_tg_api_save",
   "web_set",
   "web_data_read",
   "web_data_pick",
@@ -204,6 +212,9 @@ export function defaultWebStep(): WebStepForm {
     appPassword: "{gmailAppPassword}",
     fromContains: "",
     subjectContains: "",
+    secret: false,
+    apiId: "{apiId}",
+    apiHash: "{apiHash}",
     holdMs: 1000,
     holdFrom: "centre",
     offsetX: 0,
@@ -337,6 +348,21 @@ export function webStepToConfig(s: WebStepForm): WebStep {
         ...(s.pattern.trim() ? { pattern: s.pattern.trim() } : {}),
         ...(s.waitMs > 0 ? { waitMs: s.waitMs } : {}),
       };
+    case "web_tg_code":
+      return {
+        type: "web_tg_code",
+        varName: s.varName.trim(),
+        ...(s.pattern.trim() ? { pattern: s.pattern.trim() } : {}),
+        ...(s.waitMs > 0 ? { waitMs: s.waitMs } : {}),
+      };
+    case "web_tg_api_save":
+      return {
+        type: "web_tg_api_save",
+        apiId: s.apiId.trim(),
+        apiHash: s.apiHash.trim(),
+        ...(s.folder.trim() ? { folder: s.folder.trim() } : {}),
+        ...(s.recordKey.trim() ? { key: s.recordKey.trim() } : {}),
+      };
     case "web_notify":
       return {
         type: "web_notify",
@@ -349,6 +375,7 @@ export function webStepToConfig(s: WebStepForm): WebStep {
         selector: s.selector.trim(),
         varName: s.varName.trim(),
         ...(s.maxChars > 0 ? { maxChars: s.maxChars } : {}),
+        ...(s.secret ? { secret: true } : {}),
       };
     case "web_press":
       return {
@@ -552,6 +579,23 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
         pattern: s.pattern ?? "",
         waitMs: s.waitMs ?? 120000,
       };
+    case "web_tg_code":
+      return {
+        ...base,
+        type: s.type,
+        varName: s.varName,
+        pattern: s.pattern ?? "",
+        waitMs: s.waitMs ?? 180000,
+      };
+    case "web_tg_api_save":
+      return {
+        ...base,
+        type: s.type,
+        apiId: s.apiId,
+        apiHash: s.apiHash,
+        folder: s.folder ?? "",
+        recordKey: s.key ?? "",
+      };
     case "web_notify":
       return { ...base, type: s.type, text: s.text, target: s.target ?? "" };
     case "web_read":
@@ -561,6 +605,7 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
         selector: s.selector,
         varName: s.varName,
         maxChars: s.maxChars ?? 0,
+        secret: s.secret ?? false,
       };
     case "web_press":
       return { ...base, type: s.type, key: s.key, selector: s.selector ?? "" };

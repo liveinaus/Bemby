@@ -266,6 +266,7 @@ export async function runJob(
             customProxyUrl,
             cfRun,
             configProxyChoice(job.config, job.templateId),
+            { id: account.id, name: account.name, phoneNumber: account.phoneNumber },
           );
           detailLogs?.push(customLog);
           break;

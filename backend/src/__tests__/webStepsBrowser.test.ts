@@ -754,6 +754,139 @@ describe.skipIf(!exe)("page steps in a real browser", () => {
     60_000,
   );
 
+  // The my.telegram.org chain: the account's own number goes in the form, Telegram's login
+  // code goes in the next field, and the pair the site shows lands on the account.
+  const LOGIN_FORM = `
+    <form>
+      <input id="my_login_phone">
+      <input id="my_password">
+    </form>
+    <span id="app_id">2040</span>
+    <span id="app_hash">0123456789abcdef0123456789abcdef</span>
+  `;
+
+  it(
+    "fills a form in with the account the run belongs to",
+    async () => {
+      const p = await open(LOGIN_FORM);
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_input", selector: "#my_login_phone", text: "{accountPhone}" }],
+        Date.now() + 30_000,
+        {},
+        { accountPhone: "+61412345678" },
+      );
+      expect(run.ok).toBe(true);
+      expect(
+        await p.evaluate(
+          () => (document.querySelector("#my_login_phone") as HTMLInputElement).value,
+        ),
+      ).toBe("+61412345678");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "types the login code Telegram delivered into the confirmation field",
+    async () => {
+      const p = await open(LOGIN_FORM);
+      const run = await runWebSteps(
+        p,
+        [
+          { type: "web_tg_code", varName: "tgCode" },
+          { type: "web_input", selector: "#my_password", text: "{tgCode}" },
+        ],
+        Date.now() + 30_000,
+        { tgCode: async () => ({ code: "47281", text: "Web login code: 47281" }) },
+      );
+      expect(run.ok).toBe(true);
+      expect(run.logs[0].outcome).toContain("47281");
+      expect(
+        await p.evaluate(() => (document.querySelector("#my_password") as HTMLInputElement).value),
+      ).toBe("47281");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "says the code never arrived rather than carrying on with an empty field",
+    async () => {
+      const p = await open(LOGIN_FORM);
+      const run = await runWebSteps(
+        p,
+        [
+          { type: "web_tg_code", varName: "tgCode", waitMs: 1000 },
+          { type: "web_input", selector: "#my_password", text: "{tgCode}" },
+        ],
+        Date.now() + 30_000,
+        { tgCode: async () => null },
+      );
+      expect(run.ok).toBe(false);
+      expect(run.logs[0].error).toMatch(/no login code/);
+      // The step after it never ran, so nothing was submitted half-filled
+      expect(run.logs).toHaveLength(1);
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "hands the pair read off the page to the account, keeping the hash out of the log",
+    async () => {
+      const p = await open(LOGIN_FORM);
+      const saved: unknown[] = [];
+      const run = await runWebSteps(
+        p,
+        [
+          { type: "web_read", selector: "#app_id", varName: "apiId" },
+          { type: "web_read", selector: "#app_hash", varName: "apiHash", secret: true },
+          { type: "web_tg_api_save", apiId: "{apiId}", apiHash: "{apiHash}", folder: "tgApi" },
+        ],
+        Date.now() + 30_000,
+        {
+          saveTgApi: async (creds) => {
+            saved.push(creds);
+            return { summary: "saved api_id 2040 to acc" };
+          },
+        },
+      );
+
+      expect(run.ok).toBe(true);
+      expect(saved).toEqual([
+        {
+          apiId: "2040",
+          apiHash: "0123456789abcdef0123456789abcdef",
+          folder: "tgApi",
+          key: undefined,
+        },
+      ]);
+      // The hash reached the hook but not the log, which travels with the run
+      expect(run.logs[1].outcome).not.toContain("0123456789abcdef");
+      expect(run.logs[2].outcome).toBe("saved api_id 2040 to acc");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "fails a save whose values never got read, rather than saving blanks",
+    async () => {
+      const p = await open(LOGIN_FORM);
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_tg_api_save", apiId: "", apiHash: "{apiHash}" }],
+        Date.now() + 30_000,
+        { saveTgApi: async () => ({ summary: "saved" }) },
+      );
+      expect(run.ok).toBe(false);
+      expect(run.logs[0].error).toMatch(/no api_id/);
+      await p.close();
+    },
+    60_000,
+  );
+
   it(
     "fails the step when the ruler cannot be drawn, instead of asking for a blind guess",
     async () => {

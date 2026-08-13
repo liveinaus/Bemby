@@ -701,6 +701,54 @@ export type WebStep =
     }
   | {
       /**
+       * Wait for the login code Telegram delivers to this account and hold it under a name,
+       * for a later `web_input` to type as `{name}`. What my.telegram.org needs: it posts its
+       * code to the account inside Telegram rather than to an email address, so nothing a
+       * mailbox step can read ever arrives.
+       *
+       * Read off Telegram's own service chat on the account the job belongs to, so the step
+       * needs no address and no password of its own. The code the site sent is the newest
+       * message there; anything sent before the step began is left alone.
+       */
+      type: "web_tg_code";
+      /** Name to hold the code under. */
+      varName: string;
+      /**
+       * Expression pulling the code out of the message, e.g. `code is (\S+)`. Capture group 1
+       * is kept when there is one, otherwise the whole match. Blank covers both codes Telegram
+       * sends: the token a web login gets (`Q6mq_4re-8s`) and the 5-6 digit run a phone login
+       * gets, in that order.
+       */
+      pattern?: string;
+      /** How long to wait for the message. Blank/0 waits 180s. */
+      waitMs?: number;
+    }
+  | {
+      /**
+       * Write an api_id/api_hash pair onto the account this job belongs to, the way Settings
+       * writes the global pair: the hash goes in encrypted, and every job the account runs
+       * uses the pair from then on. Reach for it at the end of a my.telegram.org run, once a
+       * `web_read` has the two values off the page.
+       *
+       * Refuses anything that does not look like a pair, since a selector that has drifted
+       * reads a label rather than a value -- and credentials that are junk only show up later
+       * as an account that can no longer log in.
+       */
+      type: "web_tg_api_save";
+      /** The api_id, e.g. `{apiId}` from a `web_read`. */
+      apiId: string;
+      /** The api_hash, e.g. `{apiHash}`. */
+      apiHash: string;
+      /**
+       * Data-store folder to keep a copy in, e.g. `tgApi`. Blank writes to the account alone.
+       * The copy is what puts the pair somewhere readable outside the account form.
+       */
+      folder?: string;
+      /** Record key inside that folder. Blank uses the account's phone number. */
+      key?: string;
+    }
+  | {
+      /**
        * Send a message through the notification bot from the middle of a run, with `{name}`
        * standing for whatever the steps have gathered. What makes a signup worth running:
        * the account it just made is of no use if nothing says what the credentials were.
@@ -724,6 +772,12 @@ export type WebStep =
       varName: string;
       /** Cut the text to this many characters. Blank/0 keeps 1000. */
       maxChars?: number;
+      /**
+       * Keep what was read out of the log, showing its length alone. For a value that is a
+       * login in its own right -- an api_hash, a token a page hands out -- which would
+       * otherwise sit in the run log in full, and in every export of it.
+       */
+      secret?: boolean;
     }
   | {
       /**

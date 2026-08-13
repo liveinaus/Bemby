@@ -29,6 +29,7 @@ import {
   writeDataValue,
 } from "../db/dataStore";
 import { EMAIL_CODE_WAIT_MS } from "./emailCode";
+import { TG_CODE_WAIT_MS } from "./tgApiCredentials";
 import type { WebStep, WebStepLog } from "../types";
 
 // Completes a checkin that hands back a URL behind Cloudflare's "I am not a bot"
@@ -332,6 +333,15 @@ export type LoadOptions = {
   notify?: (text: string, target?: string) => Promise<void>;
   /** Reads a code out of a mailbox, for the `web_email_code` sub-step. */
   emailCode?: WebStepHooks["emailCode"];
+  /** Waits for Telegram's own login code, for the `web_tg_code` sub-step. */
+  tgCode?: WebStepHooks["tgCode"];
+  /** Writes API credentials onto the account, for the `web_tg_api_save` sub-step. */
+  saveTgApi?: WebStepHooks["saveTgApi"];
+  /**
+   * Names the page steps start with, on top of what they set themselves: the account the run
+   * belongs to, so one template can fill a form in for every account linked to it.
+   */
+  webVars?: Record<string, string>;
   /**
    * Which browser profile -- so which cookie jar and which device -- to run on. The name is
    * a template (`{ip}`, `{ip}-{jobId}`, `{tgId}`, free text); blank takes the configured
@@ -2571,6 +2581,27 @@ export type WebStepHooks = {
     waitMs: number;
   }) => Promise<{ code: string; subject: string; from: string; mailbox?: string } | null>;
   /**
+   * Waits for the login code Telegram delivers to the account, for a `web_tg_code` step.
+   * Supplied by the caller: the code arrives over MTProto on the account's own client, which
+   * lives on that side. Absent, the step says so rather than passing silently.
+   */
+  tgCode?: (query: { pattern?: string; waitMs: number }) => Promise<{
+    code: string;
+    text: string;
+  } | null>;
+  /**
+   * Writes an api_id/api_hash pair onto the account the run belongs to, for a
+   * `web_tg_api_save` step. Supplied by the caller for the same reason: which account a run
+   * belongs to, and how its secrets are stored, is not something this side knows. Returns the
+   * line to log, which the caller words since it is the one that knows the account.
+   */
+  saveTgApi?: (creds: {
+    apiId: string;
+    apiHash: string;
+    folder?: string;
+    key?: string;
+  }) => Promise<{ summary: string }>;
+  /**
    * Works any Cloudflare challenge standing on the page right now, or returns null when
    * there is none. Called after a `web_goto`, since a fresh navigation is exactly what
    * raises one mid-run.
@@ -2773,13 +2804,15 @@ export async function runWebSteps(
   steps: WebStep[],
   deadline: number,
   hooks: WebStepHooks,
+  /** Names the steps start with, e.g. the account's phone number. */
+  seed?: Record<string, string>,
 ): Promise<{ logs: WebStepLog[]; ok: boolean; failure?: string }> {
   const run: WebStepRun = {
     logs: [],
     deadline,
     hooks,
     tune: cfTuning(),
-    current: new Map(),
+    current: new Map(Object.entries(seed ?? {})),
     lists: new Map(),
     picked: new Map(),
     taken: new Set(),
@@ -3231,7 +3264,11 @@ async function runStepList(
           const max = step.maxChars && step.maxChars > 0 ? step.maxChars : WEB_READ_CHARS;
           const kept = trimmed.slice(0, max);
           run.current.set(name, kept);
-          log.outcome = `read ${kept.length} character(s) into {${name}}: ${oneLine(kept).slice(0, 120)}`;
+          // A value read as a secret is not written down: the log is kept with the run and
+          // travels with any export of it, and an api_hash there is the login itself
+          log.outcome = step.secret
+            ? `read ${kept.length} character(s) into {${name}} (kept out of the log)`
+            : `read ${kept.length} character(s) into {${name}}: ${oneLine(kept).slice(0, 120)}`;
           break;
         }
 
@@ -3276,6 +3313,46 @@ async function runStepList(
           const where =
             found.mailbox && found.mailbox !== "INBOX" ? `, in ${found.mailbox}` : "";
           log.outcome = `{${name}} = ${found.code} (from ${oneLine(found.from)}${where})`;
+          break;
+        }
+
+        case "web_tg_code": {
+          if (!hooks.tgCode)
+            throw new Error("reading Telegram's own messages is not available here");
+          const name = step.varName.trim();
+          if (!name) throw new Error("no name given to hold the code under");
+
+          // Capped at what is left of the action's budget, as the mailbox step is: waiting
+          // past the deadline leaves the steps that type the code no time to run
+          const asked = step.waitMs && step.waitMs > 0 ? step.waitMs : TG_CODE_WAIT_MS;
+          const waitMs = Math.max(0, Math.min(asked, msLeft(deadline)));
+          const found = await hooks.tgCode({
+            pattern: step.pattern?.trim() || undefined,
+            waitMs,
+          });
+          if (!found)
+            throw new Error(
+              `Telegram sent this account no login code within ${Math.round(waitMs / 1000)}s`,
+            );
+          run.current.set(name, found.code);
+          log.outcome = `{${name}} = ${found.code}`;
+          break;
+        }
+
+        case "web_tg_api_save": {
+          if (!hooks.saveTgApi)
+            throw new Error("saving credentials to the account is not available here");
+          const apiId = fillVars(step.apiId ?? "", run.current).trim();
+          const apiHash = fillVars(step.apiHash ?? "", run.current).trim();
+          if (!apiId) throw new Error("no api_id given to save");
+          if (!apiHash) throw new Error("no api_hash given to save");
+          const saved = await hooks.saveTgApi({
+            apiId,
+            apiHash,
+            folder: fillVars(step.folder ?? "", run.current).trim() || undefined,
+            key: fillVars(step.key ?? "", run.current).trim() || undefined,
+          });
+          log.outcome = saved.summary;
           break;
         }
 
@@ -4056,6 +4133,13 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
       return `Read \`${fill(step.selector)}\` into {${step.varName}}`;
     case "web_email_code":
       return `Read a code from ${fill(step.email ?? "")} into {${step.varName}}`;
+    case "web_tg_code":
+      return `Wait for Telegram's login code, into {${step.varName}}`;
+    case "web_tg_api_save":
+      return (
+        `Save api_id ${fill(step.apiId ?? "")} and its hash to the account` +
+        `${step.folder?.trim() ? ` and to ${fill(step.folder.trim())}` : ""}`
+      );
     case "web_repeat":
       return `Repeat ${step.steps?.length ?? 0} step(s) ${Math.floor(step.times || 0)} time(s)`;
     case "web_for_each":
@@ -4758,18 +4842,26 @@ async function attemptLoad(
     let webSteps: WebStepLog[] | undefined;
     let webFailure: string | undefined;
     if (opts.webSteps?.length && solved) {
-      const run = await runWebSteps(page, opts.webSteps, budgetDeadline, {
-        aiLocate: opts.aiLocate,
-        usedValues: opts.usedValues,
-        markUsed: opts.markUsed,
-        notify: opts.notify,
-        emailCode: opts.emailCode,
-        // A `web_goto` lands on a page that may have its own challenge, and the solver for
-        // this attempt is right here -- so the steps work it through rather than the run
-        // only noticing once every step has already failed against an interstitial
-        solveChallenge,
-        signal: opts.signal,
-      });
+      const run = await runWebSteps(
+        page,
+        opts.webSteps,
+        budgetDeadline,
+        {
+          aiLocate: opts.aiLocate,
+          usedValues: opts.usedValues,
+          markUsed: opts.markUsed,
+          notify: opts.notify,
+          emailCode: opts.emailCode,
+          tgCode: opts.tgCode,
+          saveTgApi: opts.saveTgApi,
+          // A `web_goto` lands on a page that may have its own challenge, and the solver for
+          // this attempt is right here -- so the steps work it through rather than the run
+          // only noticing once every step has already failed against an interstitial
+          solveChallenge,
+          signal: opts.signal,
+        },
+        opts.webVars,
+      );
       webSteps = run.logs;
       webFailure = run.failure;
 

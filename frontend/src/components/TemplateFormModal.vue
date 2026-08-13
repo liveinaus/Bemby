@@ -8,6 +8,22 @@
       <div class="modal-body">
         <div v-if="formError" class="error-msg">{{ formError }}</div>
 
+        <!-- A working chain to start from, only offered for a new template: applying it fills
+             the whole form in, which would throw away an existing one's settings -->
+        <div v-if="!editTarget" class="form-group">
+          <label class="form-label">{{ t('templates.presets.label') }}</label>
+          <div style="display:flex;gap:6px">
+            <select v-model="presetId" class="form-select" style="flex:1;min-width:0">
+              <option value="">{{ t('templates.presets.none') }}</option>
+              <option v-for="p in TEMPLATE_PRESETS" :key="p.id" :value="p.id">{{ t(p.labelKey) }}</option>
+            </select>
+            <button type="button" class="btn btn-secondary" :disabled="!presetId" @click="applyPreset">
+              {{ t('templates.presets.apply') }}
+            </button>
+          </div>
+          <div v-if="presetHint" style="font-size:11px;color:#aaa;margin-top:4px">{{ presetHint }}</div>
+        </div>
+
         <!-- Template Name + Job Type -->
         <div class="form-row">
           <div class="form-group">
@@ -854,6 +870,7 @@ import RowControls from './RowControls.vue';
 import { webStepsFromConfig, webStepsToConfig, type WebStepForm } from '../composables/webSteps';
 import { appButtonsOf } from '../composables/miniAppSteps';
 import { proxyFields } from '../composables/proxyPick';
+import { TEMPLATE_PRESETS } from '../composables/templatePresets';
 import ProxyPicker from './ProxyPicker.vue';
 import JobIconPicker from './JobIconPicker.vue';
 
@@ -1590,6 +1607,21 @@ async function saveTemplate() {
   } finally {
     saving.value = false;
   }
+}
+
+// A preset is loaded the same way a saved template is, so what lands in the form is exactly
+// what the form would have shown had the template already existed -- and it is a copy from
+// there on, free to be edited before it is saved.
+const presetId = ref('');
+const presetHint = computed(() => {
+  const preset = TEMPLATE_PRESETS.find(p => p.id === presetId.value);
+  return preset ? t(preset.hintKey) : '';
+});
+
+function applyPreset() {
+  const preset = TEMPLATE_PRESETS.find(p => p.id === presetId.value);
+  if (!preset) return;
+  loadFromTemplate(preset.template());
 }
 
 // Seed straight away so the modal never renders a half-filled form

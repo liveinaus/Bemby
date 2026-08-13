@@ -895,6 +895,8 @@ const zh = {
         web_collect: "收集全部元素（存为列表）",
         web_read: "读取页面文字（存为变量）",
         web_email_code: "从邮箱获取验证码（存为变量）",
+        web_tg_code: "等待 Telegram 登录验证码（存为变量）",
+        web_tg_api_save: "保存 API ID / Hash 到账号",
         web_set: "设置变量（自定义取值，可多个）",
         web_data_read: "读取数据（存为变量）",
         web_data_pick: "按序号取记录（数据）",
@@ -945,6 +947,27 @@ const zh = {
         "有捕获组时取第 1 组，否则取整个匹配。留空则查找 4-8 位数字，优先取“code / 验证码”附近的那个",
       labelMailWait: "等待邮件（毫秒）",
       mailWaitHint: "邮件到达前的等待上限，留空/0 表示 120 秒。不会超过本动作剩余的浏览器时间",
+      tgCodeVarNamePlaceholder: "tgCode",
+      labelTgCodeWait: "等待验证码（毫秒）",
+      tgCodeHint:
+        "在页面提交手机号之后使用：my.telegram.org 会把登录验证码发到该账号的 Telegram（官方服务会话），本步骤直接用该账号读取并存为变量，后续步骤用 {变量名} 输入，无需邮箱与密钥。只读取本步骤开始之后收到的消息；留空/0 表示等待 180 秒，且不会超过本动作剩余的浏览器时间",
+      tgCodePatternPlaceholder: "code is (\\S+)",
+      tgCodePatternHint:
+        "有捕获组时取第 1 组，否则取整个匹配。留空即可同时识别两种验证码：网页登录的字符串（如 Q6mq_4re-8s，my.telegram.org 用的就是这种）与手机登录的 5-6 位数字",
+      labelApiId: "API ID",
+      apiIdPlaceholder: "{apiId}",
+      labelApiHash: "API Hash",
+      apiHashPlaceholder: "{apiHash}",
+      tgApiSaveHint:
+        "把这两个值写入本任务所属的账号：api_id 直接保存，api_hash 加密保存，此后该账号的所有任务都使用这一对凭据。通常填 {变量名}——先用「读取页面文字」把 my.telegram.org 上的两个值读出来。格式不像 api_id、或不是 32 位十六进制 api_hash 的内容会被拒绝，而不会写入。若账号已有会话，那是用旧凭据登录的：如出现异常请重新登录该账号",
+      labelApiCopyFolder: "同时保存到数据文件夹（可选）",
+      apiCopyFolderPlaceholder: "tgApi",
+      apiCopyKeyPlaceholder: "留空则用手机号",
+      apiCopyHint:
+        "留空则只写入账号。填写后会在「数据」中另存一份 {apiId, apiHash, phone}，记录键留空则使用该账号的手机号（需先在设置中启用数据存储）",
+      labelReadSecret: "不把读到的内容写进日志",
+      readSecretHint:
+        "读到的内容本身就是凭据（api_hash、令牌）时勾选：日志只记录字符数。变量照常可用，后续步骤不受影响",
       loopStepsLabel: "循环内的步骤",
       loopStepsHint:
         "每轮按顺序执行一遍。典型用法：跳转到首页 → 挑选一个还没回复过的帖子 → 打开该帖 → 读取正文 → AI 回复 → 返回。任一字段中的 {变量名} 会被替换为本轮挑中的值；某一轮失败不影响其余轮次（见下方开关）。循环内不能再嵌套循环",
@@ -1233,6 +1256,14 @@ const zh = {
     noTemplates: "暂无模板",
     editTitle: "编辑模板",
     addTitle: "添加模板",
+    presets: {
+      label: "内置模板",
+      none: "不使用（从空白开始）",
+      apply: "填入表单",
+      tgApi: "获取 Telegram API ID / Hash（my.telegram.org）",
+      tgApiHint:
+        "用内置浏览器登录 my.telegram.org：手机号取自账号本身（{accountPhone}），登录验证码由该账号在 Telegram 中接收并自动读取；随后取用已有的 API 应用，没有则以随机名称新建一个（平台选 Web），最后把 api_id 与 api_hash 写回该账号（api_hash 加密保存），并在数据文件夹 tgApi 中另存一份。注意：my.telegram.org 会限制同一号码的验证码请求次数，短时间内反复运行会看到“too many tries”，需稍后再试",
+    },
     labelName: "模板名称",
     colType: "类型",
     colBotUrl: "机器人/网址",
@@ -2904,6 +2935,8 @@ const en: typeof zh = {
         web_collect: "Collect every element (into a list)",
         web_read: "Read text off the page (into a name)",
         web_email_code: "Get a verification code from email (into a name)",
+        web_tg_code: "Wait for Telegram's login code (into a name)",
+        web_tg_api_save: "Save an API ID / hash onto the account",
         web_set: "Set variables (values of your own)",
         web_data_read: "Read from Data (into a variable)",
         web_data_pick: "Take a record by position (Data)",
@@ -2954,6 +2987,27 @@ const en: typeof zh = {
         "Capture group 1 is kept when there is one, otherwise the whole match. Blank looks for a 4-8 digit run, preferring one next to the word \"code\"",
       labelMailWait: "Wait for the mail (ms)",
       mailWaitHint: "How long to keep looking. Blank/0 waits 120s, and never past the browser time left for this action",
+      tgCodeVarNamePlaceholder: "tgCode",
+      labelTgCodeWait: "Wait for the code (ms)",
+      tgCodeHint:
+        "Runs after the page has been given the phone number: my.telegram.org posts its login code to the account inside Telegram, so this reads it off that account's own service chat and holds it under the name, for a later step to type as {name}. No mailbox and no secret to set up. Only messages that arrive after the step began count. Blank/0 waits 180s, and never past the browser time left for this action",
+      tgCodePatternPlaceholder: "code is (\\S+)",
+      tgCodePatternHint:
+        "Capture group 1 is kept when there is one, otherwise the whole match. Blank reads both codes Telegram sends: the token a web login gets (Q6mq_4re-8s, which is what my.telegram.org sends) and the 5-6 digit run a phone login gets",
+      labelApiId: "API ID",
+      apiIdPlaceholder: "{apiId}",
+      labelApiHash: "API Hash",
+      apiHashPlaceholder: "{apiHash}",
+      tgApiSaveHint:
+        "Writes both onto the account this job belongs to: the api_id as it stands, the api_hash encrypted, and every job the account runs uses the pair from then on. Usually {name} for each, with a read step having taken the two values off my.telegram.org first. Anything that is not an api_id, or not a 32-character hexadecimal hash, is refused rather than saved. An account that already has a session made it under the old pair, so sign in again if it starts refusing",
+      labelApiCopyFolder: "Also save to data folder (optional)",
+      apiCopyFolderPlaceholder: "tgApi",
+      apiCopyKeyPlaceholder: "blank uses the phone number",
+      apiCopyHint:
+        "Blank writes to the account alone. Named, a copy of {apiId, apiHash, phone} is kept in Data as well, under the record key given -- blank uses the account's phone number. The data store has to be switched on in Settings",
+      labelReadSecret: "Keep what was read out of the log",
+      readSecretHint:
+        "For a value that is a login in its own right (an api_hash, a token a page hands out): the log says how many characters were read and no more. The name still holds the value for the steps after it",
       loopStepsLabel: "Steps inside the loop",
       loopStepsHint:
         "Run in order once per round. The usual shape: go to the front page, pick a post not yet replied to, open it, read it, have the AI reply, come back. {name} in any field stands for what the round picked. A round that fails does not take the others with it (see the switch below). Loops do not nest",
@@ -3254,6 +3308,14 @@ const en: typeof zh = {
     noTemplates: "No templates yet",
     editTitle: "Edit Template",
     addTitle: "Add Template",
+    presets: {
+      label: "Start from a built-in template",
+      none: "None (start blank)",
+      apply: "Fill the form",
+      tgApi: "Fetch Telegram API ID / hash (my.telegram.org)",
+      tgApiHint:
+        "Signs in to my.telegram.org in the built-in browser with the account's own number ({accountPhone}), reading the login code off the account inside Telegram. It then takes the API app the account already has, or registers one under a random name as a web app, and writes the api_id and api_hash back onto the account -- the hash encrypted -- keeping a copy in the tgApi data folder. Note that my.telegram.org rations code requests per number: running it repeatedly in quick succession earns a \"too many tries\" page, and it has to be left for a while",
+    },
     labelName: "Template Name",
     colType: "Type",
     colBotUrl: "Bot / URL",

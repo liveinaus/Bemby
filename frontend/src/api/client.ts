@@ -617,7 +617,14 @@ export type WebStep =
       /** Chat to send to. Blank uses the one set in Settings. */
       target?: string;
     }
-  | { type: "web_read"; selector: string; varName: string; maxChars?: number }
+  | {
+      type: "web_read";
+      selector: string;
+      varName: string;
+      maxChars?: number;
+      /** Keep what was read out of the log, for a value that is a login in its own right. */
+      secret?: boolean;
+    }
   | {
       /**
        * Read a record out of the data store into a name. The same value is readable inline as
@@ -685,6 +692,32 @@ export type WebStep =
       pattern?: string;
       /** How long to wait for the mail. Blank/0 waits 120s. */
       waitMs?: number;
+    }
+  | {
+      /**
+       * Wait for the login code Telegram delivers to this account and hold it under a name.
+       * Read off Telegram's own service chat on the account the job belongs to, which is where
+       * my.telegram.org posts its code -- so the step needs no address of its own.
+       */
+      type: "web_tg_code";
+      varName: string;
+      /** Expression pulling the code out; group 1 wins. Blank looks for a 5-6 digit run. */
+      pattern?: string;
+      /** How long to wait for the message. Blank/0 waits 180s. */
+      waitMs?: number;
+    }
+  | {
+      /**
+       * Write an api_id/api_hash pair onto the account this job belongs to, the hash
+       * encrypted as every other login is. Anything that does not look like a pair is refused.
+       */
+      type: "web_tg_api_save";
+      apiId: string;
+      apiHash: string;
+      /** Data-store folder to keep a copy in. Blank writes to the account alone. */
+      folder?: string;
+      /** Record key inside that folder. Blank uses the account's phone number. */
+      key?: string;
     }
   | { type: "web_goto"; url: string; waitMs?: number }
   | { type: "web_back"; waitMs?: number }

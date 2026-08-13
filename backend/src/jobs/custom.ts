@@ -50,6 +50,7 @@ import { cfTuning } from "./cfTuning";
 import { rememberWebValue, usedWebValues } from "./webMemory";
 import { getNotifyConfig, sendBotNotify } from "./notify";
 import { EMAIL_CODE_LOOKBACK_MS, fetchGmailCode } from "./emailCode";
+import { saveAccountApiCredentials, waitForTgLoginCode } from "./tgApiCredentials";
 import { fillSecrets, missingSecretRefs } from "../db/secrets";
 import { displayForRun } from "./runDisplays";
 
@@ -57,6 +58,13 @@ import type { CustomAction, CustomConfig, CustomStepLog } from "../types";
 
 export type CustomJobLog = {
   steps: CustomStepLog[];
+};
+
+/** The account a run belongs to, as the page steps need to know it. */
+export type CustomRunAccount = {
+  id: number;
+  name: string;
+  phoneNumber: string;
 };
 
 type WebButtonOutcome = {
@@ -1031,6 +1039,9 @@ export async function runCustom(
   // What the job (or its template) picked, so an action left on "follow the job's proxy"
   // draws from the same pool a random job pick draws from
   jobProxy: ProxyChoice = {},
+  // Which account this run is for. The page steps need it twice over: `{accountPhone}` fills
+  // a form in with whoever the run belongs to, and a `web_tg_api_save` writes back to it.
+  account?: CustomRunAccount,
 ): Promise<CustomJobLog> {
   const log: CustomJobLog = { steps: [] };
   const jobMaxRetries = config.maxRetries ?? 1;
@@ -3153,6 +3164,37 @@ export async function runCustom(
                       sinceMs: Date.now() - EMAIL_CODE_LOOKBACK_MS,
                     });
                   },
+                  // And for a `web_tg_code` step: my.telegram.org posts its login code to
+                  // the account inside Telegram, so the client this job is already running
+                  // on is what reads it -- nothing about it reaches the browser
+                  tgCode: async (q) =>
+                    waitForTgLoginCode({
+                      client,
+                      sinceMs: Date.now(),
+                      pattern: q.pattern,
+                      waitMs: q.waitMs,
+                      signal,
+                    }),
+                  // And for a `web_tg_api_save`: which account the run belongs to, and how
+                  // its api_hash is stored, is this side's business
+                  saveTgApi: async (creds) => {
+                    if (!account)
+                      throw new Error(
+                        "this run has no account to save credentials to",
+                      );
+                    return saveAccountApiCredentials({
+                      accountId: account.id,
+                      ...creds,
+                    });
+                  },
+                  // What the steps start with: one template drives my.telegram.org for every
+                  // account linked to it, and the phone is the only thing that differs
+                  webVars: account
+                    ? {
+                        accountPhone: account.phoneNumber,
+                        accountName: account.name,
+                      }
+                    : undefined,
                   // Which cookie jar this runs on, and so what a login here belongs to
                   profile: { template: action.profileId, vars: cfProfileVars(cfRun) },
                   display: await displayForRun(cfRun),
