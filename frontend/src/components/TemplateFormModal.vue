@@ -10,12 +10,12 @@
 
         <!-- A working chain to start from, only offered for a new template: applying it fills
              the whole form in, which would throw away an existing one's settings -->
-        <div v-if="!editTarget" class="form-group">
+        <div v-if="!editTarget && availableTemplatePresets.length" class="form-group">
           <label class="form-label">{{ t('templates.presets.label') }}</label>
           <div style="display:flex;gap:6px">
             <select v-model="presetId" class="form-select" style="flex:1;min-width:0">
               <option value="">{{ t('templates.presets.none') }}</option>
-              <option v-for="p in TEMPLATE_PRESETS" :key="p.id" :value="p.id">{{ t(p.labelKey) }}</option>
+              <option v-for="p in availableTemplatePresets" :key="p.id" :value="p.id">{{ t(p.labelKey) }}</option>
             </select>
             <button type="button" class="btn btn-secondary" :disabled="!presetId" @click="applyPreset">
               {{ t('templates.presets.apply') }}
@@ -870,7 +870,8 @@ import RowControls from './RowControls.vue';
 import { webStepsFromConfig, webStepsToConfig, type WebStepForm } from '../composables/webSteps';
 import { appButtonsOf } from '../composables/miniAppSteps';
 import { proxyFields } from '../composables/proxyPick';
-import { TEMPLATE_PRESETS } from '../composables/templatePresets';
+import { availableTemplatePresets } from '../composables/templatePresets';
+import { loadDataStoreSetting } from '../composables/dataStore';
 import ProxyPicker from './ProxyPicker.vue';
 import JobIconPicker from './JobIconPicker.vue';
 
@@ -1614,12 +1615,12 @@ async function saveTemplate() {
 // there on, free to be edited before it is saved.
 const presetId = ref('');
 const presetHint = computed(() => {
-  const preset = TEMPLATE_PRESETS.find(p => p.id === presetId.value);
+  const preset = availableTemplatePresets.value.find(p => p.id === presetId.value);
   return preset ? t(preset.hintKey) : '';
 });
 
 function applyPreset() {
-  const preset = TEMPLATE_PRESETS.find(p => p.id === presetId.value);
+  const preset = availableTemplatePresets.value.find(p => p.id === presetId.value);
   if (!preset) return;
   loadFromTemplate(preset.template());
 }
@@ -1629,6 +1630,8 @@ if (props.template) loadFromTemplate(props.template);
 else resetForm();
 
 onMounted(async () => {
+  // Decides whether the preset picker is offered at all
+  void loadDataStoreSetting();
   await loadSettings();
   // The retry default comes from settings, which land after the first paint
   if (!props.template) form.retryMax = Number(settings.value?.default_max_retry ?? 5);

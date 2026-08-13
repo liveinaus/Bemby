@@ -1733,6 +1733,9 @@
               {{ t("accounts.bulkAdd.finished") }}
             </span>
           </div>
+          <div v-if="bulkBatch.running" class="form-hint">
+            {{ t("accounts.bulkAdd.minimiseHint") }}
+          </div>
           <div class="bulk-add-list">
             <div
               v-for="item in bulkBatch.items"
@@ -1764,6 +1767,14 @@
             </div>
           </div>
           <div class="modal-footer">
+            <button
+              v-if="bulkBatch.running"
+              class="btn btn-ghost"
+              @click="closeBulkAdd"
+            >
+              <i class="fa-solid fa-window-minimize"></i>
+              {{ t("accounts.bulkAdd.minimise") }}
+            </button>
             <button
               v-if="bulkBatch.running"
               class="btn btn-danger"

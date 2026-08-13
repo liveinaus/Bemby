@@ -1,4 +1,6 @@
+import { computed } from "vue";
 import type { CustomConfig, JobTemplate } from "../api/client";
+import { dataStoreEnabled } from "./dataStore";
 
 // Templates that come with Bemby, offered when a new one is being made: the form is filled in
 // with a working chain, and whoever is making it reads it over and saves. Nothing is created
@@ -12,6 +14,8 @@ export type TemplatePreset = {
   labelKey: string;
   /** One line on what it does and what it needs; translated at the call site. */
   hintKey: string;
+  /** Only offered where the data store is switched on: the chain keeps its result there. */
+  requiresDataStore?: boolean;
   /** The template as the form reads one, with no id of its own. */
   template: () => JobTemplate;
 };
@@ -140,6 +144,12 @@ export const TEMPLATE_PRESETS: TemplatePreset[] = [
     id: "tg-api",
     labelKey: "templates.presets.tgApi",
     hintKey: "templates.presets.tgApiHint",
+    requiresDataStore: true,
     template: tgApiTemplate,
   },
 ];
+
+/** What the picker offers right now; an empty list means the picker is not shown at all. */
+export const availableTemplatePresets = computed(() =>
+  TEMPLATE_PRESETS.filter((p) => !p.requiresDataStore || dataStoreEnabled.value),
+);

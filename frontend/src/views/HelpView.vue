@@ -87,10 +87,13 @@
                   <td>API ID / API Hash</td>
                   <td>
                     在 <code>my.telegram.org</code> 的"API development
-                    tools"中获取。也可以在【模板 → 添加模板】中选择内置模板"获取
-                    Telegram API ID / Hash"，由内置浏览器登录
-                    <code>my.telegram.org</code>
-                    并自动写回账户（登录验证码由该账户在 Telegram 中接收）。
+                    tools"中获取。<span v-if="dataStoreEnabled"
+                      >也可以在【模板 → 添加模板】中选择内置模板"获取 Telegram
+                      API ID / Hash"，由内置浏览器登录
+                      <code>my.telegram.org</code>
+                      并自动写回账户（登录验证码由该账户在 Telegram
+                      中接收）。</span
+                    >
                   </td>
                 </tr>
                 <tr>
@@ -221,11 +224,13 @@
                   <td>API ID / API Hash</td>
                   <td>
                     Obtain from <code>my.telegram.org</code> under "API
-                    development tools". Or add a template from the built-in
-                    "Fetch Telegram API ID / hash" preset: the built-in browser
-                    signs in to <code>my.telegram.org</code> as the account,
-                    reads the login code off Telegram, and writes the pair back
-                    onto the account.
+                    development tools".<span v-if="dataStoreEnabled">
+                      Or add a template from the built-in "Fetch Telegram API ID
+                      / hash" preset: the built-in browser signs in to
+                      <code>my.telegram.org</code> as the account, reads the
+                      login code off Telegram, and writes the pair back onto the
+                      account.</span
+                    >
                   </td>
                 </tr>
                 <tr>
