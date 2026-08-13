@@ -396,6 +396,22 @@ export async function stopManualSession(): Promise<void> {
   console.log(`[manual] closed the session on ${session.profileKey}`);
 }
 
+/**
+ * Ends the session without waiting on the browser. For a forced restart: the browser process
+ * is killed with the rest, so asking it to close first only risks the wait this is avoiding.
+ * The cookies of an unsaved session are lost, which is the trade a forced restart is making.
+ */
+export function killManualSessionNow(): void {
+  const session = current;
+  if (!session) return;
+  current = undefined;
+  clearInterval(session.idleTimer);
+  for (const [id, t] of tickets) if (t.sessionId === session.id) tickets.delete(id);
+  session.vnc.kill("SIGKILL");
+  session.display?.close();
+  console.log(`[manual] killed the session on ${session.profileKey}`);
+}
+
 // A session outliving the process would hold its profile with nothing left to close it
 for (const signal of ["exit", "SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {

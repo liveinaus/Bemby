@@ -12,7 +12,8 @@
  * race it for the instance lock.
  */
 import { existsSync } from "node:fs";
-import { killStrayCfBrowsers, stopAllCfBrowsers } from "../jobs/cfBrowser";
+import { cfBrowsersRunning, killStrayCfBrowsers, stopAllCfBrowsers } from "../jobs/cfBrowser";
+import { killManualSessionNow } from "../jobs/manualBrowser";
 import { markCleanShutdown } from "../monitor/memory";
 import { releaseInstanceLock } from "../instanceLock";
 
@@ -29,10 +30,12 @@ const EXIT_DELAY_MS = 400;
 export type RestartOutcome = {
   /** Browsers this process was holding, closed with their profiles and licence seats. */
   stopped: number;
-  /** Browser processes left behind by an earlier backend, killed outright. */
+  /** Browser processes killed outright rather than closed. */
   killed: number;
   /** Whether something is expected to start the process again. */
   supervised: boolean;
+  /** Whether the browsers were killed where they stood instead of being closed. */
+  forced: boolean;
 };
 
 /**
@@ -52,20 +55,48 @@ export function restartSupervised(): boolean {
  * Returns once the shutdown work is done; the exit itself is on a timer so the caller can
  * answer the request first. Runs in flight are left interrupted on purpose: they are
  * reconciled on the next boot, and waiting for a wedged one is the reason this exists.
+ *
+ * `force` takes the shorter way out. The ordinary path asks each browser to close, which
+ * talks to it over CDP and returns its licence seat -- worth having, but it is the browser
+ * being asked, so a browser that has stopped answering is exactly what can hold it up. A
+ * forced restart waits for nothing: every browser process this installation owns is killed
+ * where it stands, held or stray, the manual session's viewer goes with them, and the
+ * process exits. The seats are recovered by the licence service timing them out instead.
  */
-export async function restartBemby(): Promise<RestartOutcome> {
-  const { stopped } = await stopAllCfBrowsers();
-  const { killed } = killStrayCfBrowsers();
-  const supervised = restartSupervised();
+export async function restartBemby(
+  opts: { force?: boolean } = {},
+): Promise<RestartOutcome> {
+  const force = opts.force === true;
+  let stopped = 0;
+  let killed = 0;
 
+  if (force) {
+    // Nothing here awaits a browser. killStrayCfBrowsers matches on the executable path, so
+    // in this pass it takes the live ones as well as anything an earlier backend left.
+    const running = cfBrowsersRunning();
+    killManualSessionNow();
+    killed = killStrayCfBrowsers().killed;
+    console.warn(
+      `[restart] forced restart on request: killed ${killed} browser process(es) ` +
+        `(${running} held by this process).`,
+    );
+  } else {
+    stopped = (await stopAllCfBrowsers()).stopped;
+    killed = killStrayCfBrowsers().killed;
+    console.warn(
+      `[restart] restarting on request: closed ${stopped} browser(s), killed ${killed} stray ` +
+        `process(es).`,
+    );
+  }
+
+  const supervised = restartSupervised();
   console.warn(
-    `[restart] restarting on request: closed ${stopped} browser(s), killed ${killed} stray ` +
-      `process(es). ${supervised ? "Waiting to be restarted." : "Nothing is set to restart this process; it will stay down until it is started again."}`,
+    `[restart] ${supervised ? "Waiting to be restarted." : "Nothing is set to restart this process; it will stay down until it is started again."}`,
   );
 
   markCleanShutdown();
   releaseInstanceLock();
   setTimeout(() => process.exit(RESTART_EXIT_CODE), EXIT_DELAY_MS).unref();
 
-  return { stopped, killed, supervised };
+  return { stopped, killed, supervised, forced: force };
 }

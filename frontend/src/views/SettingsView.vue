@@ -2283,12 +2283,24 @@
           <button
             class="btn btn-danger btn-sm"
             :disabled="restarting"
-            @click="confirmRestart = true"
+            @click="askRestart(false)"
           >
             <i class="fa-solid fa-power-off"></i>
             {{ restarting ? t("settings.system.restarting") : t("settings.system.restartBtn") }}
             <template v-if="cfBrowsersRunning > 0"> ({{ cfBrowsersRunning }})</template>
           </button>
+          <button
+            class="btn btn-danger btn-sm"
+            style="margin-left: 8px"
+            :disabled="restarting"
+            @click="askRestart(true)"
+          >
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            {{ t("settings.system.forceRestartBtn") }}
+          </button>
+          <p style="font-size: 12px; color: #888; margin: 10px 0 0">
+            {{ t("settings.system.forceRestartHint") }}
+          </p>
         </div>
       </div>
     </div>
@@ -2296,9 +2308,21 @@
     <!-- It takes every run in flight down with it, so it is asked for rather than assumed -->
     <div v-if="confirmRestart" class="modal-backdrop">
       <div class="modal" style="width: 420px">
-        <h3 class="modal-title">{{ t("settings.system.restartBtn") }}</h3>
+        <h3 class="modal-title">
+          {{
+            restartForce
+              ? t("settings.system.forceRestartBtn")
+              : t("settings.system.restartBtn")
+          }}
+        </h3>
         <div class="modal-body">
-          <p>{{ t("settings.system.restartConfirm") }}</p>
+          <p>
+            {{
+              restartForce
+                ? t("settings.system.forceRestartConfirm")
+                : t("settings.system.restartConfirm")
+            }}
+          </p>
           <p v-if="!restartSupervised" class="error-msg">
             {{ t("settings.system.unsupervised") }}
           </p>
@@ -2308,7 +2332,15 @@
             <i class="fa-solid fa-xmark"></i> {{ t("common.cancel") }}
           </button>
           <button class="btn btn-danger" @click="restartSystem">
-            <i class="fa-solid fa-power-off"></i> {{ t("settings.system.restartBtn") }}
+            <i
+              class="fa-solid"
+              :class="restartForce ? 'fa-triangle-exclamation' : 'fa-power-off'"
+            ></i>
+            {{
+              restartForce
+                ? t("settings.system.forceRestartBtn")
+                : t("settings.system.restartBtn")
+            }}
           </button>
         </div>
       </div>
@@ -3516,6 +3548,8 @@ async function loadMemory() {
 // Restarting the backend. The request is answered just before the process goes, so the
 // interesting part is afterwards: wait for the new one to answer, then reload onto it.
 const confirmRestart = ref(false);
+/** Which of the two the confirmation is standing in front of. */
+const restartForce = ref(false);
 const restarting = ref(false);
 const restartSupervised = ref(true);
 const restartMsg = ref("");
@@ -3538,16 +3572,24 @@ async function waitForBackend(timeoutMs = 90_000): Promise<boolean> {
   return false;
 }
 
+function askRestart(force: boolean) {
+  restartForce.value = force;
+  confirmRestart.value = true;
+}
+
 async function restartSystem() {
+  const force = restartForce.value;
   confirmRestart.value = false;
   restarting.value = true;
   restartMsg.value = "";
   restartError.value = "";
   try {
-    const res = await settingsApi.restartSystem();
-    restartMsg.value = t("settings.system.restartStarted")
-      .replace("{stopped}", String(res.stopped))
-      .replace("{killed}", String(res.killed));
+    const res = await settingsApi.restartSystem(force);
+    restartMsg.value = force
+      ? t("settings.system.forceRestartStarted").replace("{killed}", String(res.killed))
+      : t("settings.system.restartStarted")
+          .replace("{stopped}", String(res.stopped))
+          .replace("{killed}", String(res.killed));
     if (!res.supervised) {
       restarting.value = false;
       return;

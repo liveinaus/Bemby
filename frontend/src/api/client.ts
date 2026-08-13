@@ -1733,12 +1733,19 @@ export const settingsApi = {
    * Closes every browser, kills any left behind by an earlier backend, and restarts the
    * server. The response arrives just before it goes, so the caller should expect the
    * connection to drop straight after.
+   *
+   * `force` kills the browsers instead of asking them to close, for when a wedged browser
+   * is what makes the ordinary restart hang.
    */
-  restartSystem: () =>
+  restartSystem: (force = false) =>
     api
-      .post<{ ok: boolean; stopped: number; killed: number; supervised: boolean }>(
-        "/settings/system/restart",
-      )
+      .post<{
+        ok: boolean;
+        stopped: number;
+        killed: number;
+        supervised: boolean;
+        forced: boolean;
+      }>("/settings/system/restart", { force })
       .then((r) => r.data),
   /** Forgets where each exit comes out, so the next launch looks it up again. */
   clearCfExitGeo: () =>

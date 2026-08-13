@@ -1412,6 +1412,12 @@ const zh = {
       restarting: "重启中…",
       restartConfirm: "当前正在运行的任务都会被中断，所有浏览器都会被关闭。服务恢复后会自动整理被中断的运行记录。",
       restartStarted: "正在重启：已关闭 {stopped} 个浏览器，清理 {killed} 个残留进程。",
+      forceRestartBtn: "强制重启",
+      forceRestartHint:
+        "强制重启不做任何等待：不再请求浏览器正常关闭，而是直接终止全部浏览器进程，手动浏览器会话也一并结束。当普通重启卡住时使用；代价是浏览器尚未写入的 Cookie 会丢失，占用的授权席位要等超时后才会释放。",
+      forceRestartConfirm:
+        "全部浏览器会被直接终止，未保存的数据会丢失，占用的授权席位要等超时后才释放。当前正在运行的任务都会被中断，服务恢复后会自动整理被中断的运行记录。",
+      forceRestartStarted: "正在强制重启：已终止 {killed} 个浏览器进程。",
       restartTimeout: "服务尚未恢复。请检查容器日志后刷新本页。",
       restartFailed: "无法启动重启流程。",
       unsupervised:
@@ -3433,6 +3439,12 @@ const en: typeof zh = {
       restartConfirm:
         "Every job running right now will be interrupted, and every browser will be closed. Interrupted runs are reconciled when the server comes back.",
       restartStarted: "Restarting: {stopped} browser(s) closed, {killed} stray process(es) killed.",
+      forceRestartBtn: "Force restart",
+      forceRestartHint:
+        "A force restart waits for nothing: every browser process is killed where it stands rather than asked to close, and the manual browser goes with them. Use it when the ordinary restart hangs, at the cost of the cookies an open browser had not written out and of licence seats that are only freed when they time out.",
+      forceRestartConfirm:
+        "Every browser is killed outright, so anything it had not saved is lost and its licence seat stays taken until it times out. Every job running right now is interrupted, and interrupted runs are reconciled when the server comes back.",
+      forceRestartStarted: "Force restarting: {killed} browser process(es) killed.",
       restartTimeout:
         "The server has not come back yet. Check the container logs, then reload this page.",
       restartFailed: "The restart could not be started.",

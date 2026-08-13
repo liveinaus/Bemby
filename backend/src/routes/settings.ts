@@ -505,8 +505,11 @@ router.post("/cf-solver/stop", async (_req, res) => {
 // above: it also clears what only a new process can (leased licence seats, the scheduler,
 // anything a wedged run is sitting on). Runs in flight are interrupted and reconciled on
 // the next boot.
-router.post("/system/restart", async (_req, res) => {
-  const result = await restartBemby();
+// `{ force: true }` skips asking the browsers to close and kills them outright, for when
+// that request is itself what hangs.
+router.post("/system/restart", async (req, res) => {
+  const force = (req.body as { force?: boolean } | undefined)?.force === true;
+  const result = await restartBemby({ force });
   res.json({ ok: true, ...result });
 });
 
