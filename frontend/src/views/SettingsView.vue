@@ -1290,6 +1290,18 @@
                 :title="t('settings.proxyBrowserOnlyTip')"
                 >{{ t("settings.proxyBrowserOnly") }}</span
               >
+              <span
+                v-if="proxyTestResults[p.id]"
+                class="badge"
+                :class="proxyTestResults[p.id].ok ? 'badge-green' : 'badge-red'"
+                style="font-size: 10px"
+                :title="proxyTestResults[p.id].error"
+                >{{
+                  proxyTestResults[p.id].ok
+                    ? `${proxyTestResults[p.id].ms} ms`
+                    : t("settings.proxyTestFailed")
+                }}</span
+              >
               <button
                 class="btn btn-sm btn-ghost btn-icon"
                 :title="t('common.edit')"
@@ -1479,15 +1491,28 @@
             <div v-if="providersErrorMsg" class="error-msg" style="margin-top: 8px">{{ providersErrorMsg }}</div>
           </div>
 
-          <button
-            class="btn btn-primary"
-            style="margin-top: 14px"
-            :disabled="proxiesSaving"
-            @click="saveProxies"
-          >
-            <i class="fa-solid fa-floppy-disk"></i>
-            {{ proxiesSaving ? t("common.saving") : t("settings.saveBtn") }}
-          </button>
+          <div class="proxy-row" style="margin-top: 14px">
+            <button
+              class="btn btn-primary"
+              :disabled="proxiesSaving"
+              @click="saveProxies"
+            >
+              <i class="fa-solid fa-floppy-disk"></i>
+              {{ proxiesSaving ? t("common.saving") : t("settings.saveBtn") }}
+            </button>
+            <button
+              class="btn btn-secondary"
+              :disabled="proxiesTestingAll || !proxies.length"
+              @click="testAllProxies"
+            >
+              <i class="fa-solid fa-plug-circle-check"></i>
+              {{
+                proxiesTestingAll
+                  ? t("settings.proxyTestingAll")
+                  : t("settings.proxyTestAll")
+              }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2487,6 +2512,7 @@ import type {
   AiSupplier,
   Proxy,
   ProxyProvider,
+  ProxyTestResult,
   TgAppClient,
   CfKeyView,
   CfKeyCheck,
@@ -3345,6 +3371,11 @@ const editingProxyId = ref<string | null>(null);
 const proxyEditTesting = ref(false);
 const proxiesMsg = ref("");
 const proxiesError = ref("");
+const proxiesTestingAll = ref(false);
+const proxyTestResults = ref<Record<string, ProxyTestResult>>({});
+// The bulk test reads the stored list (the passwords on screen are masked), so it can
+// only speak for what has been saved.
+const savedProxiesJson = ref("[]");
 const providers = ref<ProxyProvider[]>([]);
 const providersSaving = ref(false);
 const providersSyncing = ref(false);
@@ -3720,6 +3751,7 @@ onMounted(async () => {
     } catch {
       proxies.value = [];
     }
+    savedProxiesJson.value = JSON.stringify(proxies.value);
     try {
       appClients.value = JSON.parse(s.tg_app_clients ?? "[]");
     } catch {
@@ -3926,12 +3958,37 @@ async function saveProxies() {
   proxiesError.value = "";
   proxiesSaving.value = true;
   try {
-    await settingsApi.update({ proxies: JSON.stringify(proxies.value) });
+    const payload = JSON.stringify(proxies.value);
+    await settingsApi.update({ proxies: payload });
+    savedProxiesJson.value = payload;
     proxiesMsg.value = t("settings.saved");
   } catch (err: any) {
     proxiesError.value = err.response?.data?.error ?? t("settings.saveFailed");
   } finally {
     proxiesSaving.value = false;
+  }
+}
+
+async function testAllProxies() {
+  proxiesMsg.value = "";
+  proxiesError.value = "";
+  if (JSON.stringify(proxies.value) !== savedProxiesJson.value) {
+    proxiesError.value = t("settings.proxyTestAllUnsaved");
+    return;
+  }
+  proxiesTestingAll.value = true;
+  proxyTestResults.value = {};
+  try {
+    const { results, ok } = await settingsApi.testAllProxies();
+    proxyTestResults.value = Object.fromEntries(results.map((r) => [r.id, r]));
+    proxiesMsg.value = t("settings.proxyTestAllDone")
+      .replace("{ok}", String(ok))
+      .replace("{total}", String(results.length));
+  } catch (err: any) {
+    proxiesError.value =
+      err.response?.data?.error ?? t("settings.proxyTestAllFailed");
+  } finally {
+    proxiesTestingAll.value = false;
   }
 }
 
@@ -3995,6 +4052,7 @@ async function syncProviders(providerId?: string) {
     const fresh = await settingsApi.get();
     try {
       proxies.value = JSON.parse(fresh.proxies ?? "[]");
+      savedProxiesJson.value = JSON.stringify(proxies.value);
     } catch {
       /* keep what is on screen */
     }

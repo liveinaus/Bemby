@@ -1134,12 +1134,12 @@ describe('parseMiniAppLink', () => {
 
   it('percent-decodes the start param and strips base64 padding (issue: START_PARAM_INVALID)', () => {
     const parsed = parseMiniAppLink(
-      'https://telegram.me/nmnmfunbot/panel?startapp=L3dlYi12ZXJpZnkvLTEwMDM5NjEzNzczMDQvNjExNzU0NTc1MA%3D%3D',
+      'https://telegram.me/verifybot/panel?startapp=L3dlYi12ZXJpZnkvLTEwMDEyMzQ1Njc4OTAvMTIzNDU2Nzg5MA%3D%3D',
     );
     expect(parsed).toEqual({
-      botUsername: 'nmnmfunbot',
+      botUsername: 'verifybot',
       appShortName: 'panel',
-      startParam: 'L3dlYi12ZXJpZnkvLTEwMDM5NjEzNzczMDQvNjExNzU0NTc1MA',
+      startParam: 'L3dlYi12ZXJpZnkvLTEwMDEyMzQ1Njc4OTAvMTIzNDU2Nzg5MA',
     });
   });
 

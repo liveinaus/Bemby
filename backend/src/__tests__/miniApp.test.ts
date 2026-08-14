@@ -31,33 +31,33 @@ describe('webButtonOf', () => {
   it('treats a t.me named mini app link as a Mini App', () => {
     const btn = new Api.KeyboardButtonUrl({
       text: '在 App 中验证',
-      url: 'https://telegram.me/nmnmfunbot/panel?startapp=L3dlYi12ZXJpZnkvLTEwMDEzNTY5MTUzMzAvNjUxNDM2NjUwNg%3D%3D',
+      url: 'https://telegram.me/verifybot/panel?startapp=L3dlYi12ZXJpZnkvLTEwMDEyMzQ1Njc4OTAvMTIzNDU2Nzg5MA%3D%3D',
     });
     const web = webButtonOf(btn);
     expect(web?.miniApp).toBe(true);
     expect(web?.miniAppLink).toEqual({
-      botUsername: 'nmnmfunbot',
+      botUsername: 'verifybot',
       appShortName: 'panel',
       // padding stripped: Telegram rejects '=' in start_param
-      startParam: 'L3dlYi12ZXJpZnkvLTEwMDEzNTY5MTUzMzAvNjUxNDM2NjUwNg',
+      startParam: 'L3dlYi12ZXJpZnkvLTEwMDEyMzQ1Njc4OTAvMTIzNDU2Nzg5MA',
     });
   });
 
   it('marks a t.me ?start= link as a deep link, not a page to load', () => {
     const btn = new Api.KeyboardButtonUrl({
       text: '在私信中验证',
-      url: 'https://telegram.me/nmnmfunbot?start=joinverify_-1001356915330',
+      url: 'https://telegram.me/verifybot?start=joinverify_-1001234567890',
     });
     const web = webButtonOf(btn);
     expect(web?.miniApp).toBe(false);
     expect(web?.startLink).toEqual({
-      botUsername: 'nmnmfunbot',
-      startParam: 'joinverify_-1001356915330',
+      botUsername: 'verifybot',
+      startParam: 'joinverify_-1001234567890',
     });
   });
 
   it('leaves an ordinary URL button alone', () => {
-    const btn = new Api.KeyboardButtonUrl({ text: '打开浏览器验证', url: 'https://nmbot.nmnm.fun/#/web-verify/-100/1' });
+    const btn = new Api.KeyboardButtonUrl({ text: '打开浏览器验证', url: 'https://verify.example.com/#/web-verify/-100/1' });
     const web = webButtonOf(btn);
     expect(web?.miniApp).toBe(false);
     expect(web?.startLink).toBeUndefined();

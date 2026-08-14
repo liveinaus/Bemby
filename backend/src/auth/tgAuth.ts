@@ -94,6 +94,36 @@ async function withTimeout<T>(
   }
 }
 
+// Same bound, for the one-shot operations below (2FA change, session/passkey/profile
+// calls). Each is a connect + a handful of RPCs on a throwaway client, so a slow but
+// working proxy still fits comfortably.
+const OP_TIMEOUT_MS = Number(process.env.TG_OP_TIMEOUT_SECONDS ?? 120) * 1000;
+// destroy() talks over the same connection, so it can hang on the same dead proxy.
+const DESTROY_TIMEOUT_MS = 10_000;
+
+/**
+ * Runs a one-shot operation on a throwaway client: connect, act, always disconnect.
+ * Connect, operation and teardown are each bounded, so a dead proxy fails the caller
+ * rather than leaving it awaiting forever -- which used to wedge the sequential bulk
+ * runners on one account and stall every account behind it.
+ */
+async function withTgClient<T>(
+  client: TelegramClient,
+  label: string,
+  fn: (client: TelegramClient) => Promise<T>,
+): Promise<T> {
+  try {
+    await withTimeout(client.connect(), OP_TIMEOUT_MS, `${label} connect`);
+    return await withTimeout(fn(client), OP_TIMEOUT_MS, label);
+  } finally {
+    await withTimeout(
+      client.destroy(),
+      DESTROY_TIMEOUT_MS,
+      `${label} disconnect`,
+    ).catch(() => undefined);
+  }
+}
+
 export type SendCodeResult = {
   isCodeViaApp: boolean; // true = sent to Telegram app; false = SMS/call
 };
@@ -150,11 +180,15 @@ export async function resendCodeAsSms(accountId: number): Promise<void> {
   const entry = pending.get(accountId);
   if (!entry || entry.step !== "code")
     throw new Error("No pending code auth for this account");
-  const result = await entry.client.invoke(
-    new Api.auth.ResendCode({
-      phoneNumber: entry.phoneNumber,
-      phoneCodeHash: entry.phoneCodeHash,
-    }),
+  const result = await withTimeout(
+    entry.client.invoke(
+      new Api.auth.ResendCode({
+        phoneNumber: entry.phoneNumber,
+        phoneCodeHash: entry.phoneCodeHash,
+      }),
+    ),
+    OP_TIMEOUT_MS,
+    "resendCode",
   );
   // Update the hash from the resend response
   entry.phoneCodeHash = (result as any).phoneCodeHash ?? entry.phoneCodeHash;
@@ -180,12 +214,16 @@ export async function submitCode(
     throw new Error("No pending code auth for this account");
 
   try {
-    await entry.client.invoke(
-      new Api.auth.SignIn({
-        phoneNumber: entry.phoneNumber,
-        phoneCodeHash: entry.phoneCodeHash,
-        phoneCode: code,
-      }),
+    await withTimeout(
+      entry.client.invoke(
+        new Api.auth.SignIn({
+          phoneNumber: entry.phoneNumber,
+          phoneCodeHash: entry.phoneCodeHash,
+          phoneCode: code,
+        }),
+      ),
+      OP_TIMEOUT_MS,
+      "signIn",
     );
 
     const session = entry.client.session.save() as unknown as string;
@@ -234,51 +272,42 @@ export async function checkAccountStatus(
   proxy?: TgProxy,
   deviceParams?: TgDeviceParams,
 ): Promise<TgAccountStatus> {
-  const client = new TelegramClient(
-    new StringSession(sessionString),
-    apiId,
-    apiHash,
-    {
-      connectionRetries: 3,
-      baseLogger: new Logger(LogLevel.NONE),
-      ...(proxy ? { proxy } : {}),
-      ...(deviceParams ?? {}),
-    },
-  );
+  const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
 
   try {
-    await client.connect();
-    const me = await client.getMe();
+    return await withTgClient(client, "status check", async (c) => {
+      const me = await c.getMe();
 
-    // UserEmpty or null — account deleted / inaccessible
-    if (!me || (me as any).className === "UserEmpty") {
+      // UserEmpty or null — account deleted / inaccessible
+      if (!me || (me as any).className === "UserEmpty") {
+        return {
+          isActive: false,
+          isDeleted: true,
+          isRestricted: false,
+          restrictions: [],
+          firstName: "",
+        };
+      }
+
+      const user = me as Api.User;
+      const isDeleted = Boolean(user.deleted);
+      const isRestricted = Boolean(user.restricted);
+
       return {
-        isActive: false,
-        isDeleted: true,
-        isRestricted: false,
-        restrictions: [],
-        firstName: "",
+        isActive: !isDeleted && !isRestricted,
+        isDeleted,
+        isRestricted,
+        restrictions: (user.restrictionReason ?? []).map((r) => ({
+          platform: r.platform,
+          reason: r.reason,
+          text: r.text,
+        })),
+        firstName: user.firstName ?? "",
+        lastName: user.lastName,
+        username: user.username,
+        phone: user.phone,
       };
-    }
-
-    const user = me as Api.User;
-    const isDeleted = Boolean(user.deleted);
-    const isRestricted = Boolean(user.restricted);
-
-    return {
-      isActive: !isDeleted && !isRestricted,
-      isDeleted,
-      isRestricted,
-      restrictions: (user.restrictionReason ?? []).map((r) => ({
-        platform: r.platform,
-        reason: r.reason,
-        text: r.text,
-      })),
-      firstName: user.firstName ?? "",
-      lastName: user.lastName,
-      username: user.username,
-      phone: user.phone,
-    };
+    });
   } catch (err: any) {
     const code: string = err?.errorMessage ?? "";
 
@@ -315,8 +344,6 @@ export async function checkAccountStatus(
     }
 
     throw err;
-  } finally {
-    await client.destroy().catch(() => undefined);
   }
 }
 
@@ -328,27 +355,14 @@ export async function updateTwoFa(
   proxy?: TgProxy,
   deviceParams?: TgDeviceParams,
 ): Promise<void> {
-  const client = new TelegramClient(
-    new StringSession(sessionString),
-    apiId,
-    apiHash,
-    {
-      connectionRetries: 3,
-      baseLogger: new Logger(LogLevel.NONE),
-      ...(proxy ? { proxy } : {}),
-      ...(deviceParams ?? {}),
-    },
-  );
-  try {
-    await client.connect();
-    await client.updateTwoFaSettings({
+  const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
+  await withTgClient(client, "2FA update", (c) =>
+    c.updateTwoFaSettings({
       currentPassword: opts.currentPassword || undefined,
       newPassword: opts.newPassword || undefined,
       hint: opts.hint ?? "",
-    });
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+    }),
+  );
 }
 
 export type TgOwnProfile = {
@@ -368,10 +382,9 @@ export async function getProfile(
   deviceParams?: TgDeviceParams,
 ): Promise<TgOwnProfile> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  try {
-    await client.connect();
-    const me = (await client.getMe()) as Api.User;
-    const full = await client.invoke(
+  return withTgClient(client, "profile read", async (c) => {
+    const me = (await c.getMe()) as Api.User;
+    const full = await c.invoke(
       new Api.users.GetFullUser({ id: new Api.InputUserSelf() }),
     );
     return {
@@ -380,9 +393,7 @@ export async function getProfile(
       about: full.fullUser.about ?? "",
       username: me?.username ?? "",
     };
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  });
 }
 
 /**
@@ -400,15 +411,12 @@ export async function updateUsername(
   deviceParams?: TgDeviceParams,
 ): Promise<string> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  try {
-    await client.connect();
-    const user = (await client.invoke(
+  return withTgClient(client, "username update", async (c) => {
+    const user = (await c.invoke(
       new Api.account.UpdateUsername({ username }),
     )) as Api.User;
     return user?.username ?? "";
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  });
 }
 
 /** Whether a handle is free, without claiming it. */
@@ -421,14 +429,9 @@ export async function checkUsername(
   deviceParams?: TgDeviceParams,
 ): Promise<boolean> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  try {
-    await client.connect();
-    return Boolean(
-      await client.invoke(new Api.account.CheckUsername({ username })),
-    );
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  return withTgClient(client, "username check", async (c) =>
+    Boolean(await c.invoke(new Api.account.CheckUsername({ username }))),
+  );
 }
 
 /**
@@ -443,16 +446,13 @@ export async function getProfilePhoto(
   deviceParams?: TgDeviceParams,
 ): Promise<Buffer | null> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  try {
-    await client.connect();
-    const photo = await client.downloadProfilePhoto("me");
+  return withTgClient(client, "profile photo read", async (c) => {
+    const photo = await c.downloadProfilePhoto("me");
     // Missing photos come back as undefined from some layers and as an empty buffer
     // from others, and an empty buffer would render as a broken image.
     if (!photo || !photo.length) return null;
     return Buffer.isBuffer(photo) ? photo : Buffer.from(photo);
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  });
 }
 
 /**
@@ -468,9 +468,8 @@ export async function setProfilePhoto(
   deviceParams?: TgDeviceParams,
 ): Promise<void> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  try {
-    await client.connect();
-    const file = await client.uploadFile({
+  await withTgClient(client, "profile photo update", async (c) => {
+    const file = await c.uploadFile({
       file: new CustomFile(
         image.filename,
         image.buffer.length,
@@ -479,10 +478,8 @@ export async function setProfilePhoto(
       ),
       workers: 1,
     });
-    await client.invoke(new Api.photos.UploadProfilePhoto({ file }));
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+    await c.invoke(new Api.photos.UploadProfilePhoto({ file }));
+  });
 }
 
 // Update the account's own Telegram profile. Empty strings clear the field.
@@ -495,25 +492,22 @@ export async function updateProfile(
   deviceParams?: TgDeviceParams,
 ): Promise<TgOwnProfile> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  try {
-    await client.connect();
-    await client.invoke(
+  return withTgClient(client, "profile update", async (c) => {
+    await c.invoke(
       new Api.account.UpdateProfile({
         firstName: opts.firstName,
         lastName: opts.lastName ?? "",
         about: opts.about ?? "",
       }),
     );
-    const me = (await client.getMe()) as Api.User;
+    const me = (await c.getMe()) as Api.User;
     return {
       firstName: me?.firstName ?? "",
       lastName: me?.lastName ?? "",
       about: opts.about ?? "",
       username: me?.username ?? "",
     };
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  });
 }
 
 export type SessionInfo = {
@@ -538,20 +532,9 @@ export async function getSessions(
   proxy?: TgProxy,
   deviceParams?: TgDeviceParams,
 ): Promise<SessionInfo[]> {
-  const client = new TelegramClient(
-    new StringSession(sessionString),
-    apiId,
-    apiHash,
-    {
-      connectionRetries: 3,
-      baseLogger: new Logger(LogLevel.NONE),
-      ...(proxy ? { proxy } : {}),
-      ...(deviceParams ?? {}),
-    },
-  );
-  try {
-    await client.connect();
-    const result = await client.invoke(new Api.account.GetAuthorizations());
+  const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
+  return withTgClient(client, "session list", async (c) => {
+    const result = await c.invoke(new Api.account.GetAuthorizations());
     return result.authorizations.map((a) => ({
       hash: a.hash.toString(),
       current: Boolean(a.current),
@@ -566,9 +549,7 @@ export async function getSessions(
       country: a.country,
       region: a.region,
     }));
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  });
 }
 
 export async function terminateSession(
@@ -579,23 +560,10 @@ export async function terminateSession(
   proxy?: TgProxy,
   deviceParams?: TgDeviceParams,
 ): Promise<void> {
-  const client = new TelegramClient(
-    new StringSession(sessionString),
-    apiId,
-    apiHash,
-    {
-      connectionRetries: 3,
-      baseLogger: new Logger(LogLevel.NONE),
-      ...(proxy ? { proxy } : {}),
-      ...(deviceParams ?? {}),
-    },
+  const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
+  await withTgClient(client, "session termination", (c) =>
+    c.invoke(new Api.account.ResetAuthorization({ hash: BigInt(hash) as any })),
   );
-  try {
-    await client.connect();
-    await client.invoke(new Api.account.ResetAuthorization({ hash: BigInt(hash) as any }));
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
 }
 
 export async function terminateOtherSessions(
@@ -605,23 +573,10 @@ export async function terminateOtherSessions(
   proxy?: TgProxy,
   deviceParams?: TgDeviceParams,
 ): Promise<void> {
-  const client = new TelegramClient(
-    new StringSession(sessionString),
-    apiId,
-    apiHash,
-    {
-      connectionRetries: 3,
-      baseLogger: new Logger(LogLevel.NONE),
-      ...(proxy ? { proxy } : {}),
-      ...(deviceParams ?? {}),
-    },
+  const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
+  await withTgClient(client, "device removal", (c) =>
+    c.invoke(new Api.auth.ResetAuthorizations()),
   );
-  try {
-    await client.connect();
-    await client.invoke(new Api.auth.ResetAuthorizations());
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
 }
 
 export async function submitPassword(
@@ -634,10 +589,16 @@ export async function submitPassword(
 
   // Dynamic import to avoid issues with module resolution
   const { computeCheck } = await import("telegram/Password");
-  const passwordInfo = await entry.client.invoke(new Api.account.GetPassword());
+  const passwordInfo = await withTimeout(
+    entry.client.invoke(new Api.account.GetPassword()),
+    OP_TIMEOUT_MS,
+    "getPassword",
+  );
   const passwordSrp = await computeCheck(passwordInfo, password);
-  await entry.client.invoke(
-    new Api.auth.CheckPassword({ password: passwordSrp }),
+  await withTimeout(
+    entry.client.invoke(new Api.auth.CheckPassword({ password: passwordSrp })),
+    OP_TIMEOUT_MS,
+    "checkPassword",
   );
 
   const session = entry.client.session.save() as unknown as string;
@@ -680,16 +641,13 @@ export async function getSelfId(
   deviceParams?: TgDeviceParams,
 ): Promise<string> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  try {
-    await client.connect();
-    const me = await client.getMe();
+  return withTgClient(client, "self id read", async (c) => {
+    const me = await c.getMe();
     const id = (me as { id?: unknown } | null)?.id;
     if (id === undefined || id === null)
       throw new Error("Could not resolve Telegram user id");
     return String(id);
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  });
 }
 
 export async function getPasswordInfo(
@@ -700,9 +658,8 @@ export async function getPasswordInfo(
   deviceParams?: TgDeviceParams,
 ): Promise<PasswordInfo> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  try {
-    await client.connect();
-    const pwd = await client.invoke(new Api.account.GetPassword());
+  return withTgClient(client, "password info read", async (c) => {
+    const pwd = await c.invoke(new Api.account.GetPassword());
     return {
       hasPassword: Boolean(pwd.hasPassword),
       hasRecovery: Boolean(pwd.hasRecovery),
@@ -710,9 +667,7 @@ export async function getPasswordInfo(
       emailUnconfirmedPattern: pwd.emailUnconfirmedPattern ?? null,
       loginEmailPattern: pwd.loginEmailPattern ?? null,
     };
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  });
 }
 
 // ── Login email management ────────────────────────────────────────────────────
@@ -731,24 +686,21 @@ export async function sendLoginEmailCode(
   deviceParams?: TgDeviceParams,
 ): Promise<{ emailPattern: string; codeLength: number }> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  try {
-    await client.connect();
+  return withTgClient(client, "login email code send", async (c) => {
     // GramJS bug: EntityCache.add treats any response with a numeric `length`
     // field as array-like, and account.SentEmailCode has one (the code length),
     // so invoke() crashes with "entities is not iterable" after a successful RPC.
     // The response carries no entities, so disable caching on this throwaway client.
-    (client as unknown as { _entityCache: { add: (e: unknown) => void } })
+    (c as unknown as { _entityCache: { add: (e: unknown) => void } })
       ._entityCache.add = () => undefined;
-    const sent = await client.invoke(
+    const sent = await c.invoke(
       new Api.account.SendVerifyEmailCode({
         purpose: new Api.EmailVerifyPurposeLoginChange(),
         email,
       }),
     );
     return { emailPattern: sent.emailPattern, codeLength: sent.length };
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  });
 }
 
 /** Verify the code sent by sendLoginEmailCode, committing the new login email. */
@@ -761,18 +713,15 @@ export async function verifyLoginEmail(
   deviceParams?: TgDeviceParams,
 ): Promise<{ email: string | null }> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  try {
-    await client.connect();
-    const verified = await client.invoke(
+  return withTgClient(client, "login email verify", async (c) => {
+    const verified = await c.invoke(
       new Api.account.VerifyEmail({
         purpose: new Api.EmailVerifyPurposeLoginChange(),
         verification: new Api.EmailVerificationCode({ code }),
       }),
     );
     return { email: "email" in verified ? (verified.email ?? null) : null };
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  });
 }
 
 // ── Passkeys ──────────────────────────────────────────────────────────────────
@@ -786,12 +735,7 @@ export async function getPasskeys(
   deviceParams?: TgDeviceParams,
 ): Promise<Passkey[]> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  try {
-    await client.connect();
-    return await invokeGetPasskeys(client);
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  return withTgClient(client, "passkey list", (c) => invokeGetPasskeys(c));
 }
 
 export async function deletePasskey(
@@ -803,12 +747,9 @@ export async function deletePasskey(
   deviceParams?: TgDeviceParams,
 ): Promise<boolean> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  try {
-    await client.connect();
-    return await invokeDeletePasskey(client, passkeyId);
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  return withTgClient(client, "passkey removal", (c) =>
+    invokeDeletePasskey(c, passkeyId),
+  );
 }
 
 // Experimental: registers a new passkey by running the WebAuthn ceremony in Node
@@ -822,12 +763,9 @@ export async function registerPasskey(
   deviceParams?: TgDeviceParams,
 ): Promise<RegisterPasskeyResult> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  try {
-    await client.connect();
-    return await invokeRegisterPasskey(client, originOverride);
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  return withTgClient(client, "passkey registration", (c) =>
+    invokeRegisterPasskey(c, originOverride),
+  );
 }
 
 // Verifies a stored passkey by logging in with it on a fresh (empty) session.
@@ -852,18 +790,9 @@ export async function verifyPasskeyLogin(
     ...(proxy ? { proxy } : {}),
     ...(deviceParams ?? {}),
   });
-  try {
-    await client.connect();
-    return await invokeVerifyPasskeyLogin(
-      client,
-      apiId,
-      apiHash,
-      secret,
-      originOverride,
-    );
-  } finally {
-    await client.destroy().catch(() => undefined);
-  }
+  return withTgClient(client, "passkey login verify", (c) =>
+    invokeVerifyPasskeyLogin(c, apiId, apiHash, secret, originOverride),
+  );
 }
 
 // Reads the account's home DC out of an authorised session string.
@@ -910,9 +839,13 @@ export async function startPasskeyLogin(
   });
 
   try {
-    await client.connect();
+    await withTimeout(client.connect(), OP_TIMEOUT_MS, "passkey login connect");
     try {
-      await invokePasskeyLogin(client, apiId, apiHash, secret, originOverride);
+      await withTimeout(
+        invokePasskeyLogin(client, apiId, apiHash, secret, originOverride),
+        OP_TIMEOUT_MS,
+        "passkey login",
+      );
     } catch (err: any) {
       const msg = err?.errorMessage ?? err?.message ?? "";
       if (msg.includes("SESSION_PASSWORD_NEEDED")) {

@@ -1543,6 +1543,11 @@ const zh = {
     proxyTesting: "测试中...",
     proxyTestFailed: "代理连接失败",
     proxyDeleteTip: "删除",
+    proxyTestAll: "测试全部",
+    proxyTestingAll: "测试中...",
+    proxyTestAllDone: "{ok}/{total} 个代理可用",
+    proxyTestAllFailed: "批量测试失败",
+    proxyTestAllUnsaved: "请先保存代理列表，再测试全部",
     appClientsSection: "TG 应用客户端",
     appClientsHint:
       "自定义 Telegram 登录时的设备信息，不同账户可使用不同客户端环境。",
@@ -3669,6 +3674,11 @@ const en: typeof zh = {
     proxyTesting: "Testing...",
     proxyTestFailed: "Proxy connection failed",
     proxyDeleteTip: "Delete",
+    proxyTestAll: "Test all",
+    proxyTestingAll: "Testing all...",
+    proxyTestAllDone: "{ok}/{total} proxies reachable",
+    proxyTestAllFailed: "Bulk proxy test failed",
+    proxyTestAllUnsaved: "Save the proxy list before testing them all",
     appClientsSection: "TG App Clients",
     appClientsHint:
       "Customise the device fingerprint Telegram sees per account to reduce the risk of bans.",

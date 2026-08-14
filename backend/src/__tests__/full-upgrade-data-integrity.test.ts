@@ -88,7 +88,7 @@ function seedLegacyDatabase(dbFilePath: string) {
   const checkinJob = legacy.prepare(
     `INSERT INTO jobs (name, account_id, job_type, bot_username, enabled)
      VALUES (?, ?, ?, ?, ?)`,
-  ).run('Sam Daily Checkin', sam.lastInsertRowid, 'checkin', 'okemby_bot', 1);
+  ).run('Sam Daily Checkin', sam.lastInsertRowid, 'checkin', 'checkin_bot', 1);
 
   const customJob = legacy.prepare(
     `INSERT INTO jobs (name, account_id, job_type, bot_username, enabled)

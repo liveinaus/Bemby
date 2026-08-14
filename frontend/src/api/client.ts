@@ -373,6 +373,15 @@ export type Proxy = {
   url: string;
 };
 
+export type ProxyTestResult = {
+  id: string;
+  name: string;
+  ok: boolean;
+  error?: string;
+  /** Round trip of the SOCKS connect, in ms. */
+  ms: number;
+};
+
 export type CustomAction =
   | { type: "send_command"; content: string; maxRetries?: number }
   | {
@@ -1795,6 +1804,11 @@ export const settingsApi = {
   testProxy: (url: string) =>
     api
       .post<{ ok: boolean; error?: string }>("/settings/test-proxy", { url })
+      .then((r) => r.data),
+  /** Tests every stored proxy; the server reads the URLs, since ours are masked. */
+  testAllProxies: () =>
+    api
+      .post<{ results: ProxyTestResult[]; ok: number }>("/settings/test-proxies")
       .then((r) => r.data),
   /** `force` downloads the browser again over an existing one, i.e. updates it. */
   installCfSolver: (force = false, tier?: "free") =>

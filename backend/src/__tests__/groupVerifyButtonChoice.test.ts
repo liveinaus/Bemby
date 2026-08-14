@@ -17,9 +17,10 @@ const url = (text: string, link: string) => new Api.KeyboardButtonUrl({ text, ur
 
 describe("pressableVerifyButton", () => {
   it("presses the confirm button of the private prompt, not the channel link", () => {
-    // The shape nmBot sends in a private chat: join the channel, then verify.
+    // The shape a group's verification bot sends in a private chat: join the channel,
+    // then verify.
     const chosen = pressableVerifyButton([
-      url("加入频道", "https://telegram.me/+EHwgSc--gU1lODE1"),
+      url("加入频道", "https://telegram.me/+AbCd--Ef1234567"),
       callback("完成验证"),
     ]);
     expect(chosen?.text).toBe("完成验证");
@@ -56,30 +57,30 @@ describe("pressableVerifyButton", () => {
 // something. Joining is a side effect on a real account, so this errs towards not joining.
 describe("channelToJoinFromUrl", () => {
   it("reads the invite link a verification prompt asks us to join", () => {
-    expect(channelToJoinFromUrl("https://telegram.me/+EHwgSc--gU1lODE1")).toEqual({
-      invite: "EHwgSc--gU1lODE1",
+    expect(channelToJoinFromUrl("https://telegram.me/+AbCd--Ef1234567")).toEqual({
+      invite: "AbCd--Ef1234567",
     });
     expect(channelToJoinFromUrl("https://t.me/joinchat/AbCdEf123")).toEqual({ invite: "AbCdEf123" });
   });
 
   it("reads a public channel link", () => {
-    expect(channelToJoinFromUrl("https://t.me/nodeseekc")).toEqual({ username: "nodeseekc" });
+    expect(channelToJoinFromUrl("https://t.me/samplechannel")).toEqual({ username: "samplechannel" });
   });
 
   it("leaves a link to a post inside a channel alone", () => {
     // The "wiki" button these groups post -- something to read, not to join.
-    expect(channelToJoinFromUrl("https://t.me/peachemby_channel/54")).toBeNull();
+    expect(channelToJoinFromUrl("https://t.me/sample_channel/54")).toBeNull();
   });
 
   it("leaves bot links alone, deep link and Mini App alike", () => {
-    expect(channelToJoinFromUrl("https://telegram.me/nmnmfunbot?start=joinverify_-100179")).toBeNull();
+    expect(channelToJoinFromUrl("https://telegram.me/verifybot?start=joinverify_-1001234567890")).toBeNull();
     expect(
-      channelToJoinFromUrl("https://telegram.me/nmnmfunbot/panel?startapp=L3dlYi12ZXJpZnk"),
+      channelToJoinFromUrl("https://telegram.me/verifybot/panel?startapp=L3dlYi12ZXJpZnk"),
     ).toBeNull();
   });
 
   it("leaves a non-Telegram address alone", () => {
-    expect(channelToJoinFromUrl("https://nmbot.nmnm.fun/#/web-verify/-1001795649815/78")).toBeNull();
+    expect(channelToJoinFromUrl("https://verify.example.com/#/web-verify/-1001234567890/78")).toBeNull();
   });
 });
 

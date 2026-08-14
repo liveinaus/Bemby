@@ -43,7 +43,7 @@ Bemby可签到市面上所有的服（需要正确配置）。无论是TG内，�
   <tr>
     <td align="center" width="33.33%"><img src="docs/web-checkin.png" alt="网页签到" width="100%" /><br/><sub>网页版签到</sub></td>
     <td align="center" width="33.33%"><img src="docs/lucky-draw.png" alt="抽奖" width="100%" /><br/><sub>抽奖</sub></td>
-    <td align="center" width="33.33%"><img src="docs/pass-nmbot.png" alt="过nmBot" width="100%" /><br/><sub>过nmBot人机</sub></td>
+    <td align="center" width="33.33%"><img src="docs/pass-group-verify.png" alt="过入群人机验证" width="100%" /><br/><sub>过入群人机验证</sub></td>
   </tr>
 </table>
 
@@ -397,7 +397,7 @@ A self-hosted automation tool for managing daily Telegram bot check-ins (签到)
   <tr>
     <td align="center" width="33.33%"><img src="docs/web-checkin.png" alt="Web check-in" width="100%" /><br/><sub>Web check-in</sub></td>
     <td align="center" width="33.33%"><img src="docs/lucky-draw.png" alt="Lucky draw" width="100%" /><br/><sub>Lucky draw</sub></td>
-    <td align="center" width="33.33%"><img src="docs/pass-nmbot.png" alt="pass nmBot verification" width="100%" /><br/><sub>nmBot challenge</sub></td>
+    <td align="center" width="33.33%"><img src="docs/pass-group-verify.png" alt="pass a group join verification" width="100%" /><br/><sub>group join verification</sub></td>
   </tr>
 </table>
 

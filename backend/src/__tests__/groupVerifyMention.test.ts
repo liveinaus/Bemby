@@ -61,7 +61,8 @@ describe("messageAddressesUser", () => {
     expect(messageAddressesUser(null, me)).toBe(false);
   });
 
-  // nmBot names the joiner in a zero-width text link rather than a mention, so the id
+  // Some verification bots name the joiner in a zero-width text link rather than a
+  // mention, so the id
   // lives in an entity URL and never appears in the message text at all.
   it("finds our id inside a hidden text link's URL", () => {
     const hidden = (userId: string) =>
@@ -69,7 +70,7 @@ describe("messageAddressesUser", () => {
         entities: [
           {
             className: "MessageEntityTextUrl",
-            url: `https://telegram.me/?nmBotTextDatabase=%7B%22userId%22%3A${userId}%2C%22groupId%22%3A-1001795649815%7D`,
+            url: `https://telegram.me/?verifyBotUserData=%7B%22userId%22%3A${userId}%2C%22groupId%22%3A-1001234567890%7D`,
           },
         ],
       });

@@ -150,6 +150,10 @@ const liveClients = new Map<number, LiveEntry>();
 
 const IDLE_DISCONNECT_MS = 30 * 60_000;
 const SWEEP_INTERVAL_MS = 5 * 60_000;
+// GramJS bounds reconnect attempts but not wall-clock time, so a dead or slow proxy
+// leaves connect() pending forever and every caller behind it waits with no error.
+const CONNECT_TIMEOUT_MS =
+  Number(process.env.TG_CONNECT_TIMEOUT_SECONDS ?? 90) * 1000;
 const ENTITY_CACHE_MAX = 1_000;
 const AVATAR_CACHE_MAX = 300;
 const READ_OUTBOX_CACHE_MAX = 1_000;
@@ -535,11 +539,32 @@ export function markSessionExpired(accountId: number): void {
  */
 const connecting = new Map<number, Promise<LiveEntry>>();
 
+/** Bounded connect: a dead proxy fails the caller instead of hanging it forever. */
+async function connectWithTimeout(client: TelegramClient): Promise<void> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `Connect timed out after ${CONNECT_TIMEOUT_MS}ms (proxy unreachable?)`,
+          ),
+        ),
+      CONNECT_TIMEOUT_MS,
+    );
+  });
+  try {
+    await Promise.race([client.connect(), timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
+}
+
 export async function getLiveClient(accountId: number): Promise<LiveEntry> {
   const existing = liveClients.get(accountId);
   if (existing) {
     existing.lastActiveAt = Date.now();
-    if (!existing.client.connected) await existing.client.connect();
+    if (!existing.client.connected) await connectWithTimeout(existing.client);
     return existing;
   }
 
@@ -594,13 +619,15 @@ async function connectLiveClient(accountId: number): Promise<LiveEntry> {
   );
 
   try {
-    await client.connect();
+    await connectWithTimeout(client);
   } catch (err: any) {
     if (isAuthError(err?.message ?? "")) {
       db.prepare(
         "UPDATE tg_accounts SET auth_status = 'session_expired' WHERE id = ?",
       ).run(accountId);
     }
+    // Never stored in liveClients, so nothing else would tear it down
+    client.destroy().catch(() => {});
     throw err;
   }
 

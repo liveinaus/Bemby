@@ -1,8 +1,11 @@
 import { Router } from "express";
+import http from "http";
+import https from "https";
 import { db } from "../db/database";
 import { refreshScheduler, purgeOldLogs } from "../scheduler";
 import { SocksClient } from "socks";
 import { parseTgProxy } from "../jobs/runner";
+import type { TgProxy } from "../types";
 import { isBulkAccountManagementEnabled } from "../jobs/bulkAdd";
 import { isDataManagementEnabled } from "../db/dataStore";
 import {
@@ -912,41 +915,168 @@ router.post("/proxy-providers/sync", async (req, res) => {
   }
 });
 
-// Test TCP reachability through a SOCKS proxy (target: 1.1.1.1:80)
+const PROXY_TEST_TIMEOUT_MS = 6000;
+// Tested together rather than one after another: a list of 80 would take eight minutes
+// serially at the timeout above. Capped so a large list does not open a socket per proxy.
+const PROXY_TEST_CONCURRENCY = 20;
+
+const PROXY_TEST_TARGET = { host: "1.1.1.1", port: 80 };
+
+async function testSocksProxy(proxy: TgProxy): Promise<{ ok: boolean }> {
+  const result = await SocksClient.createConnection({
+    proxy: {
+      host: proxy.ip,
+      port: proxy.port,
+      type: proxy.socksType,
+      ...(proxy.username
+        ? { userId: proxy.username, password: proxy.password }
+        : {}),
+    },
+    command: "connect",
+    destination: PROXY_TEST_TARGET,
+    timeout: PROXY_TEST_TIMEOUT_MS,
+  });
+  result.socket.destroy();
+  return { ok: true };
+}
+
+/**
+ * The same reachability check for an HTTP proxy -- what Webshare and downloaded lists
+ * hand out. These cannot carry a Telegram connection, but they do carry the browser
+ * side, so "does it answer" is still worth reporting. A SOCKS handshake against one
+ * only ever fails, which is why they need a CONNECT tunnel of their own.
+ */
+function testHttpProxy(url: URL): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    const secure = url.protocol === "https:";
+    const credentials = url.username
+      ? `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`
+      : "";
+    const req = (secure ? https : http).request({
+      host: url.hostname,
+      port: Number(url.port) || (secure ? 443 : 80),
+      method: "CONNECT",
+      path: `${PROXY_TEST_TARGET.host}:${PROXY_TEST_TARGET.port}`,
+      timeout: PROXY_TEST_TIMEOUT_MS,
+      ...(credentials
+        ? {
+            headers: {
+              "Proxy-Authorization": `Basic ${Buffer.from(credentials).toString("base64")}`,
+            },
+          }
+        : {}),
+    });
+    const settle = (result: { ok: boolean; error?: string }) => {
+      req.destroy();
+      resolve(result);
+    };
+    req.on("connect", (res, socket) => {
+      socket.destroy();
+      if (res.statusCode === 200) return settle({ ok: true });
+      settle({
+        ok: false,
+        error:
+          res.statusCode === 407
+            ? "Proxy authentication failed"
+            : `Proxy refused CONNECT (${res.statusCode})`,
+      });
+    });
+    req.on("timeout", () => settle({ ok: false, error: "Connection timed out" }));
+    req.on("error", (err) => settle({ ok: false, error: err.message }));
+    req.end();
+  });
+}
+
+/** Reachability through a proxy (target: 1.1.1.1:80), with how long it took. */
+async function testProxyUrl(
+  url: string,
+): Promise<{ ok: boolean; error?: string; ms: number }> {
+  const startedAt = Date.now();
+  const elapsed = () => Date.now() - startedAt;
+  const socks = parseTgProxy(url);
+  let parsed: URL | null = null;
+  if (!socks) {
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { ok: false, error: "Invalid proxy URL", ms: 0 };
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return {
+        ok: false,
+        error: `Unsupported proxy scheme (${parsed.protocol.replace(":", "")})`,
+        ms: 0,
+      };
+    }
+  }
+  try {
+    const result = socks
+      ? await testSocksProxy(socks)
+      : await testHttpProxy(parsed as URL);
+    return { ...result, ms: elapsed() };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? "Connection failed", ms: elapsed() };
+  }
+}
+
 router.post("/test-proxy", async (req, res) => {
   const { url } = req.body as { url?: string };
   if (!url) {
     res.status(400).json({ error: "url is required" });
     return;
   }
+  res.json(await testProxyUrl(url));
+});
 
-  const proxy = parseTgProxy(url);
-  if (!proxy) {
-    res
-      .status(400)
-      .json({ error: "Invalid proxy URL — use socks5:// or socks4://" });
-    return;
-  }
+export type ProxyTestResult = {
+  id: string;
+  name: string;
+  ok: boolean;
+  error?: string;
+  ms: number;
+};
 
-  try {
-    const result = await SocksClient.createConnection({
-      proxy: {
-        host: proxy.ip,
-        port: proxy.port,
-        type: proxy.socksType,
-        ...(proxy.username
-          ? { userId: proxy.username, password: proxy.password }
-          : {}),
-      },
-      command: "connect",
-      destination: { host: "1.1.1.1", port: 80 },
-      timeout: 6000,
-    });
-    result.socket.destroy();
-    res.json({ ok: true });
-  } catch (err: any) {
-    res.json({ ok: false, error: err.message ?? "Connection failed" });
-  }
+/**
+ * Tests every stored proxy, a few at a time. The URLs come from the database rather
+ * than the request: what the client holds has its passwords masked, so testing those
+ * would only ever report an auth failure.
+ */
+export async function testStoredProxies(): Promise<ProxyTestResult[]> {
+  const raw = (
+    db.prepare("SELECT value FROM settings WHERE key = 'proxies'").get() as
+      | { value?: string }
+      | undefined
+  )?.value;
+  const list = parseProxyList(raw).filter(
+    (p) => typeof p.id === "string" && typeof p.url === "string",
+  );
+
+  const results: ProxyTestResult[] = new Array(list.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < list.length) {
+      const index = next++;
+      const entry = list[index];
+      const outcome = await testProxyUrl(entry.url as string);
+      results[index] = {
+        id: entry.id as string,
+        name: typeof entry.name === "string" ? entry.name : (entry.id as string),
+        ...outcome,
+      };
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(PROXY_TEST_CONCURRENCY, list.length) },
+      worker,
+    ),
+  );
+  return results;
+}
+
+router.post("/test-proxies", async (_req, res) => {
+  const results = await testStoredProxies();
+  res.json({ results, ok: results.filter((r) => r.ok).length });
 });
 
 export default router;

@@ -2,17 +2,31 @@
 // vi.hoisted ensures mock values are available inside the vi.mock() factory
 // (which is hoisted to the top of the file before const declarations run).
 
-const { mockConnect, mockSendCode, mockDestroy, MockTelegramClient } = vi.hoisted(() => {
+const {
+  mockConnect,
+  mockSendCode,
+  mockDestroy,
+  mockUpdateTwoFa,
+  MockTelegramClient,
+} = vi.hoisted(() => {
   const mockConnect    = vi.fn().mockResolvedValue(undefined);
   const mockSendCode   = vi.fn().mockResolvedValue({ phoneCodeHash: 'hash123' });
   const mockDestroy    = vi.fn().mockResolvedValue(undefined);
+  const mockUpdateTwoFa = vi.fn().mockResolvedValue(undefined);
   const MockTelegramClient = vi.fn().mockReturnValue({
     connect: mockConnect,
     sendCode: mockSendCode,
     destroy: mockDestroy,
+    updateTwoFaSettings: mockUpdateTwoFa,
     session: { save: vi.fn().mockReturnValue('') },
   });
-  return { mockConnect, mockSendCode, mockDestroy, MockTelegramClient };
+  return {
+    mockConnect,
+    mockSendCode,
+    mockDestroy,
+    mockUpdateTwoFa,
+    MockTelegramClient,
+  };
 });
 
 vi.mock('telegram', () => ({
@@ -25,9 +39,9 @@ vi.mock('telegram/sessions', () => ({
   StringSession: vi.fn().mockReturnValue({}),
 }));
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TelegramClient } from 'telegram';
-import { requestCode, sweepPendingAuth } from '../auth/tgAuth';
+import { requestCode, sweepPendingAuth, updateTwoFa } from '../auth/tgAuth';
 import type { TgProxy } from '../types';
 
 beforeEach(() => vi.clearAllMocks());
@@ -111,5 +125,50 @@ describe('sweepPendingAuth', () => {
 
     // Already gone, so a second sweep has nothing to do
     expect(sweepPendingAuth(Date.now() + TTL_MS * 10)).toBe(0);
+  });
+});
+
+// ---- one-shot op timeouts --------------------------------------------------
+
+// A dead proxy leaves GramJS awaiting forever, which used to wedge the sequential
+// bulk runners on one account -- the run sat on "Changing 2FA password" and never
+// reached the accounts behind it.
+describe('updateTwoFa timeouts', () => {
+  const OP_TIMEOUT_MS = 120_000;
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('rejects and disconnects when connect never settles', async () => {
+    mockConnect.mockReturnValueOnce(new Promise(() => {}));
+    const pending = updateTwoFa(1, 'hash', 'session', { newPassword: 'x' });
+    const assertion = expect(pending).rejects.toThrow(/timed out/);
+
+    await vi.advanceTimersByTimeAsync(OP_TIMEOUT_MS + 1);
+    await assertion;
+    expect(mockDestroy).toHaveBeenCalled();
+  });
+
+  it('rejects and disconnects when the password change never settles', async () => {
+    mockUpdateTwoFa.mockReturnValueOnce(new Promise(() => {}));
+    const pending = updateTwoFa(1, 'hash', 'session', { newPassword: 'x' });
+    const assertion = expect(pending).rejects.toThrow(/timed out/);
+
+    await vi.advanceTimersByTimeAsync(OP_TIMEOUT_MS + 1);
+    await assertion;
+    expect(mockDestroy).toHaveBeenCalled();
+  });
+
+  it('passes the new password through when the proxy is healthy', async () => {
+    await updateTwoFa(1, 'hash', 'session', {
+      currentPassword: 'old',
+      newPassword: 'new',
+    });
+
+    expect(mockUpdateTwoFa).toHaveBeenCalledWith({
+      currentPassword: 'old',
+      newPassword: 'new',
+      hint: '',
+    });
   });
 });
