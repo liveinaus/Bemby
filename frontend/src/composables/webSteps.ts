@@ -65,6 +65,10 @@ export type WebStepForm = {
   subjectContains: string;
   /** web_read: keep what was read out of the log. */
   secret: boolean;
+  /** web_tg_send: who the account sends to, e.g. `@some_bot`. */
+  contact: string;
+  /** web_tg_send: carry on once the reply holds one of these (`|` separated). */
+  replyContains: string;
   /** web_tg_api_save: the api_id to write, e.g. `{apiId}`. */
   apiId: string;
   /** web_tg_api_save: the api_hash to write, e.g. `{apiHash}`. */
@@ -121,6 +125,7 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "web_email_code",
   "web_email_lease",
   "web_tg_code",
+  "web_tg_send",
   "web_tg_api_save",
   "web_set",
   "web_data_read",
@@ -226,6 +231,8 @@ export function defaultWebStep(): WebStepForm {
     fromContains: "",
     subjectContains: "",
     secret: false,
+    contact: "",
+    replyContains: "",
     apiId: "{apiId}",
     apiHash: "{apiHash}",
     holdMs: 1000,
@@ -378,6 +385,15 @@ export function webStepToConfig(s: WebStepForm): WebStep {
         type: "web_tg_code",
         varName: s.varName.trim(),
         ...(s.pattern.trim() ? { pattern: s.pattern.trim() } : {}),
+        ...(s.waitMs > 0 ? { waitMs: s.waitMs } : {}),
+      };
+    case "web_tg_send":
+      return {
+        type: "web_tg_send",
+        contact: s.contact.trim(),
+        text: s.text,
+        ...(s.replyContains.trim() ? { replyContains: s.replyContains.trim() } : {}),
+        ...(s.varName.trim() ? { varName: s.varName.trim() } : {}),
         ...(s.waitMs > 0 ? { waitMs: s.waitMs } : {}),
       };
     case "web_tg_api_save":
@@ -620,6 +636,16 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
         varName: s.varName,
         pattern: s.pattern ?? "",
         waitMs: s.waitMs ?? 180000,
+      };
+    case "web_tg_send":
+      return {
+        ...base,
+        type: s.type,
+        contact: s.contact,
+        text: s.text,
+        replyContains: s.replyContains ?? "",
+        varName: s.varName ?? "",
+        waitMs: s.waitMs ?? 60000,
       };
     case "web_tg_api_save":
       return {

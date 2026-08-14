@@ -169,6 +169,9 @@ function createJobs(
   jobs: Array<{ accountId: number; name: string; config?: Record<string, unknown> }>,
   scheduleWindowStart: number,
   scheduleWindowEnd: number,
+  // Absent means on, as the route reads it; the toggle for it is covered in
+  // template-create-jobs.test.ts, against the route itself
+  enabled?: boolean,
 ): number[] {
   const createdIds: number[] = [];
   for (const j of jobs) {
@@ -183,7 +186,7 @@ function createJobs(
         schedule_window_start, schedule_window_end, timezone,
         reply_timeout_ms, retry_max, enabled, config,
         start_command, checkin_button, template_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       j.name,
       j.accountId,
@@ -194,6 +197,7 @@ function createJobs(
       template.timezone,
       template.reply_timeout_ms,
       template.retry_max,
+      enabled === false ? 0 : 1,
       jobConfig,
       template.start_command,
       template.checkin_button,

@@ -427,11 +427,15 @@ router.post('/:id/create-jobs', (req, res) => {
   const template = db.prepare('SELECT * FROM job_templates WHERE id = ?').get(req.params.id) as TemplateRow | undefined;
   if (!template) { res.status(404).json({ error: 'Not found' }); return; }
 
-  const { jobs, scheduleWindowStart, scheduleWindowEnd } = req.body as {
+  const { jobs, scheduleWindowStart, scheduleWindowEnd, enabled } = req.body as {
     jobs: CreateJobEntry[];
     scheduleWindowStart: number;
     scheduleWindowEnd: number;
+    /** Create them switched off, for a template nobody wants running on its own schedule yet. */
+    enabled?: boolean;
   };
+  // Absent means on, which is what creating from a template always did
+  const startEnabled = enabled === false ? 0 : 1;
 
   if (!Array.isArray(jobs) || !jobs.length) {
     res.status(400).json({ error: 'jobs array is required' }); return;
@@ -454,7 +458,7 @@ router.post('/:id/create-jobs', (req, res) => {
           schedule_window_start, schedule_window_end, timezone,
           reply_timeout_ms, retry_max, enabled, config,
           start_command, checkin_button, template_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         j.name,
         j.accountId,
@@ -465,6 +469,7 @@ router.post('/:id/create-jobs', (req, res) => {
         template.timezone,
         template.reply_timeout_ms,
         template.retry_max,
+        startEnabled,
         jobConfig,
         template.start_command,
         template.checkin_button,

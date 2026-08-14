@@ -723,6 +723,23 @@ export type WebStep =
     }
   | {
       /**
+       * Send a message as the account this job belongs to, with the page still open: a site's
+       * linking command has to come from the account itself.
+       */
+      type: "web_tg_send";
+      /** Who to send to: @username, a t.me link, or a numeric id. */
+      contact: string;
+      /** The message, with `{name}` filled in, e.g. `/start join_{joinCode}`. */
+      text: string;
+      /** Carry on only once the reply holds one of these (`|` separated). */
+      replyContains?: string;
+      /** Name to hold the reply text under. */
+      varName?: string;
+      /** How long to wait for the reply. Blank/0 waits 60s. */
+      waitMs?: number;
+    }
+  | {
+      /**
        * Write an api_id/api_hash pair onto the account this job belongs to, the hash
        * encrypted as every other login is. Anything that does not look like a pair is refused.
        */
@@ -1450,6 +1467,8 @@ export const templatesApi = {
       }>;
       scheduleWindowStart: number;
       scheduleWindowEnd: number;
+      /** false creates them switched off; absent creates them running, as it always did. */
+      enabled?: boolean;
     },
   ) =>
     api

@@ -148,6 +148,17 @@
             </div>
           </div>
 
+          <!-- A one-shot template (a signup, say) is worth creating without it starting to run -->
+          <div class="form-group">
+            <label class="form-label" style="display:flex;align-items:center;gap:6px">
+              <input type="checkbox" v-model="createJobsDisabled" />
+              {{ t('templates.createJobsDisabled') }}
+            </label>
+            <div style="font-size:11px;color:#aaa;margin-top:3px">
+              {{ t('templates.createJobsDisabledHint') }}
+            </div>
+          </div>
+
           <!-- Account list -->
           <div class="form-group">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -353,6 +364,7 @@ const createJobsAccounts = ref<AvailableAccount[]>([]);
 const createJobsLoading = ref(false);
 const createJobsError = ref('');
 const createJobsCreating = ref(false);
+const createJobsDisabled = ref(false);
 const createJobsWindowStart = ref(1400);
 const createJobsWindowEnd = ref(1600);
 
@@ -596,6 +608,7 @@ async function doCreateJobs() {
       jobs,
       scheduleWindowStart: Number(createJobsWindowStart.value),
       scheduleWindowEnd: Number(createJobsWindowEnd.value),
+      enabled: !createJobsDisabled.value,
     });
     showCreateJobs.value = false;
     alert(t('templates.createJobsSuccess').replace('{n}', String(result.created)));

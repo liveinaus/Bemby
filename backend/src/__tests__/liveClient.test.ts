@@ -863,13 +863,13 @@ describe('searchPeers', () => {
   });
 
   it('finds own dialogs by title when the server searches return nothing', async () => {
-    const group = new MockChannel({ id: 80n, title: 'SNTP Media Lite 公益计划 v3', megagroup: true });
+    const group = new MockChannel({ id: 80n, title: 'Aurora 影音交流群', megagroup: true });
     mockGetDialogs.mockResolvedValueOnce([
-      { entity: group, name: 'SNTP Media Lite 公益计划 v3', dialog: { unreadCount: 0 }, message: undefined },
+      { entity: group, name: 'Aurora 影音交流群', dialog: { unreadCount: 0 }, message: undefined },
     ]);
     routeInvoke();
 
-    const result = await searchPeers(makeEntry() as any, '公益计划');
+    const result = await searchPeers(makeEntry() as any, '影音交流');
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ chatId: 'c80', type: 'group' });
@@ -878,11 +878,11 @@ describe('searchPeers', () => {
   it('surfaces a left group returned only as a title-matched entity by searchGlobal', async () => {
     mockGetDialogs.mockResolvedValueOnce([]);
     const group = new MockChannel({
-      id: 90n, title: 'SNTP Media Lite 公益计划 v3', megagroup: true, left: true,
+      id: 90n, title: 'Aurora 影音交流群', megagroup: true, left: true,
     });
     routeInvoke({ searchGlobal: () => ({ messages: [], chats: [group], users: [] }) });
 
-    const result = await searchPeers(makeEntry() as any, 'SNTP Media Lite 公益计划 v3');
+    const result = await searchPeers(makeEntry() as any, 'Aurora 影音交流群');
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ chatId: 'c90', type: 'group', left: true });
@@ -911,13 +911,13 @@ describe('searchPeers', () => {
 
   it('retries the server searches with trailing words dropped when the full query matches nothing', async () => {
     mockGetDialogs.mockResolvedValueOnce([]);
-    const channel = new MockChannel({ id: 81n, title: 'SNTP Media Lite', megagroup: false });
+    const channel = new MockChannel({ id: 81n, title: 'Aurora Media Hub', megagroup: false });
     routeInvoke({
       contactsSearch: (req) =>
-        req.q === 'SNTP Media Lite' ? { users: [], chats: [channel] } : emptyFound,
+        req.q === 'Aurora Media Hub' ? { users: [], chats: [channel] } : emptyFound,
     });
 
-    const result = await searchPeers(makeEntry() as any, 'SNTP Media Lite v9');
+    const result = await searchPeers(makeEntry() as any, 'Aurora Media Hub v9');
 
     expect(contactsSearchCalls()).toHaveLength(2);
     expect(result).toHaveLength(1);

@@ -748,6 +748,32 @@ export type WebStep =
     }
   | {
       /**
+       * Send a message as the account this job belongs to, from the middle of a page run, and
+       * hold the reply under a name. What a site's "link your Telegram" needs: the page puts a
+       * one-off command on screen and the account itself has to send it, which `web_notify`
+       * cannot do -- that goes out from the notification bot, and would link the wrong account.
+       *
+       * Sent over MTProto on the account's own client, so nothing about it reaches the browser.
+       * A run that has to press "I have linked it" back on the page carries straight on: the
+       * page is still open while this happens.
+       */
+      type: "web_tg_send";
+      /** Who to send to: @username, a t.me link, or a numeric id. */
+      contact: string;
+      /** The message, with `{name}` filled in, e.g. `/start join_{joinCode}`. */
+      text: string;
+      /**
+       * Carry on only once a reply holds one of these (`|` separated, any one of them).
+       * Blank sends without waiting for anything.
+       */
+      replyContains?: string;
+      /** Name to hold the reply text under. Waits for a reply even when blank matchers are set. */
+      varName?: string;
+      /** How long to wait for the reply. Blank/0 waits 60s. Nothing waits when neither is set. */
+      waitMs?: number;
+    }
+  | {
+      /**
        * Write an api_id/api_hash pair onto the account this job belongs to, the way Settings
        * writes the global pair: the hash goes in encrypted, and every job the account runs
        * uses the pair from then on. Reach for it at the end of a my.telegram.org run, once a

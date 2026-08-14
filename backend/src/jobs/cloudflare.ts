@@ -337,6 +337,8 @@ export type LoadOptions = {
   emailLease?: WebStepHooks["emailLease"];
   /** Waits for Telegram's own login code, for the `web_tg_code` sub-step. */
   tgCode?: WebStepHooks["tgCode"];
+  /** Sends a message as the account, for the `web_tg_send` sub-step. */
+  tgSend?: WebStepHooks["tgSend"];
   /** Writes API credentials onto the account, for the `web_tg_api_save` sub-step. */
   saveTgApi?: WebStepHooks["saveTgApi"];
   /**
@@ -2602,6 +2604,20 @@ export type WebStepHooks = {
     text: string;
   } | null>;
   /**
+   * Sends a message as the account the run belongs to, for a `web_tg_send` step, and returns
+   * the reply when one was waited for. Supplied by the caller for the same reason as `tgCode`:
+   * the account's client lives on that side. Absent, the step says so rather than passing
+   * silently.
+   */
+  tgSend?: (query: {
+    contact: string;
+    text: string;
+    /** Any one of these (`|` separated) ends the wait. Blank takes the first reply. */
+    replyContains?: string;
+    /** 0 sends without waiting for a reply. */
+    waitMs: number;
+  }) => Promise<{ reply?: string }>;
+  /**
    * Writes an api_id/api_hash pair onto the account the run belongs to, for a
    * `web_tg_api_save` step. Supplied by the caller for the same reason: which account a run
    * belongs to, and how its secrets are stored, is not something this side knows. Returns the
@@ -2652,6 +2668,9 @@ const MAX_COLLECTED = 200;
 
 /** Characters of page text a `web_read` keeps when it is not told a length. */
 const WEB_READ_CHARS = 1000;
+
+/** How long a `web_tg_send` step waits for the reply when it is not told. */
+const TG_SEND_WAIT_MS = 60_000;
 
 /**
  * Replaces `{name}` with the value of the round, for every loop currently running. A name
@@ -3368,6 +3387,31 @@ async function runStepList(
             );
           run.current.set(name, found.code);
           log.outcome = `{${name}} = ${found.code}`;
+          break;
+        }
+
+        case "web_tg_send": {
+          if (!hooks.tgSend)
+            throw new Error("sending as the account is not available here");
+          const contact = fillVars(step.contact ?? "", run.current).trim();
+          if (!contact) throw new Error("no contact to send to");
+          const text = fillContent(step.text ?? "", run.current).trim();
+          if (!text) throw new Error("no message to send");
+          const name = step.varName?.trim();
+          const wanted = fillVars(step.replyContains ?? "", run.current).trim();
+          // Waiting is what a matcher or a name asks for; without either the step just sends
+          const asked = wanted || name ? step.waitMs || TG_SEND_WAIT_MS : 0;
+          const waitMs = Math.max(0, Math.min(asked, msLeft(deadline)));
+          const { reply } = await hooks.tgSend({
+            contact,
+            text,
+            replyContains: wanted || undefined,
+            waitMs,
+          });
+          if (name) run.current.set(name, reply ?? "");
+          log.outcome =
+            `sent \`${text}\` to ${contact}` +
+            (reply ? `, replied "${reply.slice(0, 80)}"` : waitMs ? ", no reply" : "");
           break;
         }
 
@@ -4169,6 +4213,11 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
       return `Take an address${step.poolType?.trim() ? ` for ${fill(step.poolType.trim())}` : ""} into {${step.varName}}`;
     case "web_tg_code":
       return `Wait for Telegram's login code, into {${step.varName}}`;
+    case "web_tg_send":
+      return (
+        `Send "${fill(step.text ?? "")}" to ${fill(step.contact ?? "")} as the account` +
+        (step.varName?.trim() ? `, reply into {${step.varName.trim()}}` : "")
+      );
     case "web_tg_api_save":
       return (
         `Save api_id ${fill(step.apiId ?? "")} and its hash to the account` +
@@ -4886,7 +4935,9 @@ async function attemptLoad(
           markUsed: opts.markUsed,
           notify: opts.notify,
           emailCode: opts.emailCode,
+          emailLease: opts.emailLease,
           tgCode: opts.tgCode,
+          tgSend: opts.tgSend,
           saveTgApi: opts.saveTgApi,
           // A `web_goto` lands on a page that may have its own challenge, and the solver for
           // this attempt is right here -- so the steps work it through rather than the run

@@ -583,6 +583,56 @@
         </div>
       </div>
 
+      <!-- A message sent as the account the job runs as, e.g. a site's linking command -->
+      <div v-if="s.type === 'web_tg_send'">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelTgSendContact") }}</label>
+            <input
+              v-model.trim="s.contact"
+              class="form-input"
+              :placeholder="t('jobs.web.tgSendContactPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelTgSendText") }}</label>
+            <input
+              v-model="s.text"
+              class="form-input"
+              :placeholder="t('jobs.web.tgSendTextPlaceholder')"
+            />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.tgSendHint") }}
+        </div>
+        <div class="form-row" style="margin-top: 8px">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelTgSendReply") }}</label>
+            <input
+              v-model.trim="s.replyContains"
+              class="form-input"
+              :placeholder="t('jobs.web.tgSendReplyPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelTgSendVarName") }}</label>
+            <input
+              v-model.trim="s.varName"
+              class="form-input"
+              :placeholder="t('jobs.web.tgSendVarNamePlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelTgSendWait") }}</label>
+            <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.tgSendReplyHint") }}
+        </div>
+      </div>
+
       <!-- The pair my.telegram.org hands back, written onto the account it belongs to -->
       <div v-if="s.type === 'web_tg_api_save'">
         <div class="form-row">

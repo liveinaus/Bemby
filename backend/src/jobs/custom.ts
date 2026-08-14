@@ -31,7 +31,7 @@ import {
   newCfRunState,
   type CfRunState,
 } from "./cloudflare";
-import { parseLabelAlternatives } from "./placeholders";
+import { matchesAnyLabel, parseLabelAlternatives } from "./placeholders";
 import {
   openableBotMenuApp,
   openableButtonUrl,
@@ -3198,6 +3198,48 @@ export async function runCustom(
                       waitMs: q.waitMs,
                       signal,
                     }),
+                  // And for a `web_tg_send` step: the page shows a command the account itself
+                  // has to send (a site linking a Telegram account reads who sent it), so it
+                  // goes out on this same client while the page stays open
+                  tgSend: async (q) => {
+                    const entity = await resolvePeerTarget(client, q.contact);
+                    const sent = await client.sendMessage(entity, {
+                      message: q.text,
+                    });
+                    contactAnchors.set(q.contact, anchorFromSent(sent));
+                    if (!q.waitMs) return {};
+                    // Polled rather than event-driven, as the login-code step is: only what
+                    // came back to the message just sent counts (`minId`), and a bot that
+                    // answers in two goes gets until the deadline to say the wording asked
+                    // for rather than the first line settling it
+                    const deadline = Date.now() + q.waitMs;
+                    let latest: string | undefined;
+                    for (;;) {
+                      if (signal?.aborted) throw new Error("Job cancelled");
+                      const msgs = (await client
+                        .getMessages(entity, { limit: 5, minId: sent.id })
+                        .catch(() => [])) as Api.Message[];
+                      // Oldest first, so a two-part answer reads in the order it was said
+                      for (const msg of [...msgs].reverse()) {
+                        const text = (msg?.message ?? "").trim();
+                        if (!text || msg.out) continue;
+                        latest = text;
+                        if (matchesAnyLabel(text, q.replyContains)) return { reply: text };
+                      }
+                      const left = deadline - Date.now();
+                      if (left <= 0) break;
+                      await new Promise((resolve) =>
+                        setTimeout(resolve, Math.min(3000, left)),
+                      );
+                    }
+                    if (q.replyContains)
+                      throw new Error(
+                        `${q.contact} did not reply with "${q.replyContains}" within ` +
+                          `${Math.round(q.waitMs / 1000)}s` +
+                          (latest ? `; it said "${latest.slice(0, 120)}"` : ""),
+                      );
+                    return { reply: latest };
+                  },
                   // And for a `web_tg_api_save`: which account the run belongs to, and how
                   // its api_hash is stored, is this side's business
                   saveTgApi: async (creds) => {

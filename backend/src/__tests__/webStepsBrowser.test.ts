@@ -833,6 +833,88 @@ describe.skipIf(!exe)("page steps in a real browser", () => {
   );
 
   it(
+    "sends the command the page showed as the account, and keeps the reply",
+    async () => {
+      const p = await open(LOGIN_FORM);
+      const sent: unknown[] = [];
+      const run = await runWebSteps(
+        p,
+        [
+          { type: "web_set", vars: [{ name: "joinCode", value: "abc123" }] },
+          {
+            type: "web_tg_send",
+            contact: "@some_bot",
+            text: "/start join_{joinCode}",
+            replyContains: "linked",
+            varName: "botReply",
+          },
+          { type: "web_input", selector: "#my_password", text: "{botReply}" },
+        ],
+        Date.now() + 30_000,
+        {
+          tgSend: async (q) => {
+            sent.push(q);
+            return { reply: "Account linked" };
+          },
+        },
+      );
+      expect(run.ok).toBe(true);
+      expect(sent).toEqual([
+        {
+          contact: "@some_bot",
+          text: "/start join_abc123",
+          replyContains: "linked",
+          waitMs: expect.any(Number),
+        },
+      ]);
+      expect(
+        await p.evaluate(() => (document.querySelector("#my_password") as HTMLInputElement).value),
+      ).toBe("Account linked");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "sends without waiting when no reply was asked for, and stops when the send fails",
+    async () => {
+      const p = await open(LOGIN_FORM);
+      const waits: number[] = [];
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_tg_send", contact: "@some_bot", text: "/start" }],
+        Date.now() + 30_000,
+        {
+          tgSend: async (q) => {
+            waits.push(q.waitMs);
+            return {};
+          },
+        },
+      );
+      expect(run.ok).toBe(true);
+      expect(waits).toEqual([0]);
+
+      const failed = await runWebSteps(
+        p,
+        [
+          { type: "web_tg_send", contact: "@some_bot", text: "/start", replyContains: "linked" },
+          { type: "web_input", selector: "#my_password", text: "never" },
+        ],
+        Date.now() + 30_000,
+        {
+          tgSend: async () => {
+            throw new Error("Expected reply not received within 1000ms");
+          },
+        },
+      );
+      expect(failed.ok).toBe(false);
+      expect(failed.logs).toHaveLength(1);
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
     "hands the pair read off the page to the account, keeping the hash out of the log",
     async () => {
       const p = await open(LOGIN_FORM);
