@@ -3,6 +3,7 @@ import { db } from '../db/database';
 import { refreshScheduler } from '../scheduler';
 import { parsePaging, parseSort, textParam } from './list-query';
 import { iconFromConfig, mergeIconIntoConfig } from '../jobs/configIcon';
+import { jobOwnedConfig } from '../jobs/jobHandover';
 import type { JobTemplate } from '../types';
 
 const router = Router();
@@ -63,23 +64,6 @@ function parseConfig(raw: string | null): Record<string, unknown> {
   } catch {
     return {};
   }
-}
-
-/**
- * Config settings a job owns, which a template sync must leave alone: its proxy override
- * (blank means it follows the template's, resolved at run time), its icon if it was given
- * one of its own, and, for Emby Watch, the credentials that were never the template's to
- * hold. A job with no icon of its own has none here, so it picks the template's up on sync.
- */
-function jobOwnedConfig(jobCfg: Record<string, unknown>, jobType: string): Record<string, unknown> {
-  const own: Record<string, unknown> = {};
-  if (typeof jobCfg.proxyId === 'string' && jobCfg.proxyId) own.proxyId = jobCfg.proxyId;
-  if (typeof jobCfg.icon === 'string' && jobCfg.icon) own.icon = jobCfg.icon;
-  if (jobType === 'embywatch') {
-    own.username = jobCfg.username;
-    own.password = jobCfg.password;
-  }
-  return own;
 }
 
 // Sync template fields to all linked jobs (enabled is job-specific, not synced)

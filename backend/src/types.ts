@@ -708,6 +708,52 @@ export type WebStep =
     }
   | {
       /**
+       * Point this job at another template, and rename it while at it. What a job whose purpose
+       * changes does last: one that exists to register an account signs it up once, and from then
+       * on is that account's daily job.
+       *
+       * The same row, keeping its id -- which is the point. A signup that filed the account's
+       * credentials under `{jobId}` has filed them where the template taking over reads them,
+       * so the handover moves nothing and leaves nothing to tidy up by hand.
+       *
+       * The row is rewritten exactly as saving the new template would rewrite its linked jobs,
+       * so what comes out is a job indistinguishable from one linked that way all along.
+       */
+      type: "web_job_handover";
+      /** The template to run from now on: its name, e.g. `Web NS checkin`, or its id. */
+      template: string;
+      /** What to call the job now. Blank keeps its name. Takes `{name}` values. */
+      name?: string;
+      /** Whether it runs on the schedule from now on. Left out, its own setting stands. */
+      enabled?: boolean;
+    }
+  | {
+      /**
+       * Find the enrolment secret on a two-factor setup page and hold it under a name, for a
+       * `web_data_save` to keep and a `web_totp` to work codes out of. What switching 2FA on
+       * needs: the page shows the secret once, and a run that does not capture it there and then
+       * has locked the account out of its own next login.
+       *
+       * No selector needed, and none wanted: the page is asked for every attribute it has and
+       * its text, and the first thing among them that reads as a secret is taken. A whole
+       * `otpauth://` URL is preferred wherever it turns up -- an `href`, a `data-` attribute, or
+       * url-encoded inside a QR image's address -- since the digit count and the step length come
+       * with it. Failing that, the base32 secret a page prints beside the QR for whoever cannot
+       * scan one, which is checked as base32 before it is believed.
+       *
+       * A QR drawn on a canvas with the secret nowhere in the markup is the one case this cannot
+       * reach: nothing on the page says what the picture encodes.
+       */
+      type: "web_otp_secret";
+      /** Name to hold what was found under. */
+      varName: string;
+      /** Only look inside this element. Blank asks the whole page. */
+      selector?: string;
+      /** How long to give the page to draw it. Blank/0 waits 15s. */
+      waitMs?: number;
+    }
+  | {
+      /**
        * Work out the code an authenticator app would be showing and hold it under a name, for
        * a later `web_input` to type as `{name}`. What a login guarded by two-factor
        * authentication needs: the site asks for six digits nobody is there to read off a phone.

@@ -361,6 +361,69 @@
         </div>
       </div>
 
+      <!-- Pointing the job at another template once its first purpose is served -->
+      <div v-if="s.type === 'web_job_handover'">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelHandoverTemplate") }}</label>
+            <input
+              v-model.trim="s.jobTemplate"
+              class="form-input"
+              :placeholder="t('jobs.web.handoverTemplatePlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelHandoverName") }}</label>
+            <input
+              v-model.trim="s.jobName"
+              class="form-input"
+              :placeholder="t('jobs.web.handoverNamePlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelHandoverEnabled") }}</label>
+            <select v-model="s.jobEnabled" class="form-select">
+              <option value="">{{ t("jobs.web.handoverEnabledLeave") }}</option>
+              <option value="on">{{ t("jobs.web.handoverEnabledOn") }}</option>
+              <option value="off">{{ t("jobs.web.handoverEnabledOff") }}</option>
+            </select>
+          </div>
+        </div>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.handoverHint") }}
+        </div>
+      </div>
+
+      <!-- The enrolment secret off a 2FA setup page: no selector needed, so it gets a block
+           of its own rather than the shared selector field -->
+      <div v-if="s.type === 'web_otp_secret'">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelTotpVarName") }}</label>
+            <input
+              v-model.trim="s.varName"
+              class="form-input"
+              :placeholder="t('jobs.web.otpSecretVarNamePlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelOtpSecretScope") }}</label>
+            <input
+              v-model.trim="s.selector"
+              class="form-input"
+              :placeholder="t('jobs.web.selectorPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelWaitMs") }}</label>
+            <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.otpSecretHint") }}
+        </div>
+      </div>
+
       <!-- The code an authenticator app would be showing, for a login guarded by 2FA -->
       <div v-if="s.type === 'web_totp'">
         <label class="form-label">{{ t("jobs.web.labelTotpSecret") }}</label>

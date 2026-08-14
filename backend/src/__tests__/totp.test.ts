@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { decodeBase32, parseTotpSecret, totpCode, totpMsLeft } from "../jobs/totp";
+import {
+  decodeBase32,
+  findOtpSecret,
+  maskOtpSecret,
+  parseTotpSecret,
+  totpCode,
+  totpMsLeft,
+} from "../jobs/totp";
 
 const RFC_SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 
@@ -97,5 +104,68 @@ describe("totpMsLeft", () => {
     expect(totpMsLeft(spec, 60_000)).toBe(30_000);
     expect(totpMsLeft(spec, 75_000)).toBe(15_000);
     expect(totpMsLeft(spec, 89_999)).toBe(1);
+  });
+});
+
+describe("findOtpSecret", () => {
+  const URL_SECRET = `otpauth://totp/Example:someone?secret=${RFC_SECRET}&issuer=Example`;
+
+  it("prefers a whole otpauth URL wherever it turns up", () => {
+    // An href, a data- attribute, and the encoded copy inside a QR service's address
+    expect(findOtpSecret(["nothing here", URL_SECRET])).toBe(URL_SECRET);
+    expect(findOtpSecret([`  ${URL_SECRET}  `])).toBe(URL_SECRET);
+    expect(findOtpSecret([`https://qr.example/?size=200&data=${URL_SECRET}`])).toBe(URL_SECRET);
+    // Taken over a bare secret printed on the same page
+    expect(findOtpSecret([RFC_SECRET, URL_SECRET])).toBe(URL_SECRET);
+  });
+
+  it("ignores an otpauth URL that carries no secret", () => {
+    expect(findOtpSecret(["otpauth://totp/Example:someone?issuer=Example"])).toBeUndefined();
+  });
+
+  it("falls back to the secret a page prints for whoever cannot scan", () => {
+    expect(findOtpSecret([`Manual entry: ${RFC_SECRET}`])).toBe(RFC_SECRET);
+    // Grouped in fours, as a setup page usually shows it
+    expect(findOtpSecret(["密钥：GEZD GNBV GY3T QOJQ"])).toBe("GEZDGNBVGY3TQOJQ");
+  });
+
+  it("does not read ordinary capitals as a secret", () => {
+    expect(findOtpSecret(["TWO FACTOR AUTHENTICATION IS NOW ON"])).toBeUndefined();
+    // Too short to be one anybody issues
+    expect(findOtpSecret(["ABCDEFGH"])).toBeUndefined();
+    // 1, 8 and 9 are not in the alphabet
+    expect(findOtpSecret(["SCAN THE QR CODE WITH GOOGLE AUTH 189"])).toBeUndefined();
+    expect(findOtpSecret([])).toBeUndefined();
+  });
+
+  it("finds a secret that would work, so the code after it is real", () => {
+    const found = findOtpSecret([`Secret: ${RFC_SECRET}`]);
+    expect(totpCode(parseTotpSecret(found!), 59_000)).toBe("287082");
+  });
+});
+
+describe("maskOtpSecret", () => {
+  it("keeps the label and drops the secret", () => {
+    const masked = maskOtpSecret(
+      `otpauth://totp/Example:someone?secret=${RFC_SECRET}&issuer=Example`,
+    );
+    expect(masked).toBe("otpauth://totp/Example:someone?secret=…&issuer=Example");
+    expect(masked).not.toContain(RFC_SECRET);
+  });
+
+  it("says only how long a bare secret was", () => {
+    const masked = maskOtpSecret(RFC_SECRET);
+    expect(masked).toBe("GEZD… (32 characters)");
+    expect(masked).not.toContain(RFC_SECRET);
+  });
+});
+
+describe("findOtpSecret, on what a page actually holds", () => {
+  it("never returns a fragment of an encoded otpauth URL", () => {
+    // The url-decoded copy is what the scan hands over beside it; on its own the encoded one is
+    // no place to look for a loose base32 run
+    const encoded = `https://qr.example/?data=otpauth%3A%2F%2Ftotp%2FExample%3Fsecret%3D${RFC_SECRET}`;
+    expect(findOtpSecret([encoded])).toBeUndefined();
+    expect(findOtpSecret([encoded, decodeURIComponent(encoded)])).toContain("otpauth://totp/");
   });
 });

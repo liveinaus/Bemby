@@ -719,6 +719,34 @@ export type WebStep =
     }
   | {
       /**
+       * Point this job at another template and rename it: what a job that exists to register an
+       * account does last, so the same row carries on as that account's daily job. It keeps its
+       * id, so a record filed under `{jobId}` is still the one the new template reads.
+       */
+      type: "web_job_handover";
+      /** The template to run from now on: its name, or its id. */
+      template: string;
+      /** What to call the job now. Blank keeps its name. */
+      name?: string;
+      /** Whether it runs on the schedule from now on. Left out, its own setting stands. */
+      enabled?: boolean;
+    }
+  | {
+      /**
+       * Find the enrolment secret on a two-factor setup page and hold it under a name, for a
+       * `web_data_save` to keep and a `web_totp` to work codes out of. Needs no selector: every
+       * attribute and the page text are searched, an `otpauth://` URL first and the printed
+       * base32 secret second.
+       */
+      type: "web_otp_secret";
+      varName: string;
+      /** Only look inside this element. Blank asks the whole page. */
+      selector?: string;
+      /** How long to give the page to draw it. Blank/0 waits 15s. */
+      waitMs?: number;
+    }
+  | {
+      /**
        * Work out the code an authenticator app would be showing and hold it under a name, for a
        * login guarded by two-factor authentication to type. The secret is read from the data
        * store rather than typed in here, and a code with little of its window left is passed

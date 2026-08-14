@@ -912,6 +912,8 @@ const zh = {
         web_read: "读取页面文字（存为变量）",
         web_email_code: "从邮箱获取验证码（存为变量）",
         web_email_lease: "领取一个邮箱地址（存为变量）",
+        web_job_handover: "移交任务给其他模版（并改名）",
+        web_otp_secret: "抓取两步验证密钥（存为变量）",
         web_totp: "生成两步验证动态码（存为变量）",
         web_tg_code: "等待 Telegram 登录验证码（存为变量）",
         web_tg_send: "用本账号发送 Telegram 消息",
@@ -958,6 +960,20 @@ const zh = {
       emailVarNamePlaceholder: "email",
       emailLeaseHint:
         "从 msOauth2api 邮箱池领取一个该用途下尚未使用过的邮箱地址，存为变量供表单填写（{变量名}）。领取有时效，如果最终没有收到验证码，地址会自动回到池中",
+      labelHandoverTemplate: "接手的模版（名称或 ID）",
+      handoverTemplatePlaceholder: "Web NS checkin",
+      labelHandoverName: "新任务名称（可留空）",
+      handoverNamePlaceholder: "Web NS checkin - {accountName}",
+      labelHandoverEnabled: "移交后启用状态",
+      handoverEnabledLeave: "保持不变",
+      handoverEnabledOn: "启用",
+      handoverEnabledOff: "停用",
+      handoverHint:
+        "把当前任务改为使用另一个模版，任务 ID 不变：注册类任务跑完一次后即可变成该账号的日常任务。因为 ID 不变，注册时按 {jobId} 存下的账号信息，正是接手模版按 {data.文件夹.{jobId}} 读取的那条。任务的各项设置会按新模版重写（等同于在新模版上保存一次）",
+      otpSecretVarNamePlaceholder: "otpUrl",
+      labelOtpSecretScope: "查找范围（CSS 选择器，可留空）",
+      otpSecretHint:
+        "在开启两步验证的页面使用：自动在整页的属性与文字中查找 otpauth:// 链接（含二维码图片地址里的编码形式），找不到再找页面上供手动输入的 base32 密钥。无需选择器；留空即搜索整页。找到后请用「保存到数据」立刻存下来——页面只显示一次。若二维码画在 canvas 上且页面不显示密钥文字，则无法抓取",
       labelTotpSecret: "动态码密钥（引用数据）",
       totpSecretPlaceholder: "{data.example.{jobId}.otp}",
       totpSecretHint:
@@ -3032,6 +3048,8 @@ const en: typeof zh = {
         web_read: "Read text off the page (into a name)",
         web_email_code: "Get a verification code from email (into a name)",
         web_email_lease: "Take an email address from the pool (into a name)",
+        web_job_handover: "Hand this job over to another template",
+        web_otp_secret: "Capture the two-factor secret (into a name)",
         web_totp: "Work out the authenticator code (into a name)",
         web_tg_code: "Wait for Telegram's login code (into a name)",
         web_tg_send: "Send a Telegram message as this account",
@@ -3079,6 +3097,20 @@ const en: typeof zh = {
       emailVarNamePlaceholder: "email",
       emailLeaseHint:
         "Takes an address the pool has not used for this type yet and holds it under a name, for a signup form to type as {name}. The claim lapses on its own, so an address is not wasted when no code ever arrives",
+      labelHandoverTemplate: "Template to hand over to (name or id)",
+      handoverTemplatePlaceholder: "Web NS checkin",
+      labelHandoverName: "New job name (optional)",
+      handoverNamePlaceholder: "Web NS checkin - {accountName}",
+      labelHandoverEnabled: "On the schedule afterwards",
+      handoverEnabledLeave: "Leave as it is",
+      handoverEnabledOn: "Enabled",
+      handoverEnabledOff: "Disabled",
+      handoverHint:
+        "Points this job at another template, keeping its id: a job that exists to register an account runs once and is then that account's daily job. Because the id does not change, credentials the signup filed under {jobId} are the ones the template taking over reads back as {data.folder.{jobId}}. The job's settings are rewritten from the new template, exactly as saving that template would",
+      otpSecretVarNamePlaceholder: "otpUrl",
+      labelOtpSecretScope: "Where to look (CSS selector, optional)",
+      otpSecretHint:
+        "For the page that switches two-factor authentication on: every attribute and the page text are searched for an otpauth:// URL, including the encoded copy inside a QR image's address, and failing that for the base32 secret printed for whoever cannot scan. No selector needed; blank asks the whole page. Save what it finds straight away with \"Save to Data\" -- the page shows it once. A QR drawn on a canvas with no secret in the markup cannot be read",
       labelTotpSecret: "Authenticator secret (a data reference)",
       totpSecretPlaceholder: "{data.example.{jobId}.otp}",
       totpSecretHint:

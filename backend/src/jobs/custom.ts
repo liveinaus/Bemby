@@ -48,6 +48,7 @@ import {
 } from "../tg/proxyProviders";
 import { cfTuning } from "./cfTuning";
 import { rememberWebValue, usedWebValues } from "./webMemory";
+import { handOverJob } from "./jobHandover";
 import { getNotifyConfig, sendBotNotify } from "./notify";
 import { EMAIL_CODE_LOOKBACK_MS, fetchGmailCode } from "./emailCode";
 import { leaseEmail, pollForCode } from "./msOauth2api";
@@ -3239,6 +3240,19 @@ export async function runCustom(
                           (latest ? `; it said "${latest.slice(0, 120)}"` : ""),
                       );
                     return { reply: latest };
+                  },
+                  // And for a `web_job_handover`: which job is running is this side's to know,
+                  // and the row it rewrites is one the browser side never sees
+                  jobHandover: async (q) => {
+                    // A debug or manual-browser run belongs to no job, so there is no row to
+                    // point anywhere -- said plainly rather than rewriting whatever id turns up
+                    if (!cfRun.jobId) throw new Error("this run has no job to hand over");
+                    return handOverJob({
+                      jobId: cfRun.jobId,
+                      template: q.template,
+                      name: q.name,
+                      enabled: q.enabled,
+                    });
                   },
                   // And for a `web_tg_api_save`: which account the run belongs to, and how
                   // its api_hash is stored, is this side's business

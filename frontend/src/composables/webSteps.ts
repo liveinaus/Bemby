@@ -69,6 +69,12 @@ export type WebStepForm = {
   secretRef: string;
   /** web_totp: wait for the next code when this much of the window is not left. */
   minValidMs: number;
+  /** web_job_handover: the template to run from now on, by name or id. */
+  jobTemplate: string;
+  /** web_job_handover: what to call the job now; blank keeps its name. */
+  jobName: string;
+  /** web_job_handover: on or off the schedule afterwards; blank leaves it alone. */
+  jobEnabled: "" | "on" | "off";
   /** web_tg_send: who the account sends to, e.g. `@some_bot`. */
   contact: string;
   /** web_tg_send: carry on once the reply holds one of these (`|` separated). */
@@ -128,7 +134,9 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "web_read",
   "web_email_code",
   "web_email_lease",
+  "web_otp_secret",
   "web_totp",
+  "web_job_handover",
   "web_tg_code",
   "web_tg_send",
   "web_tg_api_save",
@@ -238,6 +246,9 @@ export function defaultWebStep(): WebStepForm {
     secret: false,
     secretRef: "",
     minValidMs: 10000,
+    jobTemplate: "",
+    jobName: "",
+    jobEnabled: "",
     contact: "",
     replyContains: "",
     apiId: "{apiId}",
@@ -386,6 +397,21 @@ export function webStepToConfig(s: WebStepForm): WebStep {
         type: "web_email_lease",
         varName: s.varName.trim(),
         ...(s.poolType.trim() ? { poolType: s.poolType.trim() } : {}),
+      };
+    case "web_job_handover":
+      return {
+        type: "web_job_handover",
+        template: s.jobTemplate.trim(),
+        ...(s.jobName.trim() ? { name: s.jobName.trim() } : {}),
+        // Blank is a choice of its own: leave the job's own setting alone
+        ...(s.jobEnabled ? { enabled: s.jobEnabled === "on" } : {}),
+      };
+    case "web_otp_secret":
+      return {
+        type: "web_otp_secret",
+        varName: s.varName.trim(),
+        ...(s.selector.trim() ? { selector: s.selector.trim() } : {}),
+        ...(s.waitMs > 0 ? { waitMs: s.waitMs } : {}),
       };
     case "web_totp":
       return {
@@ -644,6 +670,22 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
         type: s.type,
         varName: s.varName,
         poolType: s.poolType ?? "",
+      };
+    case "web_job_handover":
+      return {
+        ...base,
+        type: s.type,
+        jobTemplate: s.template,
+        jobName: s.name ?? "",
+        jobEnabled: s.enabled === undefined ? "" : s.enabled ? "on" : "off",
+      };
+    case "web_otp_secret":
+      return {
+        ...base,
+        type: s.type,
+        varName: s.varName,
+        selector: s.selector ?? "",
+        waitMs: s.waitMs ?? 15000,
       };
     case "web_totp":
       return {

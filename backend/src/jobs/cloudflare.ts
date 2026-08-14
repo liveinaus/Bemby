@@ -30,7 +30,14 @@ import {
 } from "../db/dataStore";
 import { EMAIL_CODE_WAIT_MS } from "./emailCode";
 import { TG_CODE_WAIT_MS } from "./tgApiCredentials";
-import { TOTP_MIN_VALID_MS, parseTotpSecret, totpCode, totpMsLeft } from "./totp";
+import {
+  TOTP_MIN_VALID_MS,
+  findOtpSecret,
+  maskOtpSecret,
+  parseTotpSecret,
+  totpCode,
+  totpMsLeft,
+} from "./totp";
 import type { WebStep, WebStepLog } from "../types";
 
 // Completes a checkin that hands back a URL behind Cloudflare's "I am not a bot"
@@ -341,6 +348,7 @@ export type LoadOptions = {
   /** Sends a message as the account, for the `web_tg_send` sub-step. */
   tgSend?: WebStepHooks["tgSend"];
   /** Writes API credentials onto the account, for the `web_tg_api_save` sub-step. */
+  jobHandover?: WebStepHooks["jobHandover"];
   saveTgApi?: WebStepHooks["saveTgApi"];
   /**
    * Names the page steps start with, on top of what they set themselves: the account the run
@@ -2624,6 +2632,15 @@ export type WebStepHooks = {
    * belongs to, and how its secrets are stored, is not something this side knows. Returns the
    * line to log, which the caller words since it is the one that knows the account.
    */
+  /**
+   * Point the job this run belongs to at another template. Which job that is, and how a job row
+   * is written, is the caller's business -- the browser side only knows a step said to.
+   */
+  jobHandover?: (q: {
+    template: string;
+    name?: string;
+    enabled?: boolean;
+  }) => Promise<{ templateName: string; name: string; enabled: boolean; alreadyLinked: boolean }>;
   saveTgApi?: (creds: {
     apiId: string;
     apiHash: string;
@@ -2669,6 +2686,46 @@ const MAX_COLLECTED = 200;
 
 /** Characters of page text a `web_read` keeps when it is not told a length. */
 const WEB_READ_CHARS = 1000;
+
+/** How long a `web_otp_secret` gives the page to draw the secret when it is not told. */
+const OTP_SECRET_WAIT_MS = 15_000;
+
+/**
+ * Every string on the page a secret might be hiding in: the text first, then each element's
+ * attributes, and a url-decoded copy of any attribute that changed under decoding -- which is
+ * how the `otpauth://` inside a QR service's address comes back readable.
+ */
+async function pageOtpCandidates(page: Page, selector: string): Promise<string[]> {
+  return page
+    .evaluate((sel: string) => {
+      const root = sel ? document.querySelector(sel) : document.body;
+      if (!root) return [];
+      const out: string[] = [(root as HTMLElement).innerText ?? ""];
+      const elements = [root, ...Array.from(root.querySelectorAll("*"))];
+      for (const el of elements) {
+        // What a field currently holds is a property, not an attribute: `getAttribute("value")`
+        // gives what the markup shipped with, which for a box a script filled in is nothing at
+        // all. A setup page offering the secret "to back up" puts it in exactly such a box.
+        const live = (el as HTMLInputElement | HTMLTextAreaElement).value;
+        if (typeof live === "string" && live) out.push(live);
+        for (const attr of Array.from(el.attributes ?? [])) {
+          const value = attr.value ?? "";
+          if (!value) continue;
+          out.push(value);
+          if (value.includes("%")) {
+            try {
+              const decoded = decodeURIComponent(value);
+              if (decoded !== value) out.push(decoded);
+            } catch {
+              /* a stray percent sign, not an encoded value */
+            }
+          }
+        }
+      }
+      return out;
+    }, selector)
+    .catch(() => [] as string[]);
+}
 
 /** How long a `web_tg_send` step waits for the reply when it is not told. */
 const TG_SEND_WAIT_MS = 60_000;
@@ -3388,6 +3445,50 @@ async function runStepList(
             );
           run.current.set(name, found.code);
           log.outcome = `{${name}} = ${found.code}`;
+          break;
+        }
+
+        case "web_job_handover": {
+          if (!hooks.jobHandover)
+            throw new Error("handing this job over is not available here");
+          const template = fillContent(step.template ?? "", run.current).trim();
+          if (!template) throw new Error("no template named to hand over to");
+          const name = fillContent(step.name ?? "", run.current).trim();
+          const done = await hooks.jobHandover({
+            template,
+            name: name || undefined,
+            enabled: step.enabled,
+          });
+          log.outcome =
+            `this job now runs \`${done.templateName}\`` +
+            (done.alreadyLinked ? " (which it already did)" : "") +
+            `, called "${done.name}", ${done.enabled ? "on" : "off"} the schedule`;
+          break;
+        }
+
+        case "web_otp_secret": {
+          const name = step.varName.trim();
+          if (!name) throw new Error("no name given to hold the secret under");
+          const selector = fillVars(step.selector ?? "", run.current).trim();
+          const waitMs = step.waitMs && step.waitMs > 0 ? step.waitMs : OTP_SECRET_WAIT_MS;
+          const until = Math.min(Date.now() + waitMs, deadline);
+          let found: string | undefined;
+          for (;;) {
+            const candidates = await pageOtpCandidates(page, selector);
+            found = findOtpSecret(candidates);
+            if (found || Date.now() >= until) break;
+            // A setup page draws the QR once the server has answered, so what is not there yet
+            // is worth waiting for rather than calling absent
+            await sleep(Math.min(tune.readyPollMs, Math.max(50, until - Date.now())), until);
+          }
+          if (!found)
+            throw new Error(
+              `no authenticator secret is ${selector ? `inside \`${selector}\`` : "on the page"}` +
+                ` (waited ${Math.round(waitMs / 1000)}s)`,
+            );
+          run.current.set(name, found);
+          // Masked: this is the second factor itself, and the run log travels with any export
+          log.outcome = `{${name}} = ${maskOtpSecret(found)}`;
           break;
         }
 
@@ -4250,6 +4351,17 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
       return `Wait for Telegram's login code, into {${step.varName}}`;
     case "web_totp":
       return `Work out the authenticator code into {${step.varName}}`;
+    case "web_job_handover":
+      return (
+        `Hand this job over to \`${fill(step.template ?? "")}\`` +
+        `${step.name?.trim() ? `, as "${fill(step.name)}"` : ""}`
+      );
+    case "web_otp_secret":
+      return (
+        "Find the authenticator secret" +
+        `${step.selector?.trim() ? ` inside \`${fill(step.selector)}\`` : ""}` +
+        `, into {${step.varName}}`
+      );
     case "web_tg_send":
       return (
         `Send "${fill(step.text ?? "")}" to ${fill(step.contact ?? "")} as the account` +
@@ -4975,6 +5087,7 @@ async function attemptLoad(
           emailLease: opts.emailLease,
           tgCode: opts.tgCode,
           tgSend: opts.tgSend,
+          jobHandover: opts.jobHandover,
           saveTgApi: opts.saveTgApi,
           // A `web_goto` lands on a page that may have its own challenge, and the solver for
           // this attempt is right here -- so the steps work it through rather than the run

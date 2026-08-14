@@ -118,3 +118,63 @@ export function totpCode(spec: TotpSpec, atMs: number): string {
   const binary = mac.readUInt32BE(offset) & 0x7fffffff;
   return String(binary % 10 ** spec.digits).padStart(spec.digits, "0");
 }
+
+/**
+ * Picks the enrolment secret out of a page's worth of candidate strings -- what a setup page
+ * offers, in the order worth trusting.
+ *
+ * A whole `otpauth://` URL is best: it carries the digit count, the step length and the label,
+ * so nothing has to be assumed. Sites hide it in three places -- an `href`, a `data-` attribute,
+ * or url-encoded inside a QR service's address -- and `candidates` is expected to hold every
+ * attribute value and the page text, already url-decoded where that made a difference.
+ *
+ * A bare base32 secret is the fallback, for a page that draws the QR itself and prints the
+ * secret beside it for whoever cannot scan one. Only a run that decodes to a key of a sensible
+ * length counts, which is what keeps an ordinary run of capitals from being read as a secret.
+ */
+export function findOtpSecret(candidates: string[]): string | undefined {
+  const url = /otpauth:\/\/[ht]otp\/[^\s"'<>`]+/i;
+  for (const text of candidates) {
+    const found = url.exec(text ?? "");
+    // Only one that carries a secret: a QR service's address may hold a stripped copy
+    if (found && /[?&]secret=[A-Z2-7=\s]+/i.test(found[0])) return found[0];
+  }
+
+  // Every capital letter is also a base32 digit, so "TWO FACTOR AUTHENTICATION" decodes as
+  // happily as a real key does. What separates a secret from prose is its shape: one unbroken
+  // run, or the even groups of four or eight a setup page displays. Prose is neither -- its
+  // words are of assorted lengths. 16 characters is the shortest anybody issues and 128 is past
+  // every implementation. Upper case only, for the same reason: a lower-case run of the same
+  // length is as likely to be a class name as a key.
+  const shapes = [
+    /\b[A-Z2-7]{16,128}\b/g,
+    /\b[A-Z2-7]{4}(?:[ -][A-Z2-7]{4}){3,31}\b/g,
+    /\b[A-Z2-7]{8}(?:[ -][A-Z2-7]{8}){1,15}\b/g,
+  ];
+  for (const text of candidates) {
+    // An otpauth URL the pass above could not use is not a place to go looking for a loose run
+    // of base32: `%3DGEZD...` inside an encoded one matches, and what it yields is a fragment
+    if (/otpauth/i.test(text ?? "")) continue;
+    for (const shape of shapes) {
+      for (const match of (text ?? "").matchAll(shape)) {
+        const clean = match[0].replace(/[\s-]+/g, "");
+        if (clean.length < 16 || clean.length > 128) continue;
+        try {
+          // A secret is whole bytes: a run that decodes to fewer than ten is not one
+          if (decodeBase32(clean).length >= 10) return clean;
+        } catch {
+          /* not base32 after all */
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/** The same string with the secret itself blanked, so a log line can say what was found. */
+export function maskOtpSecret(raw: string): string {
+  if (/^otpauth:\/\//i.test(raw)) {
+    return raw.replace(/([?&]secret=)[^&]*/i, "$1…");
+  }
+  return `${raw.slice(0, 4)}… (${raw.replace(/[\s-]+/g, "").length} characters)`;
+}
