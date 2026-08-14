@@ -719,6 +719,20 @@ export type WebStep =
     }
   | {
       /**
+       * Work out the code an authenticator app would be showing and hold it under a name, for a
+       * login guarded by two-factor authentication to type. The secret is read from the data
+       * store rather than typed in here, and a code with little of its window left is passed
+       * over in favour of the next one.
+       */
+      type: "web_totp";
+      /** Where the secret is, e.g. `{data.example.{jobId}.otp}`: an `otpauth://` URL or base32. */
+      secretRef: string;
+      varName: string;
+      /** Wait for the next code when this much is not left. Blank waits under 10s. */
+      minValidMs?: number;
+    }
+  | {
+      /**
        * Wait for the login code Telegram delivers to this account and hold it under a name.
        * Read off Telegram's own service chat on the account the job belongs to, which is where
        * my.telegram.org posts its code -- so the step needs no address of its own.

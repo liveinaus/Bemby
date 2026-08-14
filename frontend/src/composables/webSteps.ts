@@ -65,6 +65,10 @@ export type WebStepForm = {
   subjectContains: string;
   /** web_read: keep what was read out of the log. */
   secret: boolean;
+  /** web_totp: where the authenticator secret is, e.g. `{data.example.{jobId}.otp}`. */
+  secretRef: string;
+  /** web_totp: wait for the next code when this much of the window is not left. */
+  minValidMs: number;
   /** web_tg_send: who the account sends to, e.g. `@some_bot`. */
   contact: string;
   /** web_tg_send: carry on once the reply holds one of these (`|` separated). */
@@ -124,6 +128,7 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "web_read",
   "web_email_code",
   "web_email_lease",
+  "web_totp",
   "web_tg_code",
   "web_tg_send",
   "web_tg_api_save",
@@ -231,6 +236,8 @@ export function defaultWebStep(): WebStepForm {
     fromContains: "",
     subjectContains: "",
     secret: false,
+    secretRef: "",
+    minValidMs: 10000,
     contact: "",
     replyContains: "",
     apiId: "{apiId}",
@@ -379,6 +386,15 @@ export function webStepToConfig(s: WebStepForm): WebStep {
         type: "web_email_lease",
         varName: s.varName.trim(),
         ...(s.poolType.trim() ? { poolType: s.poolType.trim() } : {}),
+      };
+    case "web_totp":
+      return {
+        type: "web_totp",
+        secretRef: s.secretRef.trim(),
+        varName: s.varName.trim(),
+        // 0 is a choice of its own -- hand on whatever the window is showing -- so only the
+        // default is left out
+        ...(s.minValidMs !== 10000 ? { minValidMs: Math.max(0, s.minValidMs) } : {}),
       };
     case "web_tg_code":
       return {
@@ -628,6 +644,14 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
         type: s.type,
         varName: s.varName,
         poolType: s.poolType ?? "",
+      };
+    case "web_totp":
+      return {
+        ...base,
+        type: s.type,
+        secretRef: s.secretRef,
+        varName: s.varName,
+        minValidMs: s.minValidMs ?? 10000,
       };
     case "web_tg_code":
       return {

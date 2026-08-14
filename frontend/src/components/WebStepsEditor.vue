@@ -361,6 +361,42 @@
         </div>
       </div>
 
+      <!-- The code an authenticator app would be showing, for a login guarded by 2FA -->
+      <div v-if="s.type === 'web_totp'">
+        <label class="form-label">{{ t("jobs.web.labelTotpSecret") }}</label>
+        <input
+          v-model.trim="s.secretRef"
+          class="form-input"
+          :placeholder="t('jobs.web.totpSecretPlaceholder')"
+        />
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.totpSecretHint") }}
+        </div>
+        <div class="form-row" style="margin-top: 8px">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelTotpVarName") }}</label>
+            <input
+              v-model.trim="s.varName"
+              class="form-input"
+              :placeholder="t('jobs.web.totpVarNamePlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelTotpMinValid") }}</label>
+            <input
+              v-model.number="s.minValidMs"
+              class="form-input"
+              type="number"
+              min="0"
+              step="1000"
+            />
+            <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+              {{ t("jobs.web.totpMinValidHint") }}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-if="s.type === 'web_notify'">
         <label class="form-label">{{ t("jobs.web.labelNotifyText") }}</label>
         <textarea

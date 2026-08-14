@@ -912,6 +912,7 @@ const zh = {
         web_read: "读取页面文字（存为变量）",
         web_email_code: "从邮箱获取验证码（存为变量）",
         web_email_lease: "领取一个邮箱地址（存为变量）",
+        web_totp: "生成两步验证动态码（存为变量）",
         web_tg_code: "等待 Telegram 登录验证码（存为变量）",
         web_tg_send: "用本账号发送 Telegram 消息",
         web_tg_api_save: "保存 API ID / Hash 到账号",
@@ -957,6 +958,15 @@ const zh = {
       emailVarNamePlaceholder: "email",
       emailLeaseHint:
         "从 msOauth2api 邮箱池领取一个该用途下尚未使用过的邮箱地址，存为变量供表单填写（{变量名}）。领取有时效，如果最终没有收到验证码，地址会自动回到池中",
+      labelTotpSecret: "动态码密钥（引用数据）",
+      totpSecretPlaceholder: "{data.example.{jobId}.otp}",
+      totpSecretHint:
+        "填写引用而不是密钥本身：把网站开启两步验证时给出的 otpauth:// 链接（或 base32 密钥）保存到数据中，这里写 {data.文件夹.键.字段}。密钥只在后端读取，任务配置与导出内容中都只有引用",
+      labelTotpVarName: "变量名",
+      totpVarNamePlaceholder: "otp",
+      labelTotpMinValid: "剩余有效期不足（毫秒）",
+      totpMinValidHint:
+        "动态码每 30 秒变一次。若当前动态码剩余时间少于此值，则等到下一个动态码再继续，避免在过人机验证与提交期间失效。填 0 表示不等待",
       labelEmail: "Gmail 邮箱地址",
       emailPlaceholder: "me@gmail.com",
       labelCodeVarName: "变量名",
@@ -3022,6 +3032,7 @@ const en: typeof zh = {
         web_read: "Read text off the page (into a name)",
         web_email_code: "Get a verification code from email (into a name)",
         web_email_lease: "Take an email address from the pool (into a name)",
+        web_totp: "Work out the authenticator code (into a name)",
         web_tg_code: "Wait for Telegram's login code (into a name)",
         web_tg_send: "Send a Telegram message as this account",
         web_tg_api_save: "Save an API ID / hash onto the account",
@@ -3068,6 +3079,15 @@ const en: typeof zh = {
       emailVarNamePlaceholder: "email",
       emailLeaseHint:
         "Takes an address the pool has not used for this type yet and holds it under a name, for a signup form to type as {name}. The claim lapses on its own, so an address is not wasted when no code ever arrives",
+      labelTotpSecret: "Authenticator secret (a data reference)",
+      totpSecretPlaceholder: "{data.example.{jobId}.otp}",
+      totpSecretHint:
+        "A reference, not the secret itself: keep the otpauth:// URL the site handed out (or the base32 secret) in Data, and point at it with {data.folder.key.field}. Only the backend reads it, so the job config and any export of it carry the reference alone",
+      labelTotpVarName: "Name",
+      totpVarNamePlaceholder: "otp",
+      labelTotpMinValid: "Wait when less than this is left (ms)",
+      totpMinValidHint:
+        "A code turns over every 30s. With less than this left the step waits for the next one, so a Turnstile and a submit cannot outlive the code it typed. 0 never waits",
       labelEmail: "Gmail address",
       emailPlaceholder: "me@gmail.com",
       labelCodeVarName: "Name",

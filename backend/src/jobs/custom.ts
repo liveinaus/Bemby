@@ -3253,13 +3253,16 @@ export async function runCustom(
                     });
                   },
                   // What the steps start with: one template drives my.telegram.org for every
-                  // account linked to it, and the phone is the only thing that differs
-                  webVars: account
-                    ? {
-                        accountPhone: account.phoneNumber,
-                        accountName: account.name,
-                      }
-                    : undefined,
+                  // account linked to it, and the phone is the only thing that differs.
+                  // `{jobId}` for the same reason a profile name takes one -- a site's
+                  // credentials filed under the job that signs in with them are reachable as
+                  // `{data.folder.{jobId}.password}`, so one template covers every job
+                  webVars: {
+                    jobId: String(cfRun.jobId),
+                    ...(account
+                      ? { accountPhone: account.phoneNumber, accountName: account.name }
+                      : {}),
+                  },
                   // Which cookie jar this runs on, and so what a login here belongs to
                   profile: { template: action.profileId, vars: cfProfileVars(cfRun) },
                   display: await displayForRun(cfRun),

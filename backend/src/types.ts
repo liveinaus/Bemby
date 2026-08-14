@@ -708,6 +708,38 @@ export type WebStep =
     }
   | {
       /**
+       * Work out the code an authenticator app would be showing and hold it under a name, for
+       * a later `web_input` to type as `{name}`. What a login guarded by two-factor
+       * authentication needs: the site asks for six digits nobody is there to read off a phone.
+       *
+       * The shared secret is not typed in here: `secretRef` reads it from the data store,
+       * written `{data.example.{jobId}.otp}`, so the seed lives in one place rather than in
+       * the config, in every export of it, and in anything the template is shared with.
+       * Either the whole `otpauth://` URL the site handed out or the base32 secret on its own;
+       * the URL is preferred, since the digit count and the step length come with it.
+       *
+       * A code is only good until its window turns over, and a login that has a Turnstile and a
+       * page load between the typing and the submit can easily outlive one. `minValidMs` is how
+       * long the code must still have left: with less than that the step waits for the next
+       * window rather than handing on one about to lapse.
+       */
+      type: "web_totp";
+      /**
+       * Where the shared secret is, e.g. `{data.example.{jobId}.otp}`. An `otpauth://` URL or a
+       * base32
+       * secret; spaces and lower case in the secret are fine.
+       */
+      secretRef: string;
+      /** Name to hold the code under. */
+      varName: string;
+      /**
+       * Wait for the next code when the one in hand has less than this long left. Blank waits
+       * when under 10s; 0 hands on whatever the window is showing.
+       */
+      minValidMs?: number;
+    }
+  | {
+      /**
        * Take an address from the msOauth2api pool and hold it under a name, for a later
        * `web_input` to type as `{name}`. What a signup needs before it can ask for a code:
        * an address nothing has used for this service yet.

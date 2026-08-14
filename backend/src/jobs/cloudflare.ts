@@ -30,6 +30,7 @@ import {
 } from "../db/dataStore";
 import { EMAIL_CODE_WAIT_MS } from "./emailCode";
 import { TG_CODE_WAIT_MS } from "./tgApiCredentials";
+import { TOTP_MIN_VALID_MS, parseTotpSecret, totpCode, totpMsLeft } from "./totp";
 import type { WebStep, WebStepLog } from "../types";
 
 // Completes a checkin that hands back a URL behind Cloudflare's "I am not a bot"
@@ -3390,6 +3391,40 @@ async function runStepList(
           break;
         }
 
+        case "web_totp": {
+          const name = step.varName.trim();
+          if (!name) throw new Error("no name given to hold the code under");
+          const raw = fillContent(step.secretRef ?? "", run.current).trim();
+          if (!raw) throw new Error("no authenticator secret given");
+          const spec = parseTotpSecret(raw);
+          // Never longer than a whole window: a margin as wide as the code's own life would
+          // reject every code there is, and waiting twice would only reject the next one too
+          const minValid = Math.min(
+            step.minValidMs === 0 ? 0 : step.minValidMs || TOTP_MIN_VALID_MS,
+            spec.periodMs,
+          );
+          let left = totpMsLeft(spec, Date.now());
+          let waited = 0;
+          if (left < minValid) {
+            // A code with moments left is no use to a form that still has a Turnstile and a
+            // submit ahead of it, so the next window is worth waiting for. A little past the
+            // turnover, so what is read below is the new code rather than a rounding away from
+            // the old one.
+            waited = left + 500;
+            await sleep(waited, deadline);
+            left = totpMsLeft(spec, Date.now());
+          }
+          const code = totpCode(spec, Date.now());
+          run.current.set(name, code);
+          // The code itself is worth the log line -- it is spent within the window, and a login
+          // that was refused is otherwise impossible to tell from one never typed. The secret it
+          // came from is not: that one is the second factor itself.
+          log.outcome =
+            `{${name}} = ${code}, good for another ${Math.round(left / 1000)}s` +
+            (waited ? ` (waited ${Math.round(waited / 1000)}s for a fresh one)` : "");
+          break;
+        }
+
         case "web_tg_send": {
           if (!hooks.tgSend)
             throw new Error("sending as the account is not available here");
@@ -4213,6 +4248,8 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
       return `Take an address${step.poolType?.trim() ? ` for ${fill(step.poolType.trim())}` : ""} into {${step.varName}}`;
     case "web_tg_code":
       return `Wait for Telegram's login code, into {${step.varName}}`;
+    case "web_totp":
+      return `Work out the authenticator code into {${step.varName}}`;
     case "web_tg_send":
       return (
         `Send "${fill(step.text ?? "")}" to ${fill(step.contact ?? "")} as the account` +
