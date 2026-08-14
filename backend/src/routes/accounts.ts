@@ -1328,7 +1328,7 @@ router.post("/:id/login-email/auto", bulkMgmtGuard, async (req, res) => {
 router.post("/:id/login-email/verify", async (req, res) => {
   const account = loadAccount(req.params.id) as AccountRow | undefined;
   if (!requireAuth(account, res)) return;
-  const { code } = req.body as { code?: string };
+  const { code, email } = req.body as { code?: string; email?: string };
   if (!code) { res.status(400).json({ error: "code required" }); return; }
   try {
     const { apiId, apiHash } = resolveApiCredentials(account);
@@ -1336,6 +1336,14 @@ router.post("/:id/login-email/verify", async (req, res) => {
     const proxy = parseTgProxy(proxyUrl);
     const deviceParams = resolveAppClientParams(account.id, account.app_client_id);
     const result = await verifyLoginEmail(apiId, apiHash, account.session_string, code, proxy, deviceParams);
+    // A change made by hand is still a change: record it the way the automated run does, so the
+    // list row and the stored address do not depend on which panel was used. Telegram returns the
+    // address it accepted; the posted one is the fallback for when it does not.
+    const confirmed = result.email ?? email?.trim();
+    patchAttributes(account.id, {
+      hasEmail: true,
+      ...(confirmed ? { loginEmail: confirmed } : {}),
+    });
     res.json(result);
   } catch (err: any) {
     if (isAuthError(err?.message ?? "")) markSessionExpired(account!.id);

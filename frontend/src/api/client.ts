@@ -1285,9 +1285,11 @@ export const accountsApi = {
         { email },
       )
       .then((r) => r.data),
-  verifyLoginEmail: (id: number, code: string) =>
+  // `email` is what the code was sent to: the server records it against the account when
+  // Telegram's own response does not name it.
+  verifyLoginEmail: (id: number, code: string, email?: string) =>
     api
-      .post<{ email: string | null }>(`/accounts/${id}/login-email/verify`, { code })
+      .post<{ email: string | null }>(`/accounts/${id}/login-email/verify`, { code, email })
       .then((r) => r.data),
   autoLoginEmail: (
     id: number,

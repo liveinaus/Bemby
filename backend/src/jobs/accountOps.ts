@@ -111,11 +111,41 @@ export function resolveProxyUrl(
   }
 }
 
+export type AccountExit = {
+  proxy: TgProxy | undefined;
+  /** How the exit reads in a result or a log line: host:port, or "direct". */
+  label: string;
+};
+
+/**
+ * The exit an account's Telegram traffic leaves by. An account that names a proxy which is no
+ * longer configured -- or which is not SOCKS, so MTProto cannot use it -- is an error rather
+ * than a quiet fall back to the server's own address: a run that unknowingly puts many accounts
+ * behind one IP is what Telegram answers by dropping what it was asked to send (login-email
+ * codes first of all), and nothing about it would otherwise be visible.
+ */
+export function resolveAccountExit(account: AccountRow): AccountExit {
+  if (!account.proxy_id) return { proxy: undefined, label: "direct" };
+  const url = resolveProxyUrl(account.proxy_id);
+  if (!url)
+    throw new Error(
+      `The account's proxy (${account.proxy_id}) is not configured on this server; assign one in Settings > Proxies, or clear it to connect direct`,
+    );
+  const proxy = parseTgProxy(url);
+  if (!proxy)
+    throw new Error(
+      "The account's proxy cannot carry Telegram (an account proxy must be socks5:// or socks4://)",
+    );
+  return { proxy, label: `${proxy.ip}:${proxy.port}` };
+}
+
 export type AccountOpContext = {
   account: AccountRow & { session_string: string };
   apiId: number;
   apiHash: string;
   proxy: TgProxy | undefined;
+  /** Exit label for results and logs; see resolveAccountExit. */
+  exit: string;
   deviceParams: TgDeviceParams | undefined;
 };
 
@@ -125,11 +155,13 @@ export function accountOpContext(accountId: number): AccountOpContext {
   if (!account) throw new Error("Account not found");
   if (!account.session_string) throw new Error("Account is not authenticated");
   const { apiId, apiHash } = resolveApiCredentials(account);
+  const exit = resolveAccountExit(account);
   return {
     account: account as AccountRow & { session_string: string },
     apiId,
     apiHash,
-    proxy: parseTgProxy(resolveProxyUrl(account.proxy_id)),
+    proxy: exit.proxy,
+    exit: exit.label,
     deviceParams: resolveAppClientParams(account.id, account.app_client_id),
   };
 }
@@ -415,11 +447,16 @@ export type LoginEmailSource =
   | { source?: "gmail"; gmail: string; appPassword: string; tag: string }
   | { source: "msapi"; poolType?: string };
 
-/** Points the account's login email at a new address and confirms it with the emailed code. */
+/**
+ * Points the account's login email at a new address and confirms it with the emailed code.
+ * The exit comes back with the address: Telegram stops delivering these codes when a run puts
+ * account after account behind one IP, so which exit each change went out by is the first thing
+ * worth seeing when a bulk run only ever gets one code.
+ */
 export async function changeLoginEmailForAccount(
   accountId: number,
   opts: LoginEmailSource,
-): Promise<{ email: string }> {
+): Promise<{ email: string; exit: string }> {
   const ctx = accountOpContext(accountId);
   try {
     const result =
@@ -447,7 +484,7 @@ export async function changeLoginEmailForAccount(
     // The address itself is worth keeping: with a pool mailbox it is the only record of which
     // one this account was given
     patchAttributes(accountId, { hasEmail: true, loginEmail: result.email });
-    return result;
+    return { ...result, exit: ctx.exit };
   } catch (err) {
     rethrowTracking(accountId, err);
   }

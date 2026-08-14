@@ -85,8 +85,12 @@ export function bulkTaskItemText(task: BulkTask, item: BulkTaskItem): string {
         ? warnings.join("; ")
         : t("accounts.bulkFetch.doneMsg");
     }
-    case "login-email":
-      return String(data.email ?? item.message);
+    case "login-email": {
+      // The exit is shown alongside the address: several accounts on one exit is why Telegram
+      // stops sending the codes partway through a run.
+      const email = String(data.email ?? item.message);
+      return data.exit ? `${email} (${data.exit})` : email;
+    }
     case "credentials":
       return credentialsText(data);
     case "passkey":

@@ -5324,7 +5324,11 @@ async function doVerifyLoginEmail() {
   loginEmailBusy.value = true;
   loginEmailError.value = "";
   try {
-    await accountsApi.verifyLoginEmail(editTarget.value.id, loginEmailCode.value);
+    await accountsApi.verifyLoginEmail(
+      editTarget.value.id,
+      loginEmailCode.value,
+      loginEmailNew.value,
+    );
     loginEmailPendingConfirm.value = false;
     loginEmailNewPattern.value = "";
     loginEmailNew.value = "";

@@ -9,7 +9,9 @@ import {
   fetchAttributesForAccount,
   hardenPrivacyForAccount,
   listPasskeysForAccount,
+  loadAccount,
   registerPasskeyForAccount,
+  resolveAccountExit,
   terminateOtherSessionsForAccount,
   updateTwoFaForAccount,
   verifyStoredPasskeyForAccount,
@@ -142,15 +144,44 @@ export function startBulkLoginEmail(
           appPassword: appPassword ?? "",
           tag: tag ?? "",
         } as const);
+  warnSharedExits(entries);
   return startBulkTask({
     kind: "login-email",
     entries,
     gapSeconds: gapSeconds ?? DEFAULT_TG_GAP_SECONDS,
     handler: async (item) => {
-      const { email } = await changeLoginEmailForAccount(item.refId, opts);
-      return { message: email, data: { email } };
+      const { email, exit } = await changeLoginEmailForAccount(item.refId, opts);
+      return { message: email, data: { email, exit } };
     },
   });
+}
+
+/**
+ * Telegram will accept SendVerifyEmailCode from one address for a while and then simply stop
+ * delivering the mail, which reads from here as "the first account worked and the rest timed
+ * out waiting for a code". Accounts that share an exit -- or have none, so they all leave by
+ * the server's own address -- are the usual cause, so say so before the run starts.
+ */
+function warnSharedExits(entries: BulkTaskEntry[]): void {
+  const byExit = new Map<string, number>();
+  for (const entry of entries) {
+    let exit: string;
+    try {
+      const account = loadAccount(entry.refId);
+      exit = account ? resolveAccountExit(account).label : "unknown";
+    } catch {
+      // A broken proxy reference fails the item itself with its own message
+      continue;
+    }
+    byExit.set(exit, (byExit.get(exit) ?? 0) + 1);
+  }
+  const shared = [...byExit].filter(([, count]) => count > 1);
+  if (!shared.length) return;
+  console.warn(
+    `[bulkOps] login-email run shares exits across accounts: ${shared
+      .map(([exit, count]) => `${exit} x${count}`)
+      .join(", ")}. Telegram stops delivering login-email codes sent from one address in quick succession.`,
+  );
 }
 
 export type BulkCredentialOptions = {

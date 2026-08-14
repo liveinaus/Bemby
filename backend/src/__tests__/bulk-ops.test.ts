@@ -89,6 +89,7 @@ import {
   appendAccountNotes,
   resolveProxyUrl,
 } from "../jobs/accountOps";
+import { parseTgProxy } from "../jobs/runner";
 import {
   getBulkTask,
   resetBulkTasks,
@@ -230,6 +231,50 @@ describe("accountOpContext", () => {
     expect(resolveProxyUrl("p1")).toBe("socks5://host:1080");
     expect(resolveProxyUrl("nope")).toBeUndefined();
     expect(resolveProxyUrl(null)).toBeUndefined();
+  });
+});
+
+// An account whose proxy cannot be resolved used to connect direct with nothing said, which
+// puts every such account on the server's own address -- the thing Telegram answers by
+// dropping login-email codes after the first.
+describe("account exit", () => {
+  const setProxy = (accountId: number, proxyId: string | null) =>
+    testDb
+      .prepare("UPDATE tg_accounts SET proxy_id = ? WHERE id = ?")
+      .run(proxyId, accountId);
+
+  it("reads as direct when the account names no proxy", () => {
+    expect(accountOpContext(addAccount("A_1")).exit).toBe("direct");
+  });
+
+  it("refuses an account whose proxy is no longer configured", () => {
+    const id = addAccount("A_1");
+    setProxy(id, "gone");
+    expect(() => accountOpContext(id)).toThrow(/not configured on this server/);
+  });
+
+  it("refuses an account whose proxy cannot carry Telegram", () => {
+    const id = addAccount("A_1");
+    setProxy(id, "p1");
+    testDb
+      .prepare("INSERT INTO settings (key, value) VALUES ('proxies', ?)")
+      .run(JSON.stringify([{ id: "p1", url: "http://host:8080" }]));
+    vi.mocked(parseTgProxy).mockReturnValueOnce(undefined);
+    expect(() => accountOpContext(id)).toThrow(/socks5/);
+  });
+
+  it("labels a usable proxy by host and port", () => {
+    const id = addAccount("A_1");
+    setProxy(id, "p1");
+    testDb
+      .prepare("INSERT INTO settings (key, value) VALUES ('proxies', ?)")
+      .run(JSON.stringify([{ id: "p1", url: "socks5://host:1080" }]));
+    vi.mocked(parseTgProxy).mockReturnValueOnce({
+      ip: "1.2.3.4",
+      port: 1080,
+      socksType: 5,
+    });
+    expect(accountOpContext(id).exit).toBe("1.2.3.4:1080");
   });
 });
 
@@ -586,6 +631,25 @@ describe("bulk login email change", () => {
     );
     expect(done.items[0].message).toBe("me+abcd@gmail.com");
     expect(JSON.stringify(done)).not.toContain("app-pw");
+  });
+
+  it("records the exit each change went out by", async () => {
+    const id = addAccount("A_1");
+    changeLoginEmailViaGmail.mockResolvedValue({ email: "me+abcd@gmail.com" });
+
+    const done = await settle(
+      task(
+        startBulkLoginEmail(
+          [id],
+          { gmail: "me@gmail.com", appPassword: "app-pw", tag: "" },
+          0,
+        ),
+      ),
+    );
+    expect(done.items[0].data).toEqual({
+      email: "me+abcd@gmail.com",
+      exit: "direct",
+    });
   });
 });
 
