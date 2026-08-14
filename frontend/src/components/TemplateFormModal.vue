@@ -24,6 +24,41 @@
           <div v-if="presetHint" style="font-size:11px;color:#aaa;margin-top:4px">{{ presetHint }}</div>
         </div>
 
+        <!-- The other way to fill the form in, for a template that already exists: paste one
+             shared from another Bemby. Nothing is saved by applying it -- the form is filled and
+             read over first -- and saving afterwards writes to this same template, so the id, and
+             every job linked to it, stay as they are. -->
+        <div v-if="editTarget" class="form-group">
+          <div style="display:flex;gap:6px;align-items:center">
+            <button type="button" class="btn btn-secondary btn-sm" style="white-space:nowrap" @click="toggleImport">
+              <i class="fa-solid fa-file-import"></i> {{ t('templates.overwriteBtn') }}
+            </button>
+            <span style="font-size:11px;color:#aaa">{{ t('templates.overwriteHint') }}</span>
+          </div>
+          <div v-if="showImport" style="margin-top:8px">
+            <label class="form-label">{{ t('templates.importLabel') }}</label>
+            <textarea
+              v-model="importJson"
+              class="form-input"
+              rows="6"
+              style="resize:vertical;font-family:monospace;font-size:12px"
+              :placeholder="t('templates.importPlaceholder')"
+            />
+            <div v-if="importError" class="error-msg" style="margin-top:6px">{{ importError }}</div>
+            <div v-if="importNotice" style="font-size:11px;color:#b45309;margin-top:6px">
+              {{ importNotice }}
+            </div>
+            <div style="display:flex;gap:6px;margin-top:6px">
+              <button type="button" class="btn btn-primary" :disabled="!importJson.trim()" @click="applyImport">
+                {{ t('templates.overwriteApply') }}
+              </button>
+              <button type="button" class="btn btn-ghost" @click="showImport = false">
+                {{ t('common.cancel') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Template Name + Job Type -->
         <div class="form-row">
           <div class="form-group">
@@ -1618,6 +1653,80 @@ const presetHint = computed(() => {
   const preset = availableTemplatePresets.value.find(p => p.id === presetId.value);
   return preset ? t(preset.hintKey) : '';
 });
+
+// Pasting a shared template over this one. The share carries what a template *is* -- its name,
+// type, timings and config -- and not what this instance decided about it, so anything it leaves
+// out keeps the value already in the form rather than reverting to a default. Applied to the form
+// only: what saves it is the same Save button as any other edit, against the same id.
+const showImport = ref(false);
+const importJson = ref('');
+const importError = ref('');
+const importNotice = ref('');
+
+function toggleImport() {
+  showImport.value = !showImport.value;
+  importError.value = '';
+  importNotice.value = '';
+}
+
+function applyImport() {
+  importError.value = '';
+  importNotice.value = '';
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(importJson.value);
+  } catch {
+    importError.value = t('templates.importError');
+    return;
+  }
+  // Sharing several at once gives an array; only one can be pasted over one template
+  const items = Array.isArray(raw) ? raw : [raw];
+  const item = items[0] as Record<string, unknown> | undefined;
+  if (!item || typeof item !== 'object' || !('name' in item) || !('jobType' in item)) {
+    importError.value = t('templates.importError');
+    return;
+  }
+  const notices: string[] = [];
+  if (items.length > 1) notices.push(t('templates.overwriteFirstOnly').replace('{n}', String(items.length)));
+
+  // The share stringifies the config; the form reads it back the same way a saved one is read
+  const config =
+    typeof item.config === 'string' || item.config == null
+      ? (item.config as string | null)
+      : JSON.stringify(item.config);
+
+  // A proxy id only means something next to the list it came from: one this instance has not got
+  // would otherwise read as configured while the job ran with no proxy at all
+  let cleaned = config;
+  if (config) {
+    try {
+      const parsed = JSON.parse(config) as Record<string, unknown>;
+      const proxyId = parsed?.proxyId;
+      if (typeof proxyId === 'string' && proxyId && !proxiesList.value.some((p) => p.id === proxyId)) {
+        delete parsed.proxyId;
+        cleaned = JSON.stringify(parsed);
+        notices.push(t('templates.overwriteProxyDropped'));
+      }
+    } catch {
+      /* not an object; left as it came */
+    }
+  }
+
+  if (item.jobType && editTarget.value && item.jobType !== editTarget.value.jobType) {
+    notices.push(
+      t('templates.overwriteTypeChanged')
+        .replace('{from}', String(editTarget.value.jobType))
+        .replace('{to}', String(item.jobType)),
+    );
+  }
+
+  // Merged over what is already here, so a share that says nothing about a field leaves it alone
+  loadFromTemplate({ ...(editTarget.value as JobTemplate), ...item, config: cleaned } as JobTemplate);
+  showImport.value = false;
+  importJson.value = '';
+  importNotice.value = notices.join(' ');
+}
 
 function applyPreset() {
   const preset = availableTemplatePresets.value.find(p => p.id === presetId.value);
