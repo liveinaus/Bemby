@@ -920,6 +920,7 @@ const zh = {
         web_tg_code: "等待 Telegram 登录验证码（存为变量）",
         web_tg_send: "用本账号发送 Telegram 消息",
         web_tg_api_save: "保存 API ID / Hash 到账号",
+        web_ms_oauth2: "换取 OAuth2 刷新令牌（微软）",
         web_set: "设置变量（自定义取值，可多个）",
         web_data_read: "读取数据（存为变量）",
         web_data_pick: "按序号取记录（数据）",
@@ -1037,6 +1038,30 @@ const zh = {
       apiCopyKeyPlaceholder: "留空则用手机号",
       apiCopyHint:
         "留空则只写入账号。填写后会在「数据」中另存一份 {apiId, apiHash, phone}，记录键留空则使用该账号的手机号（需先在设置中启用数据存储）",
+      msOauthVarPlaceholder: "refreshToken",
+      labelMsTenant: "登录端点（tenant）",
+      msTenantPlaceholder: "common",
+      msOauthHint:
+        "把浏览器刚刚完成的登录换成 OAuth2 刷新令牌，存入该变量。请放在跳转回重定向地址之后：一次性的 code 就在该地址的查询串里，本步骤直接从地址栏读取（页面本身是空白的）。换取过程在后端完成，客户端密钥不会交给浏览器。个人 Outlook 账号填 consumers，企业账号填 common 或具体租户 ID",
+      labelMsClientId: "应用（客户端）ID",
+      msClientIdPlaceholder: "留空则用设置中的值",
+      labelMsClientSecret: "客户端密钥（引用）",
+      msClientSecretPlaceholder: "{msOauthClientSecret}",
+      msClientHint:
+        "客户端密钥不直接填在这里：请先在「设置 → 密钥」中新增一个名为 msOauthClientSecret 的密钥，此处只写它的引用名，模板与导出文件中都不会带上密钥本身。应用注册为「公共客户端」（没有密钥）时留空",
+      labelMsRedirect: "重定向地址",
+      msRedirectPlaceholder: "https://login.microsoftonline.com/common/oauth2/nativeclient",
+      msRedirectHint:
+        "必须与应用注册中的重定向地址完全一致，也就是浏览器带着 code 落地的那个地址。默认用微软自带的空白页，无需本地监听端口",
+      labelMsScope: "权限范围（scope）",
+      msScopePlaceholder: "offline_access https://outlook.office.com/IMAP.AccessAsUser.All",
+      msScopeHint:
+        "留空则沿用登录时已授权的范围。务必包含 offline_access，否则微软只会返回一小时后就失效的访问令牌，拿不到刷新令牌",
+      msFolderPlaceholder: "outlook",
+      msKeyPlaceholder: "{email}",
+      msPathPlaceholder: "refreshToken",
+      msSaveHint:
+        "刷新令牌本身就是凭据，不会写进运行日志，因此建议在此直接落库：留空则只存为变量，本次运行结束即丢失。字段路径留空会覆盖整条记录（会连同密码一起清掉），保存到已有记录时请填 refreshToken",
       labelReadSecret: "不把读到的内容写进日志",
       readSecretHint:
         "读到的内容本身就是凭据（api_hash、令牌）时勾选：日志只记录字符数。变量照常可用，后续步骤不受影响",
@@ -1148,6 +1173,13 @@ const zh = {
       labelSkipUsed: "跳过已回复过的值",
       skipUsedHint:
         "记住本任务已完整跑完的每个值，下次运行不再重复；本次运行中前几轮挑过的也会跳过，因此两轮不会撞到同一个帖子。按任务单独记录，同一模板的其他账号仍可回复同一个帖子。只有整轮步骤都成功才会被记下。若本步骤挑选的是页面上的某个控件（每轮都是同一个），请关闭此项",
+      collapseAll: "全部折叠",
+      expandAll: "全部展开",
+      collapseStep: "折叠该步骤",
+      expandStep: "展开该步骤",
+      stepCount: "{n} 步",
+      branchCounts: "成立 {then} 步 / 不成立 {else} 步",
+      summaryNegated: "反向",
       thenStepsLabel: "条件成立时执行（then）",
       thenStepsHint: "条件成立时按顺序执行这些步骤；例如判断出未登录，就在这里填写登录流程",
       elseStepsLabel: "条件不成立时执行（else）",
@@ -1156,6 +1188,12 @@ const zh = {
       checkElement: "页面上是否存在某元素",
       checkText: "页面文字是否包含",
       checkUrl: "当前网址是否包含",
+      checkValue: "变量/数据是否有值",
+      labelIfValue: "要判断的取值",
+      ifValuePlaceholder: "{data.outlook.{email}.refreshToken}",
+      labelIfValueWords: "需包含的文字（可选）",
+      ifValueHint:
+        "不看页面，只看取值：可写 {变量名} 或 {data.文件夹.记录.字段}。留空「需包含的文字」时，只要取值不为空即成立；填了则要求包含该文字（不区分大小写）。典型用法是循环遍历数据文件夹时跳过已经处理过的记录——配合「反向判断」即为「如果还没有令牌」。取值当场即可判定，因此不设等待时间",
       labelWords: "包含的文字",
       wordsPlaceholder: "例如：登录",
       ifSelectorPlaceholder: 'a[href="/login"]',
@@ -1332,6 +1370,12 @@ const zh = {
       label: "内置模板",
       none: "不使用（从空白开始）",
       apply: "填入表单",
+      outlookProofs: "补齐 Outlook 辅助邮箱与两步验证",
+      outlookProofsHint:
+        "为 outlook 文件夹中缺少辅助邮箱（recovery）或两步验证密钥（totp）的记录补齐这两项：登录账号后进入「登录与验证方式」页面，辅助邮箱从 msOauth2api 邮箱池领取（微软发往该地址的验证码也由同一服务读回），两步验证则在设置页抓取密钥本身并立即写回记录，随后用它生成的动态码完成验证。已有的项目会跳过，因此重复运行只补缺口。前置条件：已配置 msOauth2api（地址池与 API Key）、已配置 AI 密钥（微软账户页面由脚本渲染且措辞常变，点击「添加验证方式」这类按钮走视觉模型），以及记录中已有 password。请先用「调试运行」跑一遍，按截图调整选择器——把这个模板当作起点，而不是成品",
+      outlookOauth: "获取 Outlook OAuth2 刷新令牌",
+      outlookOauthHint:
+        "用内置浏览器登录个人 Outlook 邮箱，把登录结果换成 OAuth2 刷新令牌并写回该记录，供 IMAP/SMTP 或 Graph 使用（密码与两步验证无法直接交给邮件客户端，刷新令牌可以）。前置条件：① 在「设置」中填写应用（客户端）ID，并新增名为 msOauthClientSecret 的密钥；② 应用注册中把重定向地址加为 https://login.microsoftonline.com/common/oauth2/nativeclient；③ 在「数据」的 outlook 文件夹中，以邮箱地址为记录键，存入 {password, totp}（totp 填两步验证密钥本身，不是六位动态码）。运行时按位置逐条处理，已有 refreshToken 的记录直接跳过，因此重复运行只会补齐新增的邮箱——请把循环次数改为该文件夹的记录数。微软登录页面时常改版，首次运行请用「调试运行」看截图，再按实际情况调整选择器",
       tgApi: "获取 Telegram API ID / Hash（my.telegram.org）",
       tgApiHint:
         "用内置浏览器登录 my.telegram.org：手机号取自账号本身（{accountPhone}），登录验证码由该账号在 Telegram 中接收并自动读取；随后取用已有的 API 应用，没有则以随机名称新建一个（平台选 Web），最后把 api_id 与 api_hash 写回该账号（api_hash 加密保存），并在数据文件夹 tgApi 中另存一份。注意：my.telegram.org 会限制同一号码的验证码请求次数，短时间内反复运行会看到“too many tries”，需稍后再试",
@@ -1623,6 +1667,10 @@ const zh = {
     secretsWriteOnlyHint:
       "密钥内容只写不读：后端不会把它返回给前端，页面也无法查看或导出。已存在的名称会被覆盖",
     secretSaved: "已保存 {name}",
+    msOauthClientIdLabel: "微软应用（客户端）ID",
+    msOauthClientIdPlaceholder: "00000000-0000-0000-0000-000000000000",
+    msOauthClientIdHint:
+      "网页步骤「换取 OAuth2 刷新令牌」使用的应用注册。应用 ID 本身不是机密，可以直接保存；对应的客户端密钥请在上方以 msOauthClientSecret 为名新增一个密钥。另需在应用注册中把 https://login.microsoftonline.com/common/oauth2/nativeclient 添加为重定向地址",
     msapi: {
       title: "msOauth2api 邮箱池",
       hint: "外部邮箱服务（msOauth2api）。配置后，可从邮箱池为 Telegram 账户分配独立的登录邮箱，网页步骤也可以领取地址并读取验证码。",
@@ -3064,6 +3112,7 @@ const en: typeof zh = {
         web_tg_code: "Wait for Telegram's login code (into a name)",
         web_tg_send: "Send a Telegram message as this account",
         web_tg_api_save: "Save an API ID / hash onto the account",
+        web_ms_oauth2: "Get an OAuth2 refresh token (Microsoft)",
         web_set: "Set variables (values of your own)",
         web_data_read: "Read from Data (into a variable)",
         web_data_pick: "Take a record by position (Data)",
@@ -3182,6 +3231,30 @@ const en: typeof zh = {
       apiCopyKeyPlaceholder: "blank uses the phone number",
       apiCopyHint:
         "Blank writes to the account alone. Named, a copy of {apiId, apiHash, phone} is kept in Data as well, under the record key given -- blank uses the account's phone number. The data store has to be switched on in Settings",
+      msOauthVarPlaceholder: "refreshToken",
+      labelMsTenant: "Sign-in authority (tenant)",
+      msTenantPlaceholder: "common",
+      msOauthHint:
+        "Trades the sign-in the browser has just completed for an OAuth2 refresh token, held under this name. Put it after the page has landed back on the redirect address: the one-time code is in that address's query string, and the step reads it from there rather than off the page, which is blank. The exchange runs on the backend, so the client secret never reaches the browser. Use consumers for personal Outlook accounts, common or a tenant id for work ones",
+      labelMsClientId: "Application (client) id",
+      msClientIdPlaceholder: "blank takes the one in Settings",
+      labelMsClientSecret: "Client secret (by name)",
+      msClientSecretPlaceholder: "{msOauthClientSecret}",
+      msClientHint:
+        "The secret itself is not typed here: store it under Settings as a secret named msOauthClientSecret and name it here, so neither the template nor any export of it carries the value. Leave blank for an app registered as a public client, which has no secret",
+      labelMsRedirect: "Redirect address",
+      msRedirectPlaceholder: "https://login.microsoftonline.com/common/oauth2/nativeclient",
+      msRedirectHint:
+        "Must match the app registration exactly, and be the address the browser landed on with the code. The default is Microsoft's own blank page, so nothing has to listen on a port for the redirect",
+      labelMsScope: "Scopes",
+      msScopePlaceholder: "offline_access https://outlook.office.com/IMAP.AccessAsUser.All",
+      msScopeHint:
+        "Blank asks for whatever the sign-in consented to. Include offline_access either way: without it Microsoft hands back an access token that lapses within the hour and no refresh token at all",
+      msFolderPlaceholder: "outlook",
+      msKeyPlaceholder: "{email}",
+      msPathPlaceholder: "refreshToken",
+      msSaveHint:
+        "The token is a login in its own right and is never written to the run log, so it is worth storing here: named nowhere, it is held under the name alone and lost when the run ends. A blank field path replaces the whole record (taking the password with it), so write refreshToken when the record already holds the credentials",
       labelReadSecret: "Keep what was read out of the log",
       readSecretHint:
         "For a value that is a login in its own right (an api_hash, a token a page hands out): the log says how many characters were read and no more. The name still holds the value for the steps after it",
@@ -3298,6 +3371,13 @@ const en: typeof zh = {
       labelSkipUsed: "Skip values already replied to",
       skipUsedHint:
         "Remembers every value this job got all the way through and leaves it out next run; rounds earlier in this run are skipped too, so two of them cannot land on the same post. Kept per job, so another account running the same template can still reply to it. Only a round where every step succeeded is remembered. Turn this off if the pick names a control on the page, which is the same one every round",
+      collapseAll: "Collapse all",
+      expandAll: "Expand all",
+      collapseStep: "Collapse this step",
+      expandStep: "Expand this step",
+      stepCount: "{n} step(s)",
+      branchCounts: "then {then} / else {else}",
+      summaryNegated: "turned round",
       thenStepsLabel: "Steps to run when it holds (then)",
       thenStepsHint:
         "Run in order when the condition is met. If the condition is \"not logged in\", this is where the login goes",
@@ -3308,6 +3388,12 @@ const en: typeof zh = {
       checkElement: "An element is on the page",
       checkText: "The page text contains",
       checkUrl: "The address contains",
+      checkValue: "A value is held",
+      labelIfValue: "Value to test",
+      ifValuePlaceholder: "{data.outlook.{email}.refreshToken}",
+      labelIfValueWords: "Words it must contain (optional)",
+      ifValueHint:
+        "Looks away from the page and at a value instead: {name} from an earlier step, or {data.folder.key.field}. With no words given it holds when the value is not blank; with words, when it contains them, case ignored. The use is a loop over a data folder skipping the records already dealt with -- turned round, it reads as \"if it has no token yet\". A value is settled the moment the step runs, so there is nothing to wait for",
       labelWords: "Words to look for",
       wordsPlaceholder: "e.g. Sign in",
       ifSelectorPlaceholder: 'a[href="/login"]',
@@ -3489,6 +3575,12 @@ const en: typeof zh = {
       label: "Start from a built-in template",
       none: "None (start blank)",
       apply: "Fill the form",
+      outlookProofs: "Fill in Outlook recovery email and 2FA",
+      outlookProofsHint:
+        "Gives the records in the outlook folder what they are missing: a recovery address and an authenticator secret. It signs in, opens the sign-in-and-verification page, takes a recovery address from the msOauth2api pool (reading the code Microsoft sends to it back through the same service), and for two-factor enrolment captures the secret off the page and writes it onto the record before proving it with a code worked out from it. Each part is skipped where the record already has it, so a re-run only fills gaps. It needs msOauth2api configured, an AI key (Microsoft's account pages are script-drawn and reworded often, so the named controls are pressed through the vision model) and a password on each record. Run it in debug first and expect to adjust the selectors from the screenshots -- this is a starting point, not a finished chain",
+      outlookOauth: "Get an Outlook OAuth2 refresh token",
+      outlookOauthHint:
+        "Signs in to a personal Outlook mailbox in the built-in browser and trades the sign-in for an OAuth2 refresh token, written back onto the record for IMAP/SMTP or Graph to use -- neither a password nor a second factor can be handed to a mail client, and a token can. It needs three things first: the application (client) id set in Settings and a secret stored there named msOauthClientSecret; https://login.microsoftonline.com/common/oauth2/nativeclient added as a redirect address on the app registration; and an outlook data folder holding {password, totp} under each address as its key -- totp being the authenticator secret itself, not a six-digit code. Rounds work the folder by position and pass over every record that already has a refreshToken, so a re-run only picks up the mailboxes added since; set the number of rounds to how many the folder holds. Microsoft redraws these pages often, so run it once in debug and check the screenshots before trusting the selectors",
       tgApi: "Fetch Telegram API ID / hash (my.telegram.org)",
       tgApiHint:
         "Signs in to my.telegram.org in the built-in browser with the account's own number ({accountPhone}), reading the login code off the account inside Telegram. It then takes the API app the account already has, or registers one under a random name as a web app, and writes the api_id and api_hash back onto the account -- the hash encrypted -- keeping a copy in the tgApi data folder. Note that my.telegram.org rations code requests per number: running it repeatedly in quick succession earns a \"too many tries\" page, and it has to be left for a while",
@@ -3789,6 +3881,10 @@ const en: typeof zh = {
     secretsWriteOnlyHint:
       "Write-only: the backend never sends a value back, so nothing here can display or export one. Saving an existing name replaces its value",
     secretSaved: "Saved {name}",
+    msOauthClientIdLabel: "Microsoft application (client) id",
+    msOauthClientIdPlaceholder: "00000000-0000-0000-0000-000000000000",
+    msOauthClientIdHint:
+      "The app registration the \"Get an OAuth2 refresh token\" page step signs in against. The id is not a secret and is stored as it is; its client secret goes above under the name msOauthClientSecret. The registration also needs https://login.microsoftonline.com/common/oauth2/nativeclient among its redirect addresses",
     msapi: {
       title: "msOauth2api address pool",
       hint: "An external mailbox service (msOauth2api). Once configured, a Telegram account can be given a login email of its own from the pool, and page steps can take an address and read the code sent to it.",

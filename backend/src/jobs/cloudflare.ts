@@ -29,6 +29,7 @@ import {
   writeDataValue,
 } from "../db/dataStore";
 import { EMAIL_CODE_WAIT_MS } from "./emailCode";
+import { authCodeFromUrl, MS_OAUTH_REDIRECT_DEFAULT } from "./msOauth2";
 import { TG_CODE_WAIT_MS } from "./tgApiCredentials";
 import {
   TOTP_MIN_VALID_MS,
@@ -350,6 +351,8 @@ export type LoadOptions = {
   /** Writes API credentials onto the account, for the `web_tg_api_save` sub-step. */
   jobHandover?: WebStepHooks["jobHandover"];
   saveTgApi?: WebStepHooks["saveTgApi"];
+  /** Trades a sign-in for a refresh token, for the `web_ms_oauth2` sub-step. */
+  msOauth2Token?: WebStepHooks["msOauth2Token"];
   /**
    * Names the page steps start with, on top of what they set themselves: the account the run
    * belongs to, so one template can fill a form in for every account linked to it.
@@ -2648,6 +2651,22 @@ export type WebStepHooks = {
     key?: string;
   }) => Promise<{ summary: string }>;
   /**
+   * Trades an OAuth2 code for a refresh token, for a `web_ms_oauth2` step. Supplied by the
+   * caller for the same reason as `emailCode`: the client id is a setting and the config names
+   * a secret (`{msOauthClientSecret}`) rather than carrying one, and neither is resolved on
+   * this side. Absent, the step says so rather than passing silently.
+   */
+  msOauth2Token?: (q: {
+    tenant?: string;
+    /** Blank takes the client id from the settings. */
+    clientId?: string;
+    /** As written in the config, e.g. `{msOauthClientSecret}`; resolved by the caller. */
+    clientSecretRef?: string;
+    code: string;
+    redirectUri: string;
+    scope?: string;
+  }) => Promise<{ refreshToken: string; accessToken: string; expiresIn: number; scope: string }>;
+  /**
    * Works any Cloudflare challenge standing on the page right now, or returns null when
    * there is none. Called after a `web_goto`, since a fresh navigation is exactly what
    * raises one mid-run.
@@ -2689,6 +2708,9 @@ const WEB_READ_CHARS = 1000;
 
 /** How long a `web_otp_secret` gives the page to draw the secret when it is not told. */
 const OTP_SECRET_WAIT_MS = 15_000;
+
+/** The name a loop holds its round under, counting from 0. */
+const ROUND_INDEX_VAR = "i";
 
 /**
  * Every string on the page a secret might be hiding in: the text first, then each element's
@@ -3193,6 +3215,7 @@ async function runStepList(
             run.picked.clear();
             run.current.set(name, value);
             run.picked.set(name, value);
+            run.current.set(ROUND_INDEX_VAR, String(n - 1));
             run.round = `${n}/${values.length} ${value}`;
             const roundFailure = await runStepList(page, inner, run, {
               depth: nest.depth + 1,
@@ -3283,7 +3306,14 @@ async function runStepList(
           const record = recordAt(folder, index);
           if (!record) {
             if (!step.optional) throw new Error(`${folder} holds nothing at position ${index}`);
-            log.outcome = `${folder} holds nothing at position ${index}; carried on`;
+            // A loop taking the record at its own position has reached the end of the folder:
+            // the loop ends here rather than running out its remaining rounds on nothing, the
+            // same way a `web_pick` with nothing new left ends one. On its own the step simply
+            // carries on, which is what a config outside a loop has always had
+            if (nest.inLoop) run.exhausted = true;
+            log.outcome =
+              `${folder} holds nothing at position ${index}; ` +
+              (nest.inLoop ? "nothing left to take" : "carried on");
             break;
           }
           run.current.set(name, record.key);
@@ -3568,6 +3598,61 @@ async function runStepList(
           break;
         }
 
+        case "web_ms_oauth2": {
+          if (!hooks.msOauth2Token)
+            throw new Error("trading a sign-in for a token is not available here");
+          const name = step.varName.trim();
+          if (!name) throw new Error("no name given to hold the refresh token under");
+
+          // Off the address bar unless the run captured it earlier: the redirect page itself
+          // is blank, and the code is only ever in its query string
+          const from = fillVars(step.codeFrom ?? "", run.current).trim();
+          const source = from || page.url();
+          const found = authCodeFromUrl(source);
+          const code = found.code ?? (from && !from.includes("://") ? from : "");
+          if (!code) {
+            throw new Error(
+              found.error
+                ? `the sign-in came back refused (${found.error})`
+                : `no OAuth2 code is in \`${oneLine(source).slice(0, 120)}\`` +
+                  " -- the browser has not landed on the redirect address yet",
+            );
+          }
+
+          const redirectUri =
+            fillVars(step.redirectUri ?? "", run.current).trim() || MS_OAUTH_REDIRECT_DEFAULT;
+          // Settled before the exchange rather than after it: the code is one-time and the
+          // token is never logged, so a folder that turns out to be unreachable once the
+          // token is in hand would take the only copy of it with it
+          const where = step.folder?.trim() ? dataTarget(step, run) : null;
+          const tokens = await hooks.msOauth2Token({
+            tenant: fillVars(step.tenant ?? "", run.current).trim() || undefined,
+            clientId: fillVars(step.clientId ?? "", run.current).trim() || undefined,
+            clientSecretRef: step.clientSecret?.trim() || undefined,
+            code,
+            redirectUri,
+            scope: fillVars(step.scope ?? "", run.current).trim() || undefined,
+          });
+
+          run.current.set(name, tokens.refreshToken);
+          const accessName = step.accessVar?.trim();
+          if (accessName) run.current.set(accessName, tokens.accessToken);
+
+          // Written in this same step rather than by a `web_data_save` after it, for the same
+          // reason: nothing else in the run has a copy to fall back on
+          let saved = "";
+          if (where) {
+            writeDataValue(where.folder, where.key, where.path, tokens.refreshToken);
+            saved = `, saved to ${where.label}`;
+          }
+          // Its length and what it is good for, never the token: the run log is kept with the
+          // run and travels with any export of it
+          log.outcome =
+            `{${name}} = a refresh token of ${tokens.refreshToken.length} character(s)` +
+            `${saved}${tokens.scope ? ` (${oneLine(tokens.scope).slice(0, 160)})` : ""}`;
+          break;
+        }
+
         case "web_if": {
           if (nest.depth >= MAX_WEB_DEPTH)
             throw new Error(`conditions cannot be nested more than ${MAX_WEB_DEPTH} deep`);
@@ -3591,6 +3676,15 @@ async function runStepList(
                   return r.width > 0 && r.height > 0;
                 }, selector)
                 .catch(() => false);
+          } else if (step.check === "value") {
+            // Nothing on the page to wait for: what a name is holding is settled the moment
+            // the step runs, so this one answers at once whatever the wait says
+            const held = fillContent(step.value ?? "", run.current).trim();
+            what = wanted
+              ? `"${wanted}" in ${oneLine(step.value ?? "")}`
+              : `${oneLine(step.value ?? "")} holding anything`;
+            const met = wanted ? held.toLowerCase().includes(wanted.toLowerCase()) : !!held;
+            look = async () => met;
           } else if (step.check === "text") {
             if (!wanted) throw new Error("no words given to look for");
             what = `"${wanted}" in the page text`;
@@ -3606,8 +3700,10 @@ async function runStepList(
           }
 
           // Held open for the whole wait: something the page has yet to draw is the case this
-          // wait exists for, and calling it absent too early takes the wrong branch
-          const until = Math.min(Date.now() + waitMs, deadline);
+          // wait exists for, and calling it absent too early takes the wrong branch. A value
+          // check is the exception -- nothing is going to draw it, so waiting is dead time
+          const until =
+            step.check === "value" ? 0 : Math.min(Date.now() + waitMs, deadline);
           let met = false;
           for (;;) {
             met = await look();
@@ -3659,6 +3755,9 @@ async function runStepList(
             // Each round starts clean: it loads the list itself and picks its own value
             run.current = new Map(outer);
             run.picked.clear();
+            // Which round this is, counting from 0, so a round may take the record at its own
+            // position -- which is how a loop walks a data folder without emptying it
+            run.current.set(ROUND_INDEX_VAR, String(n - 1));
             run.round = `${n}/${times}`;
             const roundFailure = await runStepList(page, inner, run, {
               depth: nest.depth + 1,
@@ -4380,6 +4479,11 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
         `Save api_id ${fill(step.apiId ?? "")} and its hash to the account` +
         `${step.folder?.trim() ? ` and to ${fill(step.folder.trim())}` : ""}`
       );
+    case "web_ms_oauth2":
+      return (
+        `Trade this sign-in for a refresh token, into {${step.varName}}` +
+        `${step.folder?.trim() ? ` and ${fill(step.folder.trim())}` : ""}`
+      );
     case "web_repeat":
       return `Repeat ${step.steps?.length ?? 0} step(s) ${Math.floor(step.times || 0)} time(s)`;
     case "web_for_each":
@@ -4410,7 +4514,9 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
       const what =
         step.check === "element"
           ? `\`${fill(step.selector ?? "")}\``
-          : `"${fill(step.text ?? "")}" in the ${step.check === "url" ? "address" : "page text"}`;
+          : step.check === "value"
+            ? `${step.text?.trim() ? `"${fill(step.text)}" in ` : ""}${step.value ?? ""}`
+            : `"${fill(step.text ?? "")}" in the ${step.check === "url" ? "address" : "page text"}`;
       return `If ${what} is ${step.negate ? "not " : ""}there, run ${step.then?.length ?? 0} step(s), else ${step.otherwise?.length ?? 0}`;
     }
     case "web_goto":
@@ -5100,6 +5206,7 @@ async function attemptLoad(
           tgSend: opts.tgSend,
           jobHandover: opts.jobHandover,
           saveTgApi: opts.saveTgApi,
+          msOauth2Token: opts.msOauth2Token,
           // A `web_goto` lands on a page that may have its own challenge, and the solver for
           // this attempt is right here -- so the steps work it through rather than the run
           // only noticing once every step has already failed against an interstitial

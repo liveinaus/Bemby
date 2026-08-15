@@ -562,9 +562,11 @@ export type WebStep =
   | { type: "web_turnstile" }
   | {
       type: "web_if";
-      check: "element" | "text" | "url";
+      check: "element" | "text" | "url" | "value";
       selector?: string;
       text?: string;
+      /** What to test, for `value`: `{name}` or `{data.folder.key}`. */
+      value?: string;
       negate?: boolean;
       waitMs?: number;
       then?: WebStep[];
@@ -801,6 +803,36 @@ export type WebStep =
       folder?: string;
       /** Record key inside that folder. Blank uses the account's phone number. */
       key?: string;
+    }
+  | {
+      /**
+       * Trade the sign-in the browser has just completed for an OAuth2 refresh token. Run it
+       * on the redirect address, where the one-time code sits in the query string; the
+       * exchange happens on the backend, which holds the client secret.
+       */
+      type: "web_ms_oauth2";
+      /** Name to hold the refresh token under. */
+      varName: string;
+      /** Sign-in authority: `common`, `consumers`, or a tenant id. */
+      tenant?: string;
+      /** Application (client) id. Blank takes the one set in Settings. */
+      clientId?: string;
+      /** Secret holding the client secret, e.g. `{msOauthClientSecret}`. */
+      clientSecret?: string;
+      /** Redirect address the app is registered with. */
+      redirectUri?: string;
+      /** Scopes to ask the token for. Blank takes what the sign-in consented to. */
+      scope?: string;
+      /** Where the code is. Blank reads the address the browser is on. */
+      codeFrom?: string;
+      /** Data-store folder to write the token to. Blank holds it under the name alone. */
+      folder?: string;
+      /** Record key inside that folder, e.g. `{email}`. */
+      key?: string;
+      /** Field inside the record, e.g. `refreshToken`. */
+      path?: string;
+      /** Hold the access token under this name too. */
+      accessVar?: string;
     }
   | { type: "web_goto"; url: string; waitMs?: number }
   | { type: "web_back"; waitMs?: number }
@@ -1649,6 +1681,11 @@ export type Settings = {
   jobs_template_edit_button?: string;
   /** "true" turns on the data store: its menu entry, its API and its job steps. */
   data_store_enabled?: string;
+  /**
+   * Application (client) id of the Microsoft app a `web_ms_oauth2` step signs in against. Its
+   * secret is not here: that is a stored secret, named `{msOauthClientSecret}` on the step.
+   */
+  ms_oauth_client_id?: string;
   /** Server-computed: "true" when the deployment offers msOauth2api (MSOAUTH2API). */
   msapi_available?: string;
   /** Base URL of a msOauth2api install, e.g. http://host:3000. */

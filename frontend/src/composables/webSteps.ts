@@ -83,6 +83,20 @@ export type WebStepForm = {
   apiId: string;
   /** web_tg_api_save: the api_hash to write, e.g. `{apiHash}`. */
   apiHash: string;
+  /** web_ms_oauth2: sign-in authority -- `common`, `consumers`, or a tenant id. */
+  tenant: string;
+  /** web_ms_oauth2: application (client) id; blank takes the one in Settings. */
+  clientId: string;
+  /** web_ms_oauth2: the secret holding the client secret, e.g. `{msOauthClientSecret}`. */
+  clientSecret: string;
+  /** web_ms_oauth2: the redirect address the app is registered with. */
+  redirectUri: string;
+  /** web_ms_oauth2: scopes to ask the token for. */
+  scope: string;
+  /** web_ms_oauth2: where the code is; blank reads the address the browser is on. */
+  codeFrom: string;
+  /** web_ms_oauth2: name to hold the access token under as well. */
+  accessVar: string;
   /** web_hold / web_hold_offset: how long to keep the pointer down. */
   holdMs: number;
   /** web_hold_offset: where on the anchor the offset is measured from. */
@@ -105,7 +119,7 @@ export type WebStepForm = {
   zoom: boolean;
   continueOnError: boolean;
   betweenMs: number;
-  check: "element" | "text" | "url";
+  check: "element" | "text" | "url" | "value";
   negate: boolean;
   /** A loop's steps, or a `web_if`'s then branch; empty for every other type. */
   steps: WebStepForm[];
@@ -117,6 +131,12 @@ export type WebStepForm = {
    * rather than dropping it; picking a real type off the dropdown discards it.
    */
   unknown?: WebStep;
+  /**
+   * Folded shut in the editor, showing its summary line alone. Held on the step rather than
+   * beside the list so it follows the step when one is moved, and read by nothing but the
+   * editor -- `webStepToConfig` never looks at it, so it reaches no saved config.
+   */
+  collapsed?: boolean;
 };
 
 /** Order the editor offers them in: the selector steps first, then waits, then the AI ones. */
@@ -146,6 +166,7 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "web_tg_code",
   "web_tg_send",
   "web_tg_api_save",
+  "web_ms_oauth2",
   "web_set",
   "web_data_read",
   "web_data_pick",
@@ -263,6 +284,13 @@ export function defaultWebStep(): WebStepForm {
     replyContains: "",
     apiId: "{apiId}",
     apiHash: "{apiHash}",
+    tenant: "common",
+    clientId: "",
+    clientSecret: "{msOauthClientSecret}",
+    redirectUri: "https://login.microsoftonline.com/common/oauth2/nativeclient",
+    scope: "",
+    codeFrom: "",
+    accessVar: "",
     holdMs: 1000,
     holdFrom: "centre",
     offsetX: 0,
@@ -459,6 +487,21 @@ export function webStepToConfig(s: WebStepForm): WebStep {
         ...(s.folder.trim() ? { folder: s.folder.trim() } : {}),
         ...(s.recordKey.trim() ? { key: s.recordKey.trim() } : {}),
       };
+    case "web_ms_oauth2":
+      return {
+        type: "web_ms_oauth2",
+        varName: s.varName.trim(),
+        ...(s.tenant.trim() ? { tenant: s.tenant.trim() } : {}),
+        ...(s.clientId.trim() ? { clientId: s.clientId.trim() } : {}),
+        ...(s.clientSecret.trim() ? { clientSecret: s.clientSecret.trim() } : {}),
+        ...(s.redirectUri.trim() ? { redirectUri: s.redirectUri.trim() } : {}),
+        ...(s.scope.trim() ? { scope: s.scope.trim() } : {}),
+        ...(s.codeFrom.trim() ? { codeFrom: s.codeFrom.trim() } : {}),
+        ...(s.folder.trim() ? { folder: s.folder.trim() } : {}),
+        ...(s.recordKey.trim() ? { key: s.recordKey.trim() } : {}),
+        ...(s.path.trim() ? { path: s.path.trim() } : {}),
+        ...(s.accessVar.trim() ? { accessVar: s.accessVar.trim() } : {}),
+      };
     case "web_notify":
       return {
         type: "web_notify",
@@ -520,7 +563,12 @@ export function webStepToConfig(s: WebStepForm): WebStep {
       return {
         type: "web_if",
         check: s.check,
-        ...(s.check === "element" ? { selector: s.selector.trim() } : { text: s.text.trim() }),
+        ...(s.check === "element"
+          ? { selector: s.selector.trim() }
+          : s.check === "value"
+            ? // The words are optional here: with none, the test is that it holds anything
+              { value: s.value.trim(), ...(s.text.trim() ? { text: s.text.trim() } : {}) }
+            : { text: s.text.trim() }),
         ...(s.negate ? { negate: true } : {}),
         ...(s.waitMs > 0 ? { waitMs: s.waitMs } : {}),
         ...(s.steps.length ? { then: webStepsToConfig(s.steps) } : {}),
@@ -735,6 +783,22 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
         folder: s.folder ?? "",
         recordKey: s.key ?? "",
       };
+    case "web_ms_oauth2":
+      return {
+        ...base,
+        type: s.type,
+        varName: s.varName,
+        tenant: s.tenant ?? "",
+        clientId: s.clientId ?? "",
+        clientSecret: s.clientSecret ?? "",
+        redirectUri: s.redirectUri ?? "",
+        scope: s.scope ?? "",
+        codeFrom: s.codeFrom ?? "",
+        folder: s.folder ?? "",
+        recordKey: s.key ?? "",
+        path: s.path ?? "",
+        accessVar: s.accessVar ?? "",
+      };
     case "web_notify":
       return { ...base, type: s.type, text: s.text, target: s.target ?? "" };
     case "web_read":
@@ -788,6 +852,7 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
         check: s.check,
         selector: s.selector ?? "",
         text: s.text ?? "",
+        value: s.value ?? "",
         negate: s.negate ?? false,
         waitMs: s.waitMs ?? 5000,
         steps: webStepsFromConfig(s.then),

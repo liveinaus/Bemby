@@ -52,6 +52,7 @@ import { handOverJob } from "./jobHandover";
 import { getNotifyConfig, sendBotNotify } from "./notify";
 import { EMAIL_CODE_LOOKBACK_MS, fetchGmailCode } from "./emailCode";
 import { leaseEmail, pollForCode } from "./msOauth2api";
+import { exchangeAuthCode, msOauthClientId } from "./msOauth2";
 import { saveAccountApiCredentials, waitForTgLoginCode } from "./tgApiCredentials";
 import { fillSecrets, missingSecretRefs } from "../db/secrets";
 import { displayForRun } from "./runDisplays";
@@ -3266,6 +3267,35 @@ export async function runCustom(
                       ...creds,
                     });
                   },
+                  // And for a `web_ms_oauth2`: the application's own credentials are a setting
+                  // and a stored secret, neither of which the browser side reads. The config
+                  // names the secret (`{msOauthClientSecret}`) and it is resolved here.
+                  msOauth2Token: async (q) => {
+                    const clientId = q.clientId?.trim() || msOauthClientId();
+                    if (!clientId)
+                      throw new Error(
+                        "no Microsoft application (client) id is set (see Settings)",
+                      );
+                    const secretRef = q.clientSecretRef?.trim() ?? "";
+                    const missing = missingSecretRefs(secretRef);
+                    if (missing.length)
+                      throw new Error(
+                        `no secret is stored under ${missing.map((m) => `{${m}}`).join(", ")} (see Settings)`,
+                      );
+                    return exchangeAuthCode(
+                      {
+                        tenant: q.tenant,
+                        clientId,
+                        // Blank is a case of its own: an app registered as a public client
+                        // has no secret, and sending an empty one is refused outright
+                        clientSecret: fillSecrets(secretRef).trim() || undefined,
+                        code: q.code,
+                        redirectUri: q.redirectUri,
+                        scope: q.scope,
+                      },
+                      signal,
+                    );
+                  },
                   // What the steps start with: one template drives my.telegram.org for every
                   // account linked to it, and the phone is the only thing that differs.
                   // `{jobId}` for the same reason a profile name takes one -- a site's
@@ -3273,6 +3303,10 @@ export async function runCustom(
                   // `{data.folder.{jobId}.password}`, so one template covers every job
                   webVars: {
                     jobId: String(cfRun.jobId),
+                    // The Microsoft app a `web_ms_oauth2` step signs in against. Here as well
+                    // as on the step because the sign-in URL carries it too, and a template
+                    // that had to spell it out would be one app's rather than this panel's
+                    msOauthClientId: msOauthClientId(),
                     ...(account
                       ? { accountPhone: account.phoneNumber, accountName: account.name }
                       : {}),

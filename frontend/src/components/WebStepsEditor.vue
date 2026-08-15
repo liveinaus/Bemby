@@ -1,12 +1,33 @@
 <template>
   <div>
-    <label class="form-label">{{ heading.label }}</label>
+    <div class="web-steps-heading">
+      <label class="form-label" style="margin: 0">{{ heading.label }}</label>
+      <!-- Folding the lot is what makes a long chain readable: the branches and their arms
+           come down to one line each, so the shape of the run can be seen without scrolling -->
+      <button
+        v-if="steps.length > 1"
+        type="button"
+        class="btn btn-ghost btn-sm web-fold-all"
+        @click="foldAll(anyOpen)"
+      >
+        <i :class="anyOpen ? 'fa-solid fa-angles-up' : 'fa-solid fa-angles-down'"></i>
+        {{ anyOpen ? t("jobs.web.collapseAll") : t("jobs.web.expandAll") }}
+      </button>
+    </div>
     <div style="font-size: 11px; color: #aaa; margin: -2px 0 6px">
       {{ heading.hint }}
     </div>
 
     <div v-for="(s, i) in steps" :key="i" class="web-step-card">
       <div class="web-step-header">
+        <button
+          type="button"
+          class="web-fold"
+          :title="s.collapsed ? t('jobs.web.expandStep') : t('jobs.web.collapseStep')"
+          @click="s.collapsed = !s.collapsed"
+        >
+          <i :class="s.collapsed ? 'fa-solid fa-chevron-right' : 'fa-solid fa-chevron-down'"></i>
+        </button>
         <span class="web-step-num">{{ i + 1 }}</span>
         <select v-model="s.type" class="form-select web-step-type">
           <option
@@ -32,6 +53,13 @@
         />
       </div>
 
+      <!-- What the step does, for a card that is folded shut: without it a collapsed list is a
+           column of type names, which is not enough to find the step being looked for -->
+      <div v-if="s.collapsed" class="web-step-summary" @click="s.collapsed = false">
+        {{ stepSummary(s) }}
+      </div>
+
+      <div v-show="!s.collapsed">
       <!-- A step this build has no fields for. Left as it is unless the type is changed -->
       <div v-if="s.unknown && s.unknown.type === s.type" class="web-step-unknown">
         {{ t("jobs.web.unknownStep").replace("{type}", s.type) }}
@@ -784,6 +812,108 @@
         </div>
       </div>
 
+      <!-- The sign-in the browser has just finished, traded for a refresh token -->
+      <div v-if="s.type === 'web_ms_oauth2'">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelVarName") }}</label>
+            <input
+              v-model.trim="s.varName"
+              class="form-input"
+              :placeholder="t('jobs.web.msOauthVarPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelMsTenant") }}</label>
+            <input
+              v-model.trim="s.tenant"
+              class="form-input"
+              :placeholder="t('jobs.web.msTenantPlaceholder')"
+            />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.msOauthHint") }}
+        </div>
+
+        <div class="form-row" style="margin-top: 8px">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelMsClientId") }}</label>
+            <input
+              v-model.trim="s.clientId"
+              class="form-input"
+              :placeholder="t('jobs.web.msClientIdPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelMsClientSecret") }}</label>
+            <input
+              v-model.trim="s.clientSecret"
+              class="form-input"
+              :placeholder="t('jobs.web.msClientSecretPlaceholder')"
+            />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.msClientHint") }}
+        </div>
+
+        <div class="form-group" style="margin-top: 8px">
+          <label class="form-label">{{ t("jobs.web.labelMsRedirect") }}</label>
+          <input
+            v-model.trim="s.redirectUri"
+            class="form-input"
+            :placeholder="t('jobs.web.msRedirectPlaceholder')"
+          />
+          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            {{ t("jobs.web.msRedirectHint") }}
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 8px">
+          <label class="form-label">{{ t("jobs.web.labelMsScope") }}</label>
+          <input
+            v-model.trim="s.scope"
+            class="form-input"
+            :placeholder="t('jobs.web.msScopePlaceholder')"
+          />
+          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            {{ t("jobs.web.msScopeHint") }}
+          </div>
+        </div>
+
+        <div class="form-row" style="margin-top: 8px">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataFolder") }}</label>
+            <input
+              v-model.trim="s.folder"
+              class="form-input"
+              :list="folderListId"
+              :placeholder="t('jobs.web.msFolderPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataKey") }}</label>
+            <input
+              v-model.trim="s.recordKey"
+              class="form-input"
+              :placeholder="t('jobs.web.msKeyPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataPath") }}</label>
+            <input
+              v-model.trim="s.path"
+              class="form-input"
+              :placeholder="t('jobs.web.msPathPlaceholder')"
+            />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          {{ t("jobs.web.msSaveHint") }}
+        </div>
+      </div>
+
       <div v-if="s.type === 'web_pick' || s.type === 'web_collect'" style="margin-top: 8px">
         <div class="form-group">
           <label class="form-label">{{ t("jobs.web.labelContainsText") }}</label>
@@ -844,17 +974,28 @@
               <option value="element">{{ t("jobs.web.checkElement") }}</option>
               <option value="text">{{ t("jobs.web.checkText") }}</option>
               <option value="url">{{ t("jobs.web.checkUrl") }}</option>
+              <option value="value">{{ t("jobs.web.checkValue") }}</option>
             </select>
           </div>
           <div class="form-group">
             <label class="form-label">{{
-              s.check === "element" ? t("jobs.web.labelSelector") : t("jobs.web.labelWords")
+              s.check === "element"
+                ? t("jobs.web.labelSelector")
+                : s.check === "value"
+                  ? t("jobs.web.labelIfValue")
+                  : t("jobs.web.labelWords")
             }}</label>
             <input
               v-if="s.check === 'element'"
               v-model.trim="s.selector"
               class="form-input"
               :placeholder="t('jobs.web.ifSelectorPlaceholder')"
+            />
+            <input
+              v-else-if="s.check === 'value'"
+              v-model.trim="s.value"
+              class="form-input"
+              :placeholder="t('jobs.web.ifValuePlaceholder')"
             />
             <input
               v-else
@@ -864,8 +1005,17 @@
             />
           </div>
         </div>
+        <!-- The words are what a value check narrows on; with none, holding anything counts -->
+        <div v-if="s.check === 'value'" class="form-group" style="margin-top: 8px">
+          <label class="form-label">{{ t("jobs.web.labelIfValueWords") }}</label>
+          <input
+            v-model.trim="s.text"
+            class="form-input"
+            :placeholder="t('jobs.web.wordsPlaceholder')"
+          />
+        </div>
         <div style="font-size: 11px; color: #aaa; margin-top: 3px">
-          {{ t("jobs.web.ifHint") }}
+          {{ s.check === "value" ? t("jobs.web.ifValueHint") : t("jobs.web.ifHint") }}
         </div>
 
         <label class="form-checkbox-label" style="margin-top: 8px">
@@ -876,7 +1026,8 @@
           {{ t("jobs.web.negateHint") }}
         </div>
 
-        <div style="margin-top: 8px">
+        <!-- Nothing is going to draw a value, so a value check has nothing to wait for -->
+        <div v-if="s.check !== 'value'" style="margin-top: 8px">
           <label class="form-label">{{ t("jobs.web.labelIfWait") }}</label>
           <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
           <div style="font-size: 11px; color: #aaa; margin-top: 3px">
@@ -1129,6 +1280,7 @@
           {{ t("jobs.web.writeVarNameHint") }}
         </div>
       </div>
+      </div>
     </div>
 
     <button type="button" class="btn btn-ghost btn-sm" style="margin-top: 6px" @click="add">
@@ -1271,6 +1423,91 @@ function hintHint(type: WebStepType): string {
   return t("jobs.web.hintHint");
 }
 
+/** True while any step here is open, so the one button reads as fold or unfold. */
+const anyOpen = computed(() => props.steps.some((s) => !s.collapsed));
+
+/**
+ * Folds this level and everything under it. Recursive on purpose: a branch left open inside a
+ * folded one is invisible, so unfolding later would come back to a state nobody chose.
+ */
+function foldAll(shut: boolean) {
+  const walk = (list: WebStepForm[]) => {
+    for (const s of list) {
+      s.collapsed = shut;
+      if (s.steps?.length) walk(s.steps);
+      if (s.elseSteps?.length) walk(s.elseSteps);
+    }
+  };
+  walk(props.steps);
+}
+
+/**
+ * One line saying what a folded step does. Not the backend's summary -- that one runs against a
+ * saved config, and this reads the form as it is being typed -- but the same idea: the type,
+ * then whatever identifies this step among others of its type.
+ */
+function stepSummary(s: WebStepForm): string {
+  const label = typeLabel(s.type);
+  const detail = summaryDetail(s);
+  return detail ? `${label} — ${detail}` : label;
+}
+
+function summaryDetail(s: WebStepForm): string {
+  const arms = (n: number, m: number) =>
+    t("jobs.web.branchCounts").replace("{then}", String(n)).replace("{else}", String(m));
+  switch (s.type) {
+    case "web_if":
+      return (
+        (s.check === "element"
+          ? s.selector
+          : s.check === "value"
+            ? [s.value, s.text].filter(Boolean).join(" ~ ")
+            : s.text) +
+        (s.negate ? ` (${t("jobs.web.summaryNegated")})` : "") +
+        ` · ${arms(s.steps.length, s.elseSteps.length)}`
+      );
+    case "web_repeat":
+      return `${s.times}× · ${t("jobs.web.stepCount").replace("{n}", String(s.steps.length))}`;
+    case "web_for_each":
+      return `{${s.varName}} · ${t("jobs.web.stepCount").replace("{n}", String(s.steps.length))}`;
+    case "web_input":
+    case "web_ai_input":
+      return `${s.selector} ← ${s.text || s.hint}`;
+    case "web_set":
+      return s.vars
+        .filter((v) => v.name)
+        .map((v) => `{${v.name}}`)
+        .join(", ");
+    case "web_goto":
+      return s.url;
+    case "web_data_read":
+    case "web_data_save":
+    case "web_data_delete":
+      return [s.folder, s.recordKey, s.path].filter(Boolean).join(".");
+    case "web_data_pick":
+      return `${s.folder}[${s.index}] → {${s.varName}}`;
+    case "web_ms_oauth2":
+      return `→ {${s.varName}}${s.folder ? ` · ${[s.folder, s.recordKey, s.path].filter(Boolean).join(".")}` : ""}`;
+    case "web_totp":
+    case "web_otp_secret":
+    case "web_email_code":
+    case "web_email_lease":
+    case "web_tg_code":
+    case "web_read":
+    case "web_pick":
+    case "web_collect":
+      return `${s.selector || s.email || ""} → {${s.varName}}`.trim();
+    case "ai_web_button":
+    case "ai_web_click_xy":
+    case "ai_web_click_xy_multi":
+      return s.hint;
+    case "web_delay":
+      return `${s.waitMs}ms`;
+    default:
+      return s.selector || s.url || s.text || "";
+  }
+}
+
 function add() {
   props.steps.push(defaultWebStep());
 }
@@ -1314,6 +1551,52 @@ function moveVar(step: WebStepForm, i: number, by: number) {
   align-items: center;
   gap: 6px;
   margin-bottom: 8px;
+}
+
+.web-steps-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.web-fold-all {
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+/* The chevron: a plain glyph rather than a button face, so the header still reads as a row
+   of controls with the type at its centre */
+.web-fold {
+  border: none;
+  background: none;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1;
+  flex: none;
+}
+
+.web-fold:hover {
+  color: #4a9eff;
+}
+
+/* A folded step's one line. Clickable, since a summary that says the wrong thing is exactly
+   when the fields are wanted back */
+.web-step-summary {
+  font-size: 12px;
+  color: #6b7280;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: -4px 0 2px 26px;
+}
+
+.web-step-summary:hover {
+  color: #374151;
 }
 
 /* A loop's own steps, set in from the loop's fields so the nesting reads at a glance */

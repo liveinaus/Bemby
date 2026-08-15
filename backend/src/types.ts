@@ -437,14 +437,21 @@ export type WebStep =
        */
       type: "web_if";
       /**
-       * What to look at: an element the page holds, the words on it, or the address the
-       * browser is on.
+       * What to look at: an element the page holds, the words on it, the address the browser
+       * is on, or a value the run is holding -- which is the one that looks away from the page
+       * altogether, so a loop may skip the records already dealt with.
        */
-      check: "element" | "text" | "url";
+      check: "element" | "text" | "url" | "value";
       /** CSS selector, for `element`. It must have a box on screen to count as there. */
       selector?: string;
       /** Words to look for, for `text` and `url`. Case is ignored. */
       text?: string;
+      /**
+       * What to test, for `value`: `{name}` from an earlier step, or `{data.folder.key}`. It
+       * holds when what it comes to is not blank, or contains `text` when one is given. Waits
+       * for nothing -- a value is there the moment the step runs or it is not.
+       */
+      value?: string;
       /** Run `then` when the condition is *not* met instead, e.g. "if not logged in". */
       negate?: boolean;
       /**
@@ -873,6 +880,51 @@ export type WebStep =
       folder?: string;
       /** Record key inside that folder. Blank uses the account's phone number. */
       key?: string;
+    }
+  | {
+      /**
+       * Trade the sign-in the browser has just completed for an OAuth2 refresh token, and hold
+       * it under a name. What a mailbox client needs from a Microsoft account: a password and a
+       * second factor cannot be handed to IMAP, and a refresh token can.
+       *
+       * Run it once the page has landed back on the redirect address: the one-time `code` is
+       * in the query string there, and the step reads it off the address rather than the page,
+       * which is blank. The exchange itself happens on the backend, where the client secret is
+       * -- the browser is never handed it.
+       *
+       * The token is a login in its own right, so it is never written to the run log; `folder`
+       * puts it straight into the data store instead, which is where anything that has to use
+       * it later reads it.
+       */
+      type: "web_ms_oauth2";
+      /** Name to hold the refresh token under. */
+      varName: string;
+      /** Sign-in authority: `common`, `consumers` for personal accounts, or a tenant id. */
+      tenant?: string;
+      /** Application (client) id. Blank takes the one set in Settings. */
+      clientId?: string;
+      /**
+       * Secret holding the client secret, written `{msOauthClientSecret}`. Blank treats the app
+       * as a public client, which is what an app registered without a secret needs.
+       */
+      clientSecret?: string;
+      /** Redirect address the app is registered with, and the one the code came back on. */
+      redirectUri?: string;
+      /** Scopes to ask the token for. Blank takes what the sign-in consented to. */
+      scope?: string;
+      /**
+       * Where the code is. Blank reads the address the browser is on, which is the usual case;
+       * a name (`{authCode}`) is for a run that captured it earlier.
+       */
+      codeFrom?: string;
+      /** Data-store folder to write the token to, e.g. `outlook`. Blank holds it under the name alone. */
+      folder?: string;
+      /** Record key inside that folder, e.g. `{email}`. */
+      key?: string;
+      /** Field inside the record, e.g. `refreshToken`. Blank replaces the whole record. */
+      path?: string;
+      /** Hold the access token under this name too, for a step that calls an API right away. */
+      accessVar?: string;
     }
   | {
       /**
