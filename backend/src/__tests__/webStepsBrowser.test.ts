@@ -440,6 +440,29 @@ describe.skipIf(!exe)("page steps in a real browser", () => {
   );
 
   it(
+    "fails on a step type it does not know, rather than passing over it",
+    async () => {
+      // A config from a newer build, or one edited by hand. Skipping the step reports a run
+      // that worked while whatever it was to leave behind is simply missing.
+      const p = await open(`<div>anything</div>`);
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_not_a_real_step" } as any, { type: "web_scroll", y: 500 }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.ok).toBe(false);
+      expect(run.logs[0].error).toContain("web_not_a_real_step");
+      expect(run.logs[0].label).toContain("Unknown step");
+      // The list stops there: nothing after an unknown step is run
+      expect(run.logs).toHaveLength(1);
+      expect(await p.evaluate(() => window.scrollY)).toBe(0);
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
     "passes the Turnstile step on a page that shows no checkbox",
     async () => {
       // Turnstile clears itself for an address it likes, often without drawing a checkbox,

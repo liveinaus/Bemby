@@ -15,7 +15,7 @@
             :value="ty"
             :disabled="aiKeyMissing && AI_WEB_STEP_TYPES.includes(ty)"
           >
-            {{ t("jobs.web.type." + ty)
+            {{ typeLabel(ty)
             }}{{
               aiKeyMissing && AI_WEB_STEP_TYPES.includes(ty)
                 ? " (" + t("jobs.noApiKey") + ")"
@@ -30,6 +30,11 @@
           @insert="insertAfter(i)"
           @remove="remove(i)"
         />
+      </div>
+
+      <!-- A step this build has no fields for. Left as it is unless the type is changed -->
+      <div v-if="s.unknown && s.unknown.type === s.type" class="web-step-unknown">
+        {{ t("jobs.web.unknownStep").replace("{type}", s.type) }}
       </div>
 
       <!-- CSS selector: every type but the screenshot-driven AI ones and the plain delay -->
@@ -1191,6 +1196,14 @@ function typesFor(current: WebStepType): WebStepType[] {
   });
 }
 
+// A type with no translation is one this build does not know: shown by its raw name, since the
+// key itself is what `t` hands back and that reads as nothing at all
+function typeLabel(ty: WebStepType): string {
+  const key = "jobs.web.type." + ty;
+  const label = t(key);
+  return label === key ? ty : label;
+}
+
 /** Whether the pool source is on offer; the editor says so rather than failing at run time. */
 const msApiEnabled = msApiConfigured;
 
@@ -1322,6 +1335,16 @@ function moveVar(step: WebStepForm, i: number, by: number) {
 
 .web-branch-else {
   border-left: 2px solid #d98324;
+}
+
+/* A step this build cannot edit: warned about rather than hidden, since it still runs */
+.web-step-unknown {
+  font-size: 11px;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 4px;
+  padding: 6px 8px;
 }
 
 .web-step-num {

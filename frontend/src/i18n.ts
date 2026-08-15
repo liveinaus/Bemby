@@ -897,6 +897,8 @@ const zh = {
       stepsLabel: "页面子步骤",
       stepsHint: "页面打开后按顺序执行。任一步骤失败即中止该动作；每步执行后都会截图保存到日志",
       addStep: "添加子步骤",
+      unknownStep:
+        "本版本无法编辑该步骤类型（{type}），可能来自更新的版本或手工修改的配置。保存时会原样保留；若在上方改选其它类型，原内容将被丢弃",
       type: {
         web_input: "输入文本（CSS 选择器）",
         web_button: "点击按钮（CSS 选择器）",
@@ -3039,6 +3041,8 @@ const en: typeof zh = {
       stepsHint:
         "Run in order once the page is up. The first step that fails stops the action, and the page is captured after every step",
       addStep: "Add page step",
+      unknownStep:
+        "This build has no fields for a {type} step -- it came from a newer Bemby, or from a config edited by hand. Saving keeps it as it is; picking another type above discards it",
       type: {
         web_input: "Type text (CSS selector)",
         web_button: "Press a control (CSS selector)",

@@ -4246,6 +4246,14 @@ async function runStepList(
             done.join("; ");
           break;
         }
+
+        // A type this build has no case for -- a config written by a newer Bemby, or one edited
+        // by hand. Failing here says so; skipping it silently only moves the failure to
+        // whichever later step wanted the variable or the page state this one was to leave.
+        default:
+          throw new Error(
+            `\`${(step as WebStep).type}\` is not a step type this version knows how to run`,
+          );
       }
     } catch (err: any) {
       log.error = err?.message ?? String(err);
@@ -4421,6 +4429,9 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
         `${step.hint?.trim() ? ` (${step.hint.trim()})` : ""}`
       );
   }
+  // A type this build does not run. Named rather than left blank, since the log line is what
+  // says which step of the list the failure below belongs to.
+  return `Unknown step \`${(step as WebStep).type}\``;
 }
 
 /**

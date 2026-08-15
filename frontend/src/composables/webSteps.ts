@@ -111,6 +111,12 @@ export type WebStepForm = {
   steps: WebStepForm[];
   /** A `web_if`'s else branch. */
   elseSteps: WebStepForm[];
+  /**
+   * A type this build has no fields for -- a config written by a newer Bemby, or edited by
+   * hand. The step is kept exactly as it was read so saving the form writes it back untouched
+   * rather than dropping it; picking a real type off the dropdown discards it.
+   */
+  unknown?: WebStep;
 };
 
 /** Order the editor offers them in: the selector steps first, then waits, then the AI ones. */
@@ -195,7 +201,7 @@ export function offeredWebStepTypes(
   inLoop: boolean,
   opts: { dataEnabled?: boolean; msApiEnabled?: boolean; keep?: WebStepType } = {},
 ): WebStepType[] {
-  return WEB_STEP_TYPES.filter((ty) => {
+  const offered = WEB_STEP_TYPES.filter((ty) => {
     const container = LOOP_WEB_STEP_TYPES.includes(ty) || ty === BRANCH_WEB_STEP_TYPE;
     if (LOOP_WEB_STEP_TYPES.includes(ty) && inLoop) return false;
     if (container && depth >= MAX_WEB_STEP_DEPTH) return false;
@@ -204,6 +210,10 @@ export function offeredWebStepTypes(
       return false;
     return true;
   });
+  // A type this build knows nothing about goes on the list all the same, so the row reads as
+  // what it is rather than as an empty box that rewrites the step at the first touch
+  if (opts.keep && !WEB_STEP_TYPES.includes(opts.keep)) offered.unshift(opts.keep);
+  return offered;
 }
 
 export function defaultWebStep(): WebStepForm {
@@ -275,6 +285,9 @@ export function defaultWebStep(): WebStepForm {
 
 /** Drops the fields the chosen type does not use, so the saved config stays readable. */
 export function webStepToConfig(s: WebStepForm): WebStep {
+  // Written back as it was read, so opening a config this build cannot edit and saving it does
+  // not quietly drop the step. Changing the type off the dropdown falls through to the fields.
+  if (s.unknown && s.unknown.type === s.type) return s.unknown;
   switch (s.type) {
     case "web_input":
       return { type: "web_input", selector: s.selector.trim(), text: s.text };
@@ -815,8 +828,15 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
     case "ai_web_input":
       return { ...base, type: s.type, hint: s.hint ?? "", text: s.text ?? "" };
   }
+  // Every case above returns, so this is only reached by a type outside the union: a config
+  // from a newer build or one edited by hand. Returning a row instead of nothing keeps the
+  // editor rendering, and `unknown` carries the step through to the next save intact.
+  const raw = s as WebStep;
+  return { ...base, type: raw.type, unknown: raw };
 }
 
 export function webStepsFromConfig(steps: WebStep[] | undefined): WebStepForm[] {
-  return (steps ?? []).map(webStepFromConfig);
+  return (steps ?? [])
+    .filter((s): s is WebStep => !!s && typeof s === "object" && typeof s.type === "string")
+    .map(webStepFromConfig);
 }
