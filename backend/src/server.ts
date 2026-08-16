@@ -33,6 +33,7 @@ import { requireAuth, getJwtSecret } from "./middleware/auth";
 import { startScheduler } from "./scheduler";
 import { createPanelWss } from "./tg/wsHandler";
 import { createVncWss } from "./tg/vncBridge";
+import { startVlessTunnels, stopVlessTunnels } from "./tg/vlessTunnel";
 import { startMemoryMonitor, markCleanShutdown } from "./monitor/memory";
 import { claimInstanceLock, releaseInstanceLock } from "./instanceLock";
 
@@ -232,6 +233,8 @@ server.listen(PORT, BIND_HOST, () => {
   // Before the scheduler, so the "previous process died at NNN MB" line prints above the
   // interrupted-runs line it explains
   startMemoryMonitor();
+  // Before the scheduler: a job whose proxy is a tunnel exit needs its listener up
+  startVlessTunnels();
   startScheduler();
 });
 
@@ -241,6 +244,7 @@ server.listen(PORT, BIND_HOST, () => {
 for (const sig of ["SIGTERM", "SIGINT"] as const) {
   process.on(sig, () => {
     markCleanShutdown();
+    stopVlessTunnels();
     releaseInstanceLock();
     server.close(() => process.exit(0));
     // Don't wait on lingering keep-alive sockets past the usual container stop grace

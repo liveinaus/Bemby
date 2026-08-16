@@ -1,5 +1,6 @@
 import { db } from "../db/database";
 import { cfTuning } from "../jobs/cfTuning";
+import { applyVlessNodes, nodeKey, parseVlessSubscription, pruneVlessProviders } from "./vlessTunnel";
 
 // Proxy sellers hand out lists that change over time -- addresses get replaced, plans
 // get resized. Rather than pasting each proxy into Settings by hand, a provider can be
@@ -7,10 +8,13 @@ import { cfTuning } from "../jobs/cfTuning";
 // Cloudflare solving, where only some exit IPs are accepted, so a larger and current
 // pool is what makes a working one findable.
 //
-// Two adapters cover the field without a provider-specific plugin for each vendor:
+// Three adapters cover the field without a provider-specific plugin for each vendor:
 //   - `webshare`: the webshare.io API (token auth, paginated JSON)
 //   - `list`: any URL returning a plain-text list, the format nearly every seller's
 //     "download list" link produces (ip:port:user:pass and friends)
+//   - `subscription`: a VLESS-over-WebSocket subscription, as a Cloudflare Workers
+//     deployment such as edgetunnel serves. Each node is carried by a loopback SOCKS5
+//     listener (see vlessTunnel), so it reaches the rest of Bemby as an ordinary proxy.
 
 const TIMEOUT_MS = 20_000;
 const WEBSHARE_API_URL = "https://proxy.webshare.io/api/v2/proxy/list/";
@@ -27,7 +31,7 @@ export const IMPORTED_ID_PREFIX = "pp:";
  */
 const LEGACY_WEBSHARE_PREFIX = "ws:";
 
-export type ProxyProviderType = "webshare" | "list";
+export type ProxyProviderType = "webshare" | "list" | "subscription";
 
 export type ProxyProvider = {
   id: string;
@@ -35,7 +39,7 @@ export type ProxyProvider = {
   type: ProxyProviderType;
   /** Token for the provider's API, or a bearer token for a protected list URL. */
   apiKey?: string;
-  /** Where to fetch a plain-text list from (`list` type only). */
+  /** Where to fetch from: a plain-text list (`list`) or a node subscription (`subscription`). */
   url?: string;
   /** Scheme to assume for list entries that don't state one. */
   scheme?: "http" | "socks5";
@@ -43,7 +47,19 @@ export type ProxyProvider = {
 };
 
 /** A proxy entry as stored in the `proxies` setting. */
-export type BembyProxy = { id: string; name: string; url: string; host?: string };
+export type BembyProxy = {
+  id: string;
+  name: string;
+  url: string;
+  host?: string;
+  /**
+   * Whether an unnamed random draw and a Cloudflare fall-through may reach for this exit.
+   * Absent means yes, which is every proxy that predates the flag. Tunnel exits set it
+   * false: a subscription is one exit identity however many nodes it lists, so offering
+   * them to a fall-through only spends attempts on the same address.
+   */
+  autoPool?: boolean;
+};
 
 export type ProviderSyncResult = {
   providerId: string;
@@ -73,6 +89,10 @@ function writeSetting(key: string, value: string): void {
   db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value);
 }
 
+function clearSetting(key: string): void {
+  db.prepare("DELETE FROM settings WHERE key = ?").run(key);
+}
+
 /**
  * Reads the configured providers, folding in the standalone Webshare token that earlier
  * versions stored on its own so an upgraded install keeps working.
@@ -86,15 +106,37 @@ export function readProviders(): ProxyProvider[] {
     providers = [];
   }
 
+  // An id is what ties a provider to the proxies it imported, so two providers sharing one
+  // would overwrite each other's entries -- and nothing at all could be saved, since a save
+  // turns a repeated id down. Keeping the first of any repeat heals a list already stored
+  // that way rather than leaving the panel unable to save its way out.
+  const ids = new Set<string>();
+  const unique = providers.filter((p) => {
+    if (!p?.id || ids.has(p.id)) return false;
+    ids.add(p.id);
+    return true;
+  });
+  let changed = unique.length !== providers.length;
+  providers = unique;
+
+  // The Webshare token used to be stored on its own. Adopt it as a provider, then clear it:
+  // left in place it is adopted again every time the provider it created is deleted or
+  // changed to another type, and the second copy arrives with the same id as the first.
   const legacyKey = readSetting("webshare_api_key");
-  if (legacyKey && !providers.some((p) => p.type === "webshare")) {
-    providers = [
-      ...providers,
-      { id: "webshare", name: "Webshare", type: "webshare", apiKey: legacyKey, enabled: true },
-    ];
-    writeProviders(providers);
+  if (legacyKey) {
+    if (!providers.some((p) => p.type === "webshare")) {
+      let id = "webshare";
+      for (let n = 2; ids.has(id); n++) id = `webshare-${n}`;
+      providers = [
+        ...providers,
+        { id, name: "Webshare", type: "webshare", apiKey: legacyKey, enabled: true },
+      ];
+    }
+    clearSetting("webshare_api_key");
+    changed = true;
   }
 
+  if (changed) writeProviders(providers);
   return providers;
 }
 
@@ -110,14 +152,21 @@ export function providersForClient(): Array<Omit<ProxyProvider, "apiKey"> & { ha
 /**
  * Saves an incoming provider list, carrying over any key the client left blank -- it
  * never receives the stored keys, so a blank one means "unchanged", not "cleared".
+ *
+ * A key is only carried over while the type stays put. A row pointed at something else
+ * entirely wants nothing to do with the credential entered for what it used to be, and
+ * since the panel cannot send a blank to clear one, this is what lets go of it.
  */
 export function saveProviders(incoming: ProxyProvider[]): ProxyProvider[] {
   const existing = new Map(readProviders().map((p) => [p.id, p]));
-  const merged = incoming.map((p) => ({
-    ...p,
-    apiKey: p.apiKey?.trim() ? p.apiKey.trim() : existing.get(p.id)?.apiKey,
-  }));
+  const merged = incoming.map((p) => {
+    const previous = existing.get(p.id);
+    const carried = previous?.type === p.type ? previous.apiKey : undefined;
+    return { ...p, apiKey: p.apiKey?.trim() ? p.apiKey.trim() : carried };
+  });
   writeProviders(merged);
+  // A subscription that has been removed should not leave its tunnels listening
+  pruneVlessProviders(merged.map((p) => p.id));
   return merged;
 }
 
@@ -244,17 +293,70 @@ async function fetchList(provider: ProxyProvider): Promise<BembyProxy[]> {
   return out;
 }
 
+/**
+ * A VLESS-over-WebSocket subscription, such as a Cloudflare Workers deployment serves.
+ * The nodes themselves are handed to vlessTunnel, which gives each one a loopback SOCKS5
+ * port; what comes back here is that port dressed as a normal proxy entry.
+ *
+ * The subscription is asked for the plain v2ray format rather than Clash or sing-box,
+ * which is what a deployment serves when the request does not look like either client.
+ */
+async function fetchSubscription(provider: ProxyProvider): Promise<BembyProxy[]> {
+  const url = provider.url?.trim();
+  if (!url) throw new Error("Subscription URL is not set");
+
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "v2rayN/6.0",
+      ...(provider.apiKey?.trim() ? { Authorization: `Bearer ${provider.apiKey.trim()}` } : {}),
+    },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`Subscription URL returned ${res.status}`);
+
+  const { nodes, skipped } = parseVlessSubscription((await res.text()).slice(0, MAX_LIST_BYTES));
+  if (!nodes.length) {
+    throw new Error(
+      skipped
+        ? `No VLESS-over-WebSocket nodes there (${skipped} node(s) of other kinds were skipped)`
+        : "No nodes found at that URL",
+    );
+  }
+  if (skipped) {
+    console.log(`[vless] ${provider.name}: ${skipped} node(s) of other kinds were skipped`);
+  }
+
+  const entries = applyVlessNodes(
+    provider.id,
+    nodes.map((node) => ({ proxyId: proxyId(provider, nodeKey(node)), node })),
+  );
+
+  return entries.map((entry) => ({
+    id: entry.proxyId,
+    name: `${provider.name} ${entry.node.name}`.trim(),
+    url: `socks5://127.0.0.1:${entry.port}`,
+    host: "",
+    autoPool: false,
+  }));
+}
+
 function proxyId(provider: ProxyProvider, remoteId: string): string {
   return `${IMPORTED_ID_PREFIX}${provider.id}:${remoteId}`;
 }
 
-/** Fetches one provider's current list without touching stored settings. */
+/**
+ * Fetches one provider's current list. Only `subscription` writes anything of its own:
+ * its loopback ports have to be recorded and bound for the urls it returns to mean
+ * anything, so those come back already listening.
+ */
 export function fetchFromProvider(provider: ProxyProvider): Promise<BembyProxy[]> {
   switch (provider.type) {
     case "webshare":
       return fetchWebshare(provider);
     case "list":
       return fetchList(provider);
+    case "subscription":
+      return fetchSubscription(provider);
     default:
       return Promise.reject(new Error(`Unknown provider type "${provider.type}"`));
   }
@@ -377,10 +479,14 @@ export type ProxyChoice = { proxyId?: string; pool?: string[] };
 /**
  * The proxies a random pick may draw from: the ones `poolIds` names, or every proxy in the
  * list when it names none. An entry with no url is not an exit and is left out.
+ *
+ * A named pool is taken at its word, tunnel exits included: naming one is the deliberate
+ * choice that `autoPool` asks for. Only the unnamed draw, which is "whatever is in the
+ * list", leaves them out.
  */
 export function randomProxyPool(poolIds?: string[]): BembyProxy[] {
   const usable = readProxies().filter((p) => p.url);
-  if (!poolIds?.length) return usable;
+  if (!poolIds?.length) return usable.filter((p) => p.autoPool !== false);
   const wanted = new Set(poolIds);
   return usable.filter((p) => wanted.has(p.id));
 }
@@ -470,8 +576,11 @@ export function cfProxyCandidatesFor(opts: {
 
   if (!tryAll) return tried.has(primary.id) ? [] : [primary];
 
+  // `autoPool: false` keeps tunnel exits out of the fall-through: they share one address,
+  // so working through them spends attempts without changing what the challenge sees. A
+  // pinned one is still honoured above, since that was asked for by name.
   const rest: ProxyCandidate[] = pool
-    .filter((p) => p.url && p.url !== primary.url && !tried.has(p.id))
+    .filter((p) => p.url && p.autoPool !== false && p.url !== primary.url && !tried.has(p.id))
     .map((p) => ({ id: p.id, label: p.name, url: p.url }));
 
   // Lead with the proxy that cleared this host last time, wherever it sits in the pool

@@ -338,6 +338,10 @@ export type SessionInfo = {
 export type TgSpamStatus = {
   spamStatus: "free" | "limited" | "blocked" | "frozen" | "unknown";
   rawMessage: string;
+  /** Reply-keyboard labels SpamBot offered; the shape is the same in every language. */
+  buttons?: string[];
+  source?: "signature" | "buttons" | "text" | "ai" | "unknown";
+  aiError?: string;
 };
 
 export type TgAccountStatus = {
@@ -371,6 +375,11 @@ export type Proxy = {
   id: string;
   name: string;
   url: string;
+  /**
+   * Whether an unnamed random draw and a Cloudflare fall-through may reach for this exit.
+   * Absent means yes. Tunnel exits imported from a subscription set it false.
+   */
+  autoPool?: boolean;
 };
 
 export type ProxyTestResult = {
@@ -2080,7 +2089,7 @@ export type CfKeyCheck = {
   error?: string;
 };
 
-export type ProxyProviderType = "webshare" | "list";
+export type ProxyProviderType = "webshare" | "list" | "subscription";
 
 export type ProxyProvider = {
   id: string;

@@ -87,7 +87,7 @@ export function startBulkSpamCheck(
       const result = await checkSpamForAccount(item.refId);
       return {
         message: result.rawMessage,
-        data: { spamStatus: result.spamStatus },
+        data: { spamStatus: result.spamStatus, buttons: result.buttons, source: result.source },
       };
     },
   });

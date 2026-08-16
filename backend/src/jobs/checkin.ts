@@ -682,14 +682,164 @@ export function waitForNewBotMessage(
 
 export type SpamStatus = "free" | "limited" | "blocked" | "frozen" | "unknown";
 
+/** How a spam status was decided, kept for diagnostics and for the unknown-reply record. */
+export type SpamSource = "signature" | "buttons" | "text" | "ai" | "unknown";
+
+/** The @SpamBot /start reply reduced to the parts the classifier looks at. */
+export type SpamReply = { text: string; buttons: string[] };
+
+/**
+ * SpamBot answers in the account's own language, so the wording is unreliable. The reply
+ * keyboard is not: the same status offers the same buttons in every language, only the
+ * labels change. Classification therefore runs structure first, wording second, AI last:
+ *
+ *   1. button signature -- an exact keyboard seen before (seeded below, then learned)
+ *   2. button count     -- four buttons is only ever the "limited" keyboard
+ *   3. text keywords    -- English (and a few confirmed translations)
+ *   4. AI               -- one small text call, whose answer is learned as a signature
+ */
+const buttonSignature = (buttons: string[]): string =>
+  buttons.map((b) => b.trim().toLowerCase()).join(" | ");
+
+// Signatures confirmed against real replies. Learned ones are added to the settings row.
+const SEEDED_SIGNATURES: Record<string, SpamStatus> = {
+  [buttonSignature(["Cool, thanks", "But I can’t message non-contacts!"])]: "free",
+  [buttonSignature(["Хорошо, спасибо", "Но я не могу писать неконтактам"])]: "free",
+  [buttonSignature(["I won't do it again", "My account was hacked"])]: "blocked",
+  [buttonSignature(["OK", "What is spam?", "I was wrong, please release me", "This is a mistake"])]: "limited",
+  [buttonSignature(["OK", "¿Qué es el spam?", "Me equivoqué. Por favor, libérame", "Esto es un error"])]: "limited",
+};
+
+const SIGNATURE_SETTING = "spam_button_signatures";
+
+// A learned entry keeps the reply it came from: the verdict behind it is the AI's, so it
+// has to stay auditable (and correctable) once cached.
+type LearnedSignature = { status: SpamStatus; sample: string; learnedAt: string };
+
+function learnedSignatures(): Record<string, LearnedSignature> {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(SIGNATURE_SETTING) as
+      | { value: string }
+      | undefined;
+    const parsed = row ? JSON.parse(row.value) : null;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function learnSignature(signature: string, status: SpamStatus, sample: string): void {
+  if (!signature || status === "unknown") return;
+  try {
+    const next = {
+      ...learnedSignatures(),
+      [signature]: { status, sample: sample.slice(0, 300), learnedAt: new Date().toISOString() },
+    };
+    db.prepare(
+      "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    ).run(SIGNATURE_SETTING, JSON.stringify(next));
+  } catch { /* a signature that can't be cached just costs one more AI call */ }
+}
+
 function parseSpamStatus(text: string): SpamStatus {
   const lower = text.toLowerCase();
   if (lower.includes("good news") || lower.includes("no limits") || lower.includes("free as a bird")) return "free";
   if (lower.includes("permanently") || lower.includes("banned") || lower.includes("suspended")) return "blocked";
+  if (lower.includes("blocked for violations")) return "blocked";
   // SpamBot says "blocked" for frozen accounts (temporary restriction, not a permanent ban)
   if (lower.includes("frozen") || lower.includes("blocked")) return "frozen";
   if (lower.includes("limited")) return "limited";
+  // Confirmed non-English wordings; full phrases, since the roots for "limited" and
+  // "no limits" are shared and a substring match picks the wrong one.
+  if (lower.includes("свободен от каких-либо ограничений")) return "free";
+  if (lower.includes("никаких ограничений")) return "free";
+  if (lower.includes("sin límites") || lower.includes("libre como un pájaro")) return "free";
+  if (lower.includes("cuenta fue limitada") || lower.includes("cuenta está limitada")) return "limited";
+  if (lower.includes("ваш аккаунт ограничен") || lower.includes("аккаунт был ограничен")) return "limited";
   return "unknown";
+}
+
+/** Language-independent pass: an exact keyboard match, then the button count. */
+function classifyByButtons(buttons: string[]): SpamStatus {
+  if (!buttons.length) return "unknown";
+  const signature = buttonSignature(buttons);
+  const hit = learnedSignatures()[signature]?.status ?? SEEDED_SIGNATURES[signature];
+  if (hit) return hit;
+  // Four buttons is the limited keyboard (OK / what is spam / release me / mistake); the
+  // free and blocked keyboards both have two, so a count of two decides nothing.
+  return buttons.length === 4 ? "limited" : "unknown";
+}
+
+const SPAM_AI_PROMPT = `A Telegram user sent /start to @SpamBot and got the reply below, which may be in any language.
+Classify the account's standing as exactly one of these words:
+free - no limits apply to the account
+limited - the account is restricted from messaging non-contacts, permanently or until a date
+blocked - the account was blocked or banned for violating the Terms of Service
+frozen - the account is frozen and under review
+Answer with one word only, nothing else.`;
+
+async function classifySpamWithAi(reply: SpamReply): Promise<SpamStatus> {
+  const buttons = reply.buttons.length ? `\n\nReply keyboard buttons: ${reply.buttons.join(" / ")}` : "";
+  // Same fallback chain as the captcha path: a dead primary supplier shouldn't
+  // turn every non-English reply into an unknown.
+  const { response } = await callAIWithFallback(
+    [],
+    `${SPAM_AI_PROMPT}\n\n---\n${reply.text}${buttons}\n---`,
+    AI_ANSWER_MAX_TOKENS,
+  );
+  return parseAiSpamAnswer(response);
+}
+
+/**
+ * Only the answer line counts. A model that talks around it ("not limited, so free") would
+ * otherwise be read by whichever word came first, and a wrong verdict here gets cached.
+ */
+export function parseAiSpamAnswer(response: string): SpamStatus {
+  const last = response.trim().split("\n").filter((l) => l.trim()).pop() ?? "";
+  const words = last.toLowerCase().match(/free|limited|blocked|frozen/g) ?? [];
+  return words.length === 1 ? (words[0] as SpamStatus) : "unknown";
+}
+
+/**
+ * Decides the status without touching the network. Exported for the tests and for
+ * callers that already hold a reply.
+ */
+export function classifySpamReply(reply: SpamReply): { status: SpamStatus; source: SpamSource } {
+  const byButtons = classifyByButtons(reply.buttons);
+  if (byButtons !== "unknown") {
+    return { status: byButtons, source: reply.buttons.length === 4 ? "buttons" : "signature" };
+  }
+  const byText = parseSpamStatus(reply.text);
+  if (byText !== "unknown") return { status: byText, source: "text" };
+  return { status: "unknown", source: "unknown" };
+}
+
+/** Structure and wording first, then one AI call; a resolved keyboard is remembered. */
+export async function resolveSpamStatus(
+  reply: SpamReply,
+): Promise<{ status: SpamStatus; source: SpamSource; aiError?: string }> {
+  const local = classifySpamReply(reply);
+  if (local.status !== "unknown") return local;
+
+  try {
+    const status = await classifySpamWithAi(reply);
+    if (status !== "unknown") {
+      if (reply.buttons.length) learnSignature(buttonSignature(reply.buttons), status, reply.text);
+      return { status, source: "ai" };
+    }
+    return { status: "unknown", source: "unknown" };
+  } catch (err: any) {
+    return { status: "unknown", source: "unknown", aiError: err?.message ?? String(err) };
+  }
+}
+
+/** The button labels of a reply keyboard (SpamBot never uses inline buttons here). */
+function replyKeyboardButtons(msg: Api.Message): string[] {
+  const markup = (msg as any).replyMarkup;
+  if (!(markup instanceof Api.ReplyKeyboardMarkup)) return [];
+  return markup.rows.flatMap((row: any) =>
+    row.buttons.map((btn: any) => String(btn.text ?? "")).filter(Boolean),
+  );
 }
 
 export async function checkSpamStatus(
@@ -698,7 +848,7 @@ export async function checkSpamStatus(
   sessionString: string,
   proxy?: TgProxy,
   deviceParams?: TgDeviceParams,
-): Promise<{ spamStatus: SpamStatus; rawMessage: string }> {
+): Promise<{ spamStatus: SpamStatus; rawMessage: string; buttons: string[]; source: SpamSource; aiError?: string }> {
   const SPAM_BOT = "SpamBot";
   const TIMEOUT_MS = 25_000;
 
@@ -714,10 +864,10 @@ export async function checkSpamStatus(
 
   try {
     // Set up listener BEFORE sending to avoid missing a fast reply
-    const replyPromise = new Promise<{ text: string; id: number }>((resolve, reject) => {
+    const replyPromise = new Promise<{ text: string; id: number; buttons: string[] }>((resolve, reject) => {
       let done = false;
 
-      const finish = (result: { text: string; id: number } | Error) => {
+      const finish = (result: { text: string; id: number; buttons: string[] } | Error) => {
         if (done) return;
         done = true;
         clearTimeout(timer);
@@ -731,14 +881,14 @@ export async function checkSpamStatus(
       const handler = async (event: NewMessageEvent) => {
         const msg = event.message as Api.Message;
         const text = (msg.message ?? "").trim();
-        if (text) finish({ text, id: msg.id });
+        if (text) finish({ text, id: msg.id, buttons: replyKeyboardButtons(msg) });
       };
 
       client.addEventHandler(handler, new NewMessage({ fromUsers: [SPAM_BOT] }));
     });
 
     await client.sendMessage(SPAM_BOT, { message: "/start" });
-    const { text: rawMessage, id: replyId } = await replyPromise;
+    const { text: rawMessage, id: replyId, buttons } = await replyPromise;
 
     // Mark SpamBot conversation as read so it doesn't show as unread in the chat list
     try {
@@ -746,7 +896,8 @@ export async function checkSpamStatus(
       await client.invoke(new Api.messages.ReadHistory({ peer: spamBotEntity, maxId: replyId }));
     } catch { /* non-critical, ignore */ }
 
-    return { spamStatus: parseSpamStatus(rawMessage), rawMessage };
+    const { status, source, aiError } = await resolveSpamStatus({ text: rawMessage, buttons });
+    return { spamStatus: status, rawMessage, buttons, source, ...(aiError ? { aiError } : {}) };
   } finally {
     // destroy, not disconnect -- disconnect leaves the GramJS ping loop running,
     // which pins the client and grows its send queue forever (issue #14)

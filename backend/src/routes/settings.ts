@@ -63,6 +63,7 @@ import {
   syncProviders,
   type ProxyProvider,
 } from "../tg/proxyProviders";
+import { isVlessListener } from "../tg/vlessTunnel";
 import {
   DEFAULT_MSAPI_POOL_TYPE,
   isMsApiEnabled,
@@ -885,12 +886,15 @@ router.put("/proxy-providers", (req, res) => {
       res.status(400).json({ error: "Each provider needs an id and a name" });
       return;
     }
-    if (p.type !== "webshare" && p.type !== "list") {
+    if (p.type !== "webshare" && p.type !== "list" && p.type !== "subscription") {
       res.status(400).json({ error: `Unsupported provider type "${p.type}"` });
       return;
     }
-    if (p.type === "list" && !p.url?.trim()) {
-      res.status(400).json({ error: `"${p.name}" needs a list URL` });
+    if ((p.type === "list" || p.type === "subscription") && !p.url?.trim()) {
+      res.status(400).json({
+        error:
+          p.type === "list" ? `"${p.name}" needs a list URL` : `"${p.name}" needs a subscription URL`,
+      });
       return;
     }
     if (seen.has(p.id)) {
@@ -922,9 +926,18 @@ const PROXY_TEST_TIMEOUT_MS = 6000;
 // serially at the timeout above. Capped so a large list does not open a socket per proxy.
 const PROXY_TEST_CONCURRENCY = 20;
 
-const PROXY_TEST_TARGET = { host: "1.1.1.1", port: 80 };
+type TestTarget = { host: string; port: number };
 
-async function testSocksProxy(proxy: TgProxy): Promise<{ ok: boolean }> {
+const PROXY_TEST_TARGET: TestTarget = { host: "1.1.1.1", port: 80 };
+
+/**
+ * Where a tunnel exit is tested against instead. A Cloudflare Worker cannot open a
+ * connection to Cloudflare's own addresses, so 1.1.1.1 would report a perfectly good
+ * node as broken. Google's resolver answers on TCP 53 and sits nowhere near Cloudflare.
+ */
+const TUNNEL_TEST_TARGET: TestTarget = { host: "8.8.8.8", port: 53 };
+
+async function testSocksProxy(proxy: TgProxy, target: TestTarget): Promise<{ ok: boolean }> {
   const result = await SocksClient.createConnection({
     proxy: {
       host: proxy.ip,
@@ -935,7 +948,7 @@ async function testSocksProxy(proxy: TgProxy): Promise<{ ok: boolean }> {
         : {}),
     },
     command: "connect",
-    destination: PROXY_TEST_TARGET,
+    destination: target,
     timeout: PROXY_TEST_TIMEOUT_MS,
   });
   result.socket.destroy();
@@ -948,7 +961,7 @@ async function testSocksProxy(proxy: TgProxy): Promise<{ ok: boolean }> {
  * side, so "does it answer" is still worth reporting. A SOCKS handshake against one
  * only ever fails, which is why they need a CONNECT tunnel of their own.
  */
-function testHttpProxy(url: URL): Promise<{ ok: boolean; error?: string }> {
+function testHttpProxy(url: URL, target: TestTarget): Promise<{ ok: boolean; error?: string }> {
   return new Promise((resolve) => {
     const secure = url.protocol === "https:";
     const credentials = url.username
@@ -958,7 +971,7 @@ function testHttpProxy(url: URL): Promise<{ ok: boolean; error?: string }> {
       host: url.hostname,
       port: Number(url.port) || (secure ? 443 : 80),
       method: "CONNECT",
-      path: `${PROXY_TEST_TARGET.host}:${PROXY_TEST_TARGET.port}`,
+      path: `${target.host}:${target.port}`,
       timeout: PROXY_TEST_TIMEOUT_MS,
       ...(credentials
         ? {
@@ -1011,10 +1024,11 @@ async function testProxyUrl(
       };
     }
   }
+  const target = isVlessListener(url) ? TUNNEL_TEST_TARGET : PROXY_TEST_TARGET;
   try {
     const result = socks
-      ? await testSocksProxy(socks)
-      : await testHttpProxy(parsed as URL);
+      ? await testSocksProxy(socks, target)
+      : await testHttpProxy(parsed as URL, target);
     return { ...result, ms: elapsed() };
   } catch (err: any) {
     return { ok: false, error: err?.message ?? "Connection failed", ms: elapsed() };

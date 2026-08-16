@@ -80,6 +80,7 @@ Bemby可签到市面上所有的服（需要正确配置）。无论是TG内，�
 - **停止运行中的任务** — 可在日志列表中随时中止正在执行的任务
 - **复制任务 / 复制模板** — 在任务列表或模板列表中一键复制为新任务/新模板
 - **任务级代理覆盖** — 由模板创建的任务可单独选择代理：下拉默认为"跟随模板代理设置"（并显示模板当前使用的代理名称），选定其它代理后仅该任务改用自己的出口。代理仍只作用于浏览器侧（Cloudflare 验证 / 小程序），Telegram 连接始终跟随账户代理
+- **节点订阅代理（VLESS over WebSocket）** — 设置 → 代理服务器 → 「节点订阅」中填入订阅地址（如部署在 Cloudflare Workers 上的 edgetunnel），每个节点会在本机开一个 SOCKS5 端口，之后与普通代理完全一样：可用于 Telegram 账户连接、浏览器侧、任务代理，端口跨重启保持不变。注意订阅节点的出口是 Cloudflare 自己的 IP 段，同一个 Worker 上所有节点出口相同，因此默认不参与「随机」与 Cloudflare 自动轮换（仅在明确选择或列入指定代理池时使用）；更适合连接 Telegram、固定出口地区或绕开本机网络限制
 - **任务筛选与搜索** — 任务列表支持按账号、机器人/网址筛选，并可按名称搜索；账号、任务、日志、模板列表均为服务端分页与筛选，支持大数据量浏览，账户与模板支持搜索框（模板为模糊匹配），日志支持按状态筛选
 - **批量运行任务** — 勾选多个任务后点击"运行 (N)"，按顺序依次执行，支持自定义任务间延迟（默认 70 秒）
 - **批量修改时间窗口** — 勾选多个任务后可一键将其时间窗口批量设置为相同的开始/结束时间
@@ -433,6 +434,7 @@ A self-hosted automation tool for managing daily Telegram bot check-ins (签到)
 - **Stop running jobs** — cancel an in-progress job directly from the log list
 - **Duplicate job / template** — copy any existing job or template into a new one with one click from its list
 - **Per-job proxy override** — a job created from a template can pick a proxy of its own: the dropdown defaults to *Follow template proxy setting* (naming the proxy the template uses), and picking another exit applies to that one job. The proxy still covers the browser side only (Cloudflare checks / Mini Apps); the Telegram connection always follows the account's proxy
+- **Node subscription proxies (VLESS over WebSocket)** — point Settings → Proxies → *Node subscription* at a subscription URL, such as an edgetunnel deployment on Cloudflare Workers, and each node gets a loopback SOCKS5 port that behaves like any other proxy: usable for Telegram account connections, the browser side, and per-job overrides, on the same port across restarts. Their exits are Cloudflare's own addresses and every node on one Worker shares them, so they stay out of unnamed random draws and the Cloudflare fall-through, and are used only where chosen by name or named in a pool. Best suited to reaching Telegram, pinning an exit region, or getting past a blocked host network
 - **Job filters and search** — filter the jobs list by account or by bot / URL, and search by name; Accounts, Jobs, Logs, and Templates all use server-side pagination and filtering to handle large datasets, with search boxes on Accounts and Templates (fuzzy-matched on Templates) and a status filter on Logs
 - **Bulk run jobs** — select multiple jobs and run them sequentially with a configurable delay between each (default 70 s)
 - **Bulk change time window** — select multiple jobs and set them all to the same start/end window in one action

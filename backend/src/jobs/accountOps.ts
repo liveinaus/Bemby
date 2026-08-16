@@ -201,7 +201,7 @@ export function saveTgMeta(
 /** Asks @SpamBot for the account's standing and persists the restriction flag. */
 export async function checkSpamForAccount(
   accountId: number,
-): Promise<{ spamStatus: string; rawMessage: string }> {
+): Promise<{ spamStatus: string; rawMessage: string; buttons?: string[]; source?: string; aiError?: string }> {
   const ctx = accountOpContext(accountId);
   try {
     const result = await checkSpamStatus(
@@ -214,9 +214,20 @@ export async function checkSpamForAccount(
     // Store the status while restricted, clear it once confirmed free, and leave
     // an existing value alone on an unknown result.
     if (result.spamStatus === "free") {
-      patchAttributes(accountId, { restriction: undefined });
+      patchAttributes(accountId, { restriction: undefined, spamUnknownReply: undefined });
     } else if (result.spamStatus !== "unknown") {
-      patchAttributes(accountId, { restriction: result.spamStatus });
+      patchAttributes(accountId, { restriction: result.spamStatus, spamUnknownReply: undefined });
+    } else {
+      // Keep the reply that defeated every rule, so the wording and the keyboard
+      // behind an unknown result can be read straight off the account.
+      patchAttributes(accountId, {
+        spamUnknownReply: {
+          text: result.rawMessage.slice(0, 1000),
+          buttons: result.buttons,
+          checkedAt: new Date().toISOString(),
+          ...(result.aiError ? { aiError: result.aiError } : {}),
+        },
+      });
     }
     return result;
   } catch (err) {

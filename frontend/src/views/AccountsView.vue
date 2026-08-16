@@ -3374,6 +3374,22 @@ function spamBadgeClass(status: TgSpamStatus["spamStatus"]) {
   return `badge ${map[status] ?? "badge-grey"}`;
 }
 
+// Same bookkeeping the backend does on the account record: the restriction flag, and the
+// raw reply kept only while the status is unknown.
+function mirrorSpamAttrs(
+  current: Record<string, unknown> | undefined,
+  status: TgSpamStatus["spamStatus"],
+  rawMessage?: string,
+  buttons?: string[],
+): Record<string, unknown> {
+  const attrs = { ...(current ?? {}) };
+  delete attrs.spamUnknownReply;
+  if (status === "free") delete attrs.restriction;
+  else if (status !== "unknown") attrs.restriction = status;
+  else attrs.spamUnknownReply = { text: rawMessage ?? "", buttons: buttons ?? [] };
+  return attrs;
+}
+
 async function checkSpam(a: Account) {
   if (spamCheckLoading.has(a.id)) return;
   spamCheckLoading.add(a.id);
@@ -3381,10 +3397,7 @@ async function checkSpam(a: Account) {
     const result = await accountsApi.checkSpam(a.id);
     spamStatuses.set(a.id, result);
     // Mirror the persisted restriction flag onto the row so the Extra Info badge updates.
-    const attrs = { ...(a.attributes ?? {}) };
-    if (result.spamStatus === "free") delete attrs.restriction;
-    else if (result.spamStatus !== "unknown") attrs.restriction = result.spamStatus;
-    a.attributes = attrs;
+    a.attributes = mirrorSpamAttrs(a.attributes, result.spamStatus, result.rawMessage, result.buttons);
   } catch (err: any) {
     spamStatuses.set(a.id, {
       spamStatus: "unknown",
@@ -3456,10 +3469,12 @@ watch(
       spamStatuses.set(item.refId, { spamStatus: status, rawMessage: item.message });
       const account = accounts.value.find((a) => a.id === item.refId);
       if (!account) continue;
-      const attrs = { ...(account.attributes ?? {}) };
-      if (status === "free") delete attrs.restriction;
-      else if (status !== "unknown") attrs.restriction = status;
-      account.attributes = attrs;
+      account.attributes = mirrorSpamAttrs(
+        account.attributes,
+        status,
+        item.message,
+        item.data?.buttons as string[] | undefined,
+      );
     }
   },
 );
@@ -3557,6 +3572,21 @@ function accountExtraInfo(a: Account): ExtraBadge[] {
     badges.push({
       label: `${t("accounts.attrRestriction")}: ${t(`accounts.spam.${attrs.restriction}`)}`,
       cls: colour[attrs.restriction] ?? "badge-grey",
+    });
+  }
+  // A SpamBot reply no rule could classify: the wording and keyboard go in the tooltip,
+  // which is what a new language needs to be added to the classifier.
+  const unknownReply = attrs.spamUnknownReply as
+    | { text?: string; buttons?: string[]; checkedAt?: string }
+    | undefined;
+  if (unknownReply && typeof unknownReply === "object") {
+    const buttons = unknownReply.buttons?.length
+      ? `\n\n[${unknownReply.buttons.join("] [")}]`
+      : "";
+    badges.push({
+      label: t("accounts.attrSpamUnknown"),
+      cls: "badge-grey",
+      title: `${unknownReply.text ?? ""}${buttons}`,
     });
   }
   for (const [key, value] of Object.entries(attrs)) {

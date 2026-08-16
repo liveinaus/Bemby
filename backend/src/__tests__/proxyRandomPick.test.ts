@@ -136,3 +136,33 @@ describe("cfProxyCandidatesFor with a random pick", () => {
     expect(got.filter((c) => c.url === POOL[0].url)).toHaveLength(1);
   });
 });
+
+// A tunnel exit is one address however many nodes list it, so it is offered only where it
+// was asked for by name -- never by an unnamed draw or a Cloudflare fall-through.
+describe("exits kept out of automatic pools", () => {
+  const TUNNEL = { id: "t1", name: "Worker Sydney", url: "socks5://127.0.0.1:24080", autoPool: false };
+
+  beforeEach(() => store.set("proxies", JSON.stringify([...POOL, TUNNEL])));
+
+  it("is left out of a draw that names no pool", () => {
+    expect(randomProxyPool().map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+  });
+
+  it("is drawn from once a pool names it", () => {
+    expect(randomProxyPool(["t1", "p1"]).map((p) => p.id)).toEqual(["p1", "t1"]);
+  });
+
+  it("is not walked into when a Cloudflare attempt falls through the list", () => {
+    const got = cfProxyCandidatesFor({ primaryUrl: POOL[0].url });
+    expect(got.map((c) => c.id)).not.toContain("t1");
+  });
+
+  it("still leads when it is the pinned exit, since that was asked for", () => {
+    const got = cfProxyCandidatesFor({ proxyId: "t1" });
+    expect(got[0]).toEqual({ id: "t1", label: TUNNEL.name, url: TUNNEL.url });
+  });
+
+  it("an entry from before the flag is treated as poolable", () => {
+    expect(randomProxyPool().map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
+  });
+});

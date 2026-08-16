@@ -1281,6 +1281,14 @@
                   style="flex: 0 0 160px"
                   :placeholder="t('settings.proxyName')"
                 />
+                <label
+                  class="form-checkbox-label"
+                  style="flex: 0 0 auto"
+                  :title="t('settings.proxyPickedOnlyTip')"
+                >
+                  <input type="checkbox" v-model="editProxyForm.autoPool" />
+                  {{ t("settings.proxyAutoPool") }}
+                </label>
                 <button
                   class="btn btn-sm btn-primary"
                   :disabled="
@@ -1313,6 +1321,13 @@
                 style="font-size: 10px"
                 :title="t('settings.proxyBrowserOnlyTip')"
                 >{{ t("settings.proxyBrowserOnly") }}</span
+              >
+              <span
+                v-if="p.autoPool === false"
+                class="badge"
+                style="font-size: 10px"
+                :title="t('settings.proxyPickedOnlyTip')"
+                >{{ t("settings.proxyPickedOnly") }}</span
               >
               <span
                 v-if="proxyTestResults[p.id]"
@@ -1436,6 +1451,7 @@
                 <select v-model="prov.type" class="form-input" style="flex: 0 0 130px">
                   <option value="webshare">Webshare</option>
                   <option value="list">{{ t("settings.providerTypeList") }}</option>
+                  <option value="subscription">{{ t("settings.providerTypeSubscription") }}</option>
                 </select>
                 <label class="form-checkbox-label" style="flex: 0 0 auto">
                   <input type="checkbox" v-model="prov.enabled" />
@@ -1459,10 +1475,14 @@
               </div>
               <div class="proxy-row" style="margin-top: 6px">
                 <input
-                  v-if="prov.type === 'list'"
+                  v-if="prov.type === 'list' || prov.type === 'subscription'"
                   v-model.trim="prov.url"
                   class="form-input"
-                  :placeholder="t('settings.providerUrlPlaceholder')"
+                  :placeholder="
+                    prov.type === 'subscription'
+                      ? t('settings.providerSubUrlPlaceholder')
+                      : t('settings.providerUrlPlaceholder')
+                  "
                 />
                 <select
                   v-if="prov.type === 'list'"
@@ -3413,6 +3433,8 @@ type ProxyForm = {
   username: string;
   password: string;
   name: string;
+  /** Edit panel only: whether unnamed draws and Cloudflare fall-through may use this exit. */
+  autoPool?: boolean;
 };
 const newProxy = reactive<ProxyForm>({
   protocol: "socks5",
@@ -3942,6 +3964,7 @@ function startEditProxy(p: Proxy) {
     username: parsed?.username ?? "",
     password: parsed?.password ?? "",
     name: p.name,
+    autoPool: p.autoPool !== false,
   });
   proxiesMsg.value = "";
   proxiesError.value = "";
@@ -3974,6 +3997,7 @@ async function saveProxyEdit(index: number) {
     ...proxies.value[index],
     name: editProxyForm.name.trim(),
     url,
+    autoPool: editProxyForm.autoPool !== false,
   };
   editingProxyId.value = null;
 }
