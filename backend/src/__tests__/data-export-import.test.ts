@@ -312,6 +312,18 @@ describe('exportRequiresEncryption -- forces encryption for any credential', () 
     expect(exportRequiresEncryption({ ...base, settings: { webshare_api_key: 'tok' } })).toBe(true);
   });
 
+  it('is true when settings carry tunnel nodes, whose uuid is the credential', () => {
+    expect(
+      exportRequiresEncryption({
+        ...base,
+        settings: {
+          vless_nodes:
+            '[{"proxyId":"pp:a:b","providerId":"a","port":24080,"node":{"uuid":"d342d11e-d424-4583-b36e-524ab1f0afa4"}}]',
+        },
+      }),
+    ).toBe(true);
+  });
+
   it('is true when a job config embeds an Emby password (regression: was plaintext)', () => {
     const jobs = [{ config: JSON.stringify({ username: 'u', password: 'p' }) }] as ExportPayload['jobs'];
     expect(exportRequiresEncryption({ ...base, jobs })).toBe(true);

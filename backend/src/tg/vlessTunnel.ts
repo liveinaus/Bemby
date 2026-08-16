@@ -43,6 +43,8 @@ const PORT_LIMIT = 512;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
 /** Bytes queued towards the Worker before the local side is held back. */
 const HIGH_WATER = 1 << 20;
+const BIND_RETRIES = 5;
+const BIND_RETRY_MS = 100;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -307,7 +309,19 @@ function startListener(entry: VlessEntry): void {
   const live: Running = { server, fingerprint: nodeKey(entry.node), sockets };
   running.set(entry.port, live);
 
+  let attempts = 0;
   server.on("error", (err: NodeJS.ErrnoException) => {
+    // A port handed back by a listener that has not finished closing is in use for a
+    // moment longer. Giving up there would leave the node with no exit and the port held
+    // by a listener pointed at a node that is gone, so the bind is retried briefly.
+    if (err.code === "EADDRINUSE" && attempts < BIND_RETRIES && running.get(entry.port) === live) {
+      attempts++;
+      setTimeout(() => {
+        if (running.get(entry.port) === live) server.listen(entry.port, "127.0.0.1");
+      }, BIND_RETRY_MS).unref();
+      return;
+    }
+
     if (running.get(entry.port) === live) running.delete(entry.port);
     console.error(
       err.code === "EADDRINUSE"

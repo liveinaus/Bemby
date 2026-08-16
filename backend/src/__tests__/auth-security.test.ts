@@ -339,6 +339,16 @@ describe('CLIENT_HIDDEN_KEYS -- secrets excluded from GET /api/settings', () => 
   it('hides the notification bot token, which is served masked instead', () => {
     expect(CLIENT_HIDDEN_KEYS.has('notify_bot_token')).toBe(true);
   });
+
+  it('hides the proxy provider list and the tunnel nodes, both of which carry credentials', () => {
+    expect(CLIENT_HIDDEN_KEYS.has('proxy_providers')).toBe(true);
+    // A node's uuid is what its Worker admits the connection on
+    expect(CLIENT_HIDDEN_KEYS.has('vless_nodes')).toBe(true);
+  });
+
+  it('does not let the panel write the tunnel nodes: an import records those itself', () => {
+    expect(ALLOWED_KEYS).not.toContain('vless_nodes');
+  });
 });
 
 // ── getJwtSecret -- refuses to boot with a known-default secret ───────────────

@@ -1,5 +1,12 @@
 // VLESS-over-WebSocket exits: reading a subscription, keeping a node on the same
 // loopback port, and carrying a connection end to end through a stand-in Worker.
+
+// Bound away from the range an instance uses, so a Bemby running on this machine with
+// tunnels of its own does not own the ports these tests are about to bind
+vi.hoisted(() => {
+  process.env.VLESS_PORT_BASE = "24700";
+});
+
 const store = new Map<string, string>();
 vi.mock("../db/database", () => ({
   db: {

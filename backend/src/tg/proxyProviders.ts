@@ -261,12 +261,38 @@ export function parseProxyLine(line: string, fallbackScheme = "http"): string | 
   return undefined;
 }
 
+const TOKEN_PLACEHOLDER = "{token}";
+
+/**
+ * Where a URL says `{token}` it is replaced by the provider's key, and the key is then not
+ * also sent as a bearer header -- it is already in the request. Most subscriptions want
+ * their token in the path or the query rather than in a header, and only the URL itself
+ * knows which of the two, or under what parameter name. Written this way the key stays in
+ * the key field, where it is masked and never sent back to the panel, rather than sitting
+ * in plain sight in the address.
+ */
+export function resolveProviderUrl(
+  url: string,
+  apiKey: string | undefined,
+): { url: string; headers: Record<string, string> } {
+  const key = apiKey?.trim();
+  if (!url.includes(TOKEN_PLACEHOLDER)) {
+    return { url, headers: key ? { Authorization: `Bearer ${key}` } : {} };
+  }
+  if (!key) throw new Error(`This URL asks for ${TOKEN_PLACEHOLDER}, but no token is set`);
+  return {
+    url: url.split(TOKEN_PLACEHOLDER).join(encodeURIComponent(key)),
+    headers: {},
+  };
+}
+
 async function fetchList(provider: ProxyProvider): Promise<BembyProxy[]> {
-  const url = provider.url?.trim();
-  if (!url) throw new Error("List URL is not set");
+  const configured = provider.url?.trim();
+  if (!configured) throw new Error("List URL is not set");
+  const { url, headers } = resolveProviderUrl(configured, provider.apiKey);
 
   const res = await fetch(url, {
-    headers: provider.apiKey?.trim() ? { Authorization: `Bearer ${provider.apiKey.trim()}` } : {},
+    headers,
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`List URL returned ${res.status}`);
@@ -302,14 +328,12 @@ async function fetchList(provider: ProxyProvider): Promise<BembyProxy[]> {
  * which is what a deployment serves when the request does not look like either client.
  */
 async function fetchSubscription(provider: ProxyProvider): Promise<BembyProxy[]> {
-  const url = provider.url?.trim();
-  if (!url) throw new Error("Subscription URL is not set");
+  const configured = provider.url?.trim();
+  if (!configured) throw new Error("Subscription URL is not set");
+  const { url, headers } = resolveProviderUrl(configured, provider.apiKey);
 
   const res = await fetch(url, {
-    headers: {
-      "User-Agent": "v2rayN/6.0",
-      ...(provider.apiKey?.trim() ? { Authorization: `Bearer ${provider.apiKey.trim()}` } : {}),
-    },
+    headers: { "User-Agent": "v2rayN/6.0", ...headers },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`Subscription URL returned ${res.status}`);

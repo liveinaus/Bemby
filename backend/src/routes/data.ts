@@ -4,6 +4,7 @@ import { decryptPayload, encryptPayload, type EncryptedEnvelope } from '../db/ex
 import { decryptAccountRow, encryptSecret } from '../db/secretColumns';
 import { exportData, isValidDataName } from '../db/dataStore';
 import { refreshScheduler } from '../scheduler';
+import { reconcileListeners } from '../tg/vlessTunnel';
 import {
   verifyPassword,
   legacyHashPassword,
@@ -39,6 +40,8 @@ export const SENSITIVE_SETTING_KEYS = [
   'proxies',
   'proxy_providers',
   'webshare_api_key',
+  // A tunnel node's uuid is what its Worker admits the connection on
+  'vless_nodes',
   // Whoever holds the notification bot's token can act as that bot
   'notify_bot_token',
   // Whoever holds the msOauth2api key can read every mailbox that install holds
@@ -676,6 +679,9 @@ router.post('/import', async (req, res) => {
   }
 
   refreshScheduler();
+  // Tunnel exits restored from the backup have to start listening, or every proxy the
+  // imported list points at loopback for answers on a port with nothing behind it
+  reconcileListeners();
   res.json({ message: 'Import complete', ...results });
 });
 

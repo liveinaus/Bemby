@@ -141,6 +141,9 @@ export const CLIENT_HIDDEN_KEYS = new Set([
   // Proxy provider credentials: served separately, with keys replaced by a flag
   "webshare_api_key",
   "proxy_providers",
+  // Tunnel nodes: a node's uuid is the credential the Worker admits it on, and the panel
+  // has no use for any of it -- what it shows is the loopback proxy the node listens on
+  "vless_nodes",
   // Notification bot token: served masked, under a separate key
   NOTIFY_BOT_TOKEN_KEY,
   // msOauth2api API key: served masked, under a separate key
