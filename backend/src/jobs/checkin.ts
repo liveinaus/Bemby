@@ -759,6 +759,19 @@ function parseSpamStatus(text: string): SpamStatus {
   return "unknown";
 }
 
+/**
+ * SpamBot answers a failed request with a generic service error instead of a standing
+ * ("Sorry, an error has occurred during your request. Please try again later. (Code 628117466)").
+ * It carries no keyboard and no verdict, so it must not reach the text or AI passes -- the AI
+ * reads "error" as a restriction and the wrong verdict then gets cached as a signature.
+ */
+export function isSpamServiceError(text: string): boolean {
+  const lower = text.toLowerCase();
+  // The numeric code suffix is language-independent; the wordings are the confirmed English ones.
+  if (/\(\s*code[:\s]*\d{4,}\s*\)/i.test(text)) return true;
+  return lower.includes("an error has occurred") || lower.includes("please try again later");
+}
+
 /** Language-independent pass: an exact keyboard match, then the button count. */
 function classifyByButtons(buttons: string[]): SpamStatus {
   if (!buttons.length) return "unknown";
@@ -776,6 +789,7 @@ free - no limits apply to the account
 limited - the account is restricted from messaging non-contacts, permanently or until a date
 blocked - the account was blocked or banned for violating the Terms of Service
 frozen - the account is frozen and under review
+unknown - the reply states no standing at all (an error, a service message, anything unrelated)
 Answer with one word only, nothing else.`;
 
 async function classifySpamWithAi(reply: SpamReply): Promise<SpamStatus> {
@@ -805,6 +819,7 @@ export function parseAiSpamAnswer(response: string): SpamStatus {
  * callers that already hold a reply.
  */
 export function classifySpamReply(reply: SpamReply): { status: SpamStatus; source: SpamSource } {
+  if (isSpamServiceError(reply.text)) return { status: "unknown", source: "unknown" };
   const byButtons = classifyByButtons(reply.buttons);
   if (byButtons !== "unknown") {
     return { status: byButtons, source: reply.buttons.length === 4 ? "buttons" : "signature" };
@@ -820,6 +835,8 @@ export async function resolveSpamStatus(
 ): Promise<{ status: SpamStatus; source: SpamSource; aiError?: string }> {
   const local = classifySpamReply(reply);
   if (local.status !== "unknown") return local;
+  // A service error has nothing to classify; asking the AI only invents a verdict.
+  if (isSpamServiceError(reply.text)) return local;
 
   try {
     const status = await classifySpamWithAi(reply);

@@ -14,7 +14,7 @@ vi.mock("../db/database", () => ({
 }));
 
 import { describe, it, expect, vi } from "vitest";
-import { classifySpamReply, parseAiSpamAnswer } from "../jobs/checkin";
+import { classifySpamReply, parseAiSpamAnswer, resolveSpamStatus } from "../jobs/checkin";
 
 const FREE_EN = "Good news, no limits are currently applied to your account. You’re free as a bird!";
 const FREE_RU = "Ваш аккаунт свободен от каких-либо ограничений.";
@@ -22,6 +22,8 @@ const LIMITED_EN =
   "Hello Scott!\n\nI’m very sorry that you had to contact me. Unfortunately, some actions can trigger a harsh response from our anti-spam systems. If you think your account was limited by mistake, you can submit a complaint to our moderators.";
 const LIMITED_ES =
   "¡Hola, Sahil!\n\nSiento mucho que hayas tenido que contactarme. Lamentablemente, algunas acciones pueden generar una dura respuesta de nuestros sistemas antispam.";
+const SERVICE_ERROR =
+  "Sorry, an error has occurred during your request. Please try again later. (Code 628117466)";
 const BLOCKED_EN =
   "Your account was blocked for violations of the Telegram Terms of Service based on user reports confirmed by our moderators.";
 
@@ -67,6 +69,24 @@ describe("classifySpamReply", () => {
     expect(
       classifySpamReply({ text: "متاسفانه حساب شما محدود شده است", buttons: ["باشه", "چرا؟"] }),
     ).toEqual({ status: "unknown", source: "unknown" });
+  });
+
+  it("reports unknown for a service error rather than reading it as a restriction", () => {
+    expect(classifySpamReply({ text: SERVICE_ERROR, buttons: [] }))
+      .toEqual({ status: "unknown", source: "unknown" });
+    // "please try again later" alone, with no code, is the same non-answer
+    expect(classifySpamReply({ text: "Sorry, please try again later.", buttons: [] }).status)
+      .toBe("unknown");
+  });
+});
+
+describe("resolveSpamStatus", () => {
+  it("does not spend an AI call guessing at a service error", async () => {
+    // callAIWithFallback is unmocked here: a call would throw and surface as aiError
+    await expect(resolveSpamStatus({ text: SERVICE_ERROR, buttons: [] })).resolves.toEqual({
+      status: "unknown",
+      source: "unknown",
+    });
   });
 });
 
