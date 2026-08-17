@@ -2,12 +2,12 @@ import { db } from "../db/database";
 import {
   accountHasPasskeyFlag,
   appendAccountNotes,
+  applyPrivacyForAccount,
   changeLoginEmailForAccount,
   checkSpamForAccount,
   cleanTelegramAccount,
   deletePasskeyForAccount,
   fetchAttributesForAccount,
-  hardenPrivacyForAccount,
   listPasskeysForAccount,
   loadAccount,
   registerPasskeyForAccount,
@@ -16,7 +16,7 @@ import {
   updateTwoFaForAccount,
   verifyStoredPasskeyForAccount,
 } from "./accountOps";
-import { describePrivacyResult } from "../tg/privacy";
+import { describePrivacyResult, type PrivacySelection } from "../tg/privacy";
 import { startManualJobRun } from "./manualRun";
 import { cancelJob } from "./cancellation";
 import {
@@ -360,11 +360,13 @@ export function startBulkPasskey(
 }
 
 /**
- * Hides everything the account can hide. A settings change rather than a message, so the gap
- * between accounts is the shorter one: the calls are cheap and nothing is being sent anywhere.
+ * Writes the chosen privacy level for each key on every selected account. A settings change rather
+ * than a message, so the gap between accounts is the shorter one: the calls are cheap and nothing
+ * is being sent anywhere.
  */
 export function startBulkPrivacy(
   ids: number[],
+  selection: PrivacySelection,
   gapSeconds?: number,
 ): StartBulkTaskResult {
   const entries = accountTargets(ids);
@@ -374,7 +376,7 @@ export function startBulkPrivacy(
     entries,
     gapSeconds: gapSeconds ?? DEFAULT_FETCH_GAP_SECONDS,
     handler: async (item) => {
-      const result = await hardenPrivacyForAccount(item.refId);
+      const result = await applyPrivacyForAccount(item.refId, selection);
       return { message: describePrivacyResult(result), data: { ...result } };
     },
   });

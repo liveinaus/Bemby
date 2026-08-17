@@ -23,6 +23,12 @@ import {
   startBulkSpamCheck,
 } from "../jobs/bulkOps";
 import { msApiConfigured, msApiOffReason } from "../jobs/msOauth2api";
+import {
+  allNarrowest,
+  isPrivacyLevel,
+  PRIVACY_KEYS,
+  type PrivacySelection,
+} from "../tg/privacy";
 
 // Background bulk tasks: the panel starts one, polls this list for progress and
 // may terminate it. Task objects carry no secrets -- passwords and Gmail app
@@ -178,10 +184,29 @@ router.post("/passkey", bulkMgmtGuard, (req, res) => {
   respond(res, startBulkPasskey(numberList(ids), optionalSeconds(gapSeconds)));
 });
 
-// POST /privacy -- shut every privacy setting on the selected accounts as far as it goes
+// POST /privacy -- write the chosen level (nobody / contacts / everybody) for each privacy key.
+// An omitted or unknown key is left untouched; no body at all means the old lockdown default.
 router.post("/privacy", bulkMgmtGuard, (req, res) => {
-  const { ids, gapSeconds } = req.body as { ids?: number[]; gapSeconds?: number };
-  respond(res, startBulkPrivacy(numberList(ids), optionalSeconds(gapSeconds)));
+  const { ids, settings, gapSeconds } = req.body as {
+    ids?: number[];
+    settings?: Record<string, string>;
+    gapSeconds?: number;
+  };
+  let selection: PrivacySelection;
+  if (settings && typeof settings === "object") {
+    selection = {};
+    for (const key of PRIVACY_KEYS) {
+      const level = settings[key];
+      if (isPrivacyLevel(level)) selection[key] = level;
+    }
+    if (!Object.keys(selection).length) {
+      res.status(400).json({ error: "no known privacy settings given" });
+      return;
+    }
+  } else {
+    selection = allNarrowest();
+  }
+  respond(res, startBulkPrivacy(numberList(ids), selection, optionalSeconds(gapSeconds)));
 });
 
 router.post("/clean", bulkMgmtGuard, (req, res) => {

@@ -33,7 +33,11 @@ import {
   savePasskeySecret,
   storedPasskeyIdsForAccount,
 } from "../tg/passkeyStore";
-import { hardenPrivacy, type PrivacyResult } from "../tg/privacy";
+import {
+  applyPrivacy,
+  type PrivacyResult,
+  type PrivacySelection,
+} from "../tg/privacy";
 import { parseAttributes, patchAttributes } from "../db/accountAttributes";
 import type { AuthStatus, TgProxy } from "../types";
 
@@ -511,13 +515,17 @@ export async function cleanTelegramAccount(
   return result;
 }
 
-/** Shuts every privacy setting as far as Telegram allows: nobody where it can, contacts where not. */
-export async function hardenPrivacyForAccount(
+/**
+ * Writes the selected privacy keys at the level chosen for each. Keys absent from the selection
+ * are left as they are.
+ */
+export async function applyPrivacyForAccount(
   accountId: number,
+  selection: PrivacySelection,
 ): Promise<PrivacyResult> {
   const entry = await getLiveClient(accountId);
   try {
-    return await hardenPrivacy(entry.client);
+    return await applyPrivacy(entry.client, selection);
   } catch (err) {
     rethrowTracking(accountId, err);
   }

@@ -118,7 +118,7 @@ const KIND_LABELS: Record<BulkTaskKind, string> = {
   "login-email": "login email change",
   credentials: "credential change",
   passkey: "passkey",
-  privacy: "privacy lockdown",
+  privacy: "privacy settings",
   clean: "clean",
   "run-jobs": "job run",
   add: "bulk add",

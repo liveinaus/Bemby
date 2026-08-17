@@ -2509,7 +2509,7 @@
       </div>
     </div>
 
-    <!-- Bulk privacy lockdown modal -->
+    <!-- Bulk privacy modal: a level per key, so a run can also undo an earlier one -->
     <div v-if="showBulkPrivacy" class="modal-backdrop">
       <div class="modal modal-lg">
         <h3 class="modal-title">
@@ -2530,17 +2530,48 @@
                 )
               }}
             </p>
-            <!-- Spelled out, since it is the account's own settings being rewritten -->
+            <!-- One level per key, since it is the account's own settings being rewritten -->
+            <div class="bulk-privacy-bulkset">
+              <span class="form-hint">{{ t("accounts.bulkPrivacy.setAll") }}</span>
+              <button
+                v-for="level in PRIVACY_LEVELS"
+                :key="level"
+                class="btn btn-ghost btn-sm"
+                @click="setAllPrivacyLevels(level)"
+              >
+                {{ t(`accounts.bulkPrivacy.level.${level}`) }}
+              </button>
+            </div>
             <ul class="bulk-privacy-list">
               <li v-for="key in PRIVACY_KEYS" :key="key">
-                {{ t(`accounts.bulkPrivacy.key.${key}`) }} —
-                {{
-                  PRIVACY_CONTACTS_ONLY.includes(key)
-                    ? t("accounts.bulkPrivacy.toContacts")
-                    : t("accounts.bulkPrivacy.toNobody")
-                }}
+                <span class="bulk-privacy-key">
+                  {{ t(`accounts.bulkPrivacy.key.${key}`) }}
+                </span>
+                <span class="bulk-privacy-levels">
+                  <label
+                    v-for="level in PRIVACY_LEVELS"
+                    :key="level"
+                    class="bulk-privacy-level"
+                    :class="{
+                      disabled: level === 'nobody' && PRIVACY_CONTACTS_ONLY.includes(key),
+                    }"
+                  >
+                    <input
+                      type="radio"
+                      :name="`privacy-${key}`"
+                      :value="level"
+                      :checked="bulkPrivacySettings[key] === level"
+                      :disabled="level === 'nobody' && PRIVACY_CONTACTS_ONLY.includes(key)"
+                      @change="bulkPrivacySettings[key] = level"
+                    />
+                    {{ t(`accounts.bulkPrivacy.level.${level}`) }}
+                  </label>
+                </span>
               </li>
             </ul>
+            <div class="form-hint" style="margin-bottom: 10px">
+              {{ t("accounts.bulkPrivacy.contactsOnlyNote") }}
+            </div>
             <div class="form-hint" style="margin-bottom: 10px">
               {{ t("accounts.bulkPrivacy.note") }}
             </div>
@@ -3015,6 +3046,7 @@ import {
   type BulkProfileEntry,
   type AvatarSourceMode,
   type AvatarPoolStatus,
+  type PrivacyLevel,
 } from "../api/client";
 import { t, locale } from "../i18n";
 import { usePersistedRef } from "../composables/usePersistedRef";
@@ -4637,10 +4669,10 @@ async function startBulkPasskey() {
   }
 }
 
-// ── Bulk privacy lockdown state ───────────────────────────────────────────────
-// The settings, in the order the server sets them, so the modal can say what it is about to
-// do rather than "the highest level". The two below are the ones Telegram will not take
-// "nobody" for -- being found by number cannot be switched off at all.
+// ── Bulk privacy state ────────────────────────────────────────────────────────
+// The settings, in the order the server writes them, each with its own level so a run can hide
+// the avatar and a later one hand it back. The two in PRIVACY_CONTACTS_ONLY are the ones Telegram
+// will not take "nobody" for -- being found by number cannot be switched off at all.
 const PRIVACY_KEYS = [
   "phoneNumber",
   "addedByPhone",
@@ -4655,17 +4687,40 @@ const PRIVACY_KEYS = [
   "chatInvite",
 ] as const;
 const PRIVACY_CONTACTS_ONLY: readonly string[] = ["addedByPhone", "chatInvite"];
+const PRIVACY_LEVELS: readonly PrivacyLevel[] = ["nobody", "contacts", "everybody"];
+
+/** Narrowest each key goes, which is what the modal opens on. */
+function defaultPrivacySettings(): Record<string, PrivacyLevel> {
+  return Object.fromEntries(
+    PRIVACY_KEYS.map((key) => [
+      key,
+      PRIVACY_CONTACTS_ONLY.includes(key) ? "contacts" : "nobody",
+    ]),
+  );
+}
 
 const showBulkPrivacy = ref(false);
 const bulkPrivacyTargets = ref<Account[]>([]);
 const bulkPrivacyGapSeconds = ref(5);
+const bulkPrivacySettings = ref<Record<string, PrivacyLevel>>(
+  defaultPrivacySettings(),
+);
 const bulkPrivacyTaskId = ref<string | null>(null);
 const bulkPrivacyTask = computed(() => taskById(bulkPrivacyTaskId.value));
+
+function setAllPrivacyLevels(level: PrivacyLevel) {
+  for (const key of PRIVACY_KEYS) {
+    // Telegram has no "nobody" for these two, so contacts is as far as they go
+    bulkPrivacySettings.value[key] =
+      level === "nobody" && PRIVACY_CONTACTS_ONLY.includes(key) ? "contacts" : level;
+  }
+}
 
 function openBulkPrivacy() {
   bulkPrivacyTargets.value = accounts.value.filter(
     (a) => selectedIds.value.has(a.id) && a.authStatus === "authenticated",
   );
+  bulkPrivacySettings.value = defaultPrivacySettings();
   bulkPrivacyTaskId.value = runningTaskOfKind("privacy")?.id ?? null;
   showBulkPrivacy.value = true;
 }
@@ -4679,7 +4734,11 @@ async function startBulkPrivacy() {
   const ids = bulkPrivacyTargets.value.map((a) => a.id);
   if (!ids.length) return;
   try {
-    const task = await bulkTasksApi.privacy(ids, bulkPrivacyGapSeconds.value);
+    const task = await bulkTasksApi.privacy(
+      ids,
+      { ...bulkPrivacySettings.value },
+      bulkPrivacyGapSeconds.value,
+    );
     trackStartedTask(task);
     bulkPrivacyTaskId.value = task.id;
   } catch (e: any) {
@@ -5582,19 +5641,53 @@ async function verify2fa() {
 }
 
 /* What the lockdown is about to set, listed rather than summarised */
-.bulk-privacy-list {
-  margin: 0 0 8px;
-  padding-left: 18px;
-  font-size: 12px;
-  line-height: 1.7;
-  color: #555;
-  columns: 2;
+.bulk-privacy-bulkset {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
 }
 
-@media (max-width: 600px) {
-  .bulk-privacy-list {
-    columns: 1;
-  }
+.bulk-privacy-list {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: #555;
+}
+
+.bulk-privacy-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 5px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.bulk-privacy-key {
+  flex: 1 1 220px;
+}
+
+.bulk-privacy-levels {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bulk-privacy-level {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bulk-privacy-level.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .device-model-preview {

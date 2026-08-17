@@ -41,18 +41,26 @@ function credentialsText(data: Record<string, any>): string {
   return parts.join(", ");
 }
 
-/** What the lockdown managed: how much is hidden outright, and what would not go that far. */
+/** Where each key ended up: hidden outright, narrowed to contacts, opened, or refused. */
 function privacyText(data: Record<string, any>): string {
-  const parts = [
-    t("accounts.bulkPrivacy.result.hidden").replace("{n}", String(data.nobody ?? 0)),
-  ];
+  const keyNames = (keys: string[]) =>
+    keys.map((key) => t(`accounts.bulkPrivacy.key.${key}`)).join("、");
+  const parts: string[] = [];
+  if (data.nobody) {
+    parts.push(
+      t("accounts.bulkPrivacy.result.hidden").replace("{n}", String(data.nobody)),
+    );
+  }
   const contacts = Array.isArray(data.contacts) ? data.contacts : [];
   if (contacts.length) {
     parts.push(
-      t("accounts.bulkPrivacy.result.contacts").replace(
-        "{keys}",
-        contacts.map((key: string) => t(`accounts.bulkPrivacy.key.${key}`)).join("、"),
-      ),
+      t("accounts.bulkPrivacy.result.contacts").replace("{keys}", keyNames(contacts)),
+    );
+  }
+  const everybody = Array.isArray(data.everybody) ? data.everybody : [];
+  if (everybody.length) {
+    parts.push(
+      t("accounts.bulkPrivacy.result.everybody").replace("{keys}", keyNames(everybody)),
     );
   }
   const skipped = Array.isArray(data.skipped) ? data.skipped : [];

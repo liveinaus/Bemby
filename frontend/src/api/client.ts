@@ -2989,6 +2989,9 @@ export type BulkTaskKind =
   | "add"
   | "profile";
 
+/** The three levels Telegram offers for each privacy key. */
+export type PrivacyLevel = "nobody" | "contacts" | "everybody";
+
 export type BulkTaskItemStatus =
   | "pending"
   | "waiting"
@@ -3073,9 +3076,13 @@ export const bulkTasksApi = {
     api
       .post<BulkTask>("/bulk-tasks/passkey", { ids, gapSeconds })
       .then((r) => r.data),
-  privacy: (ids: number[], gapSeconds?: number) =>
+  privacy: (
+    ids: number[],
+    settings: Record<string, PrivacyLevel>,
+    gapSeconds?: number,
+  ) =>
     api
-      .post<BulkTask>("/bulk-tasks/privacy", { ids, gapSeconds })
+      .post<BulkTask>("/bulk-tasks/privacy", { ids, settings, gapSeconds })
       .then((r) => r.data),
   clean: (ids: number[], gapSeconds?: number) =>
     api.post<BulkTask>("/bulk-tasks/clean", { ids, gapSeconds }).then((r) => r.data),

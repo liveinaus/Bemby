@@ -443,13 +443,19 @@ const zh = {
       },
     },
     bulkPrivacy: {
-      btn: "批量收紧隐私设置",
-      title: "批量收紧隐私设置",
+      btn: "批量设置隐私",
+      title: "批量设置隐私",
       intro:
-        "将所选 {n} 个已认证账户的隐私项收到最紧：能设为「无人可见」的一律设为无人，Telegram 不允许无人的则设为「我的联系人」。",
+        "为所选 {n} 个已认证账户逐项设置隐私可见范围，默认全部为「无人」。改成「所有人」即可恢复公开（例如之前隐藏了头像，现在可以放回来）。",
       noTargets: "所选账户中没有已认证的账户。",
-      toNobody: "无人可见",
-      toContacts: "仅我的联系人（Telegram 不允许更紧）",
+      setAll: "全部设为：",
+      level: {
+        nobody: "无人",
+        contacts: "我的联系人",
+        everybody: "所有人",
+      },
+      contactsOnlyNote:
+        "「谁能通过号码找到我」和「谁能把我加入群组」没有「无人」这一档，最紧只能到「我的联系人」。",
       note:
         "本操作只改隐私设置，不会改动资料内容，之后仍可在 Telegram 中自行调整。Premium 专属项（如语音消息）不在此列。个别项若该账户不支持，会跳过并在结果中标注，不影响其余项。",
       start: "开始",
@@ -468,7 +474,8 @@ const zh = {
       },
       result: {
         hidden: "{n} 项已设为无人可见",
-        contacts: "{keys} 只能收到「我的联系人」",
+        contacts: "{keys} 已设为「我的联系人」",
+        everybody: "{keys} 已放开给所有人",
         skipped: "{keys} 该账户不支持，已跳过",
       },
     },
@@ -2634,13 +2641,19 @@ const en: typeof zh = {
       },
     },
     bulkPrivacy: {
-      btn: "Bulk Tighten Privacy",
-      title: "Bulk Tighten Privacy",
+      btn: "Bulk Set Privacy",
+      title: "Bulk Set Privacy",
       intro:
-        "Shut every privacy setting on the {n} selected authenticated account(s) as far as it goes: nobody wherever Telegram allows it, my contacts where it does not.",
+        "Choose who can see each setting on the {n} selected authenticated account(s). Everything starts at nobody; switching one to everyone puts it back (a profile photo hidden by an earlier run, say).",
       noTargets: "None of the selected accounts are authenticated.",
-      toNobody: "nobody",
-      toContacts: "my contacts (Telegram allows no narrower)",
+      setAll: "Set all to:",
+      level: {
+        nobody: "Nobody",
+        contacts: "My contacts",
+        everybody: "Everybody",
+      },
+      contactsOnlyNote:
+        "\"Who can find me by my number\" and \"who can add me to group chats\" have no nobody on Telegram's side -- my contacts is as narrow as they go.",
       note:
         "Only the privacy settings are written -- no profile content is touched, and any of it can still be changed in Telegram afterwards. Premium-only settings (voice messages) are left out. Anything an account cannot have is noted in the result and the rest are still set.",
       start: "Start",
@@ -2659,7 +2672,8 @@ const en: typeof zh = {
       },
       result: {
         hidden: "{n} hidden from everyone",
-        contacts: "{keys} narrowed to my contacts",
+        contacts: "{keys} set to my contacts",
+        everybody: "{keys} open to everybody",
         skipped: "{keys} not available on this account, skipped",
       },
     },

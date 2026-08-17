@@ -1,4 +1,4 @@
-// Shutting an account's privacy down as far as Telegram allows. Driven against a stand-in
+// Writing an account's privacy settings at the level asked for. Driven against a stand-in
 // client, since what matters is not the transport but which rule each key is sent and what
 // happens when the server refuses one: `addedByPhone` has no "nobody" at all, and a key this
 // account cannot have must not take the rest down with it.
@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { Api } from "telegram";
 import type { TelegramClient } from "telegram";
-import { describePrivacyResult, hardenPrivacy } from "../tg/privacy";
+import { applyPrivacy, describePrivacyResult, hardenPrivacy } from "../tg/privacy";
 
 type Sent = { key: string; rules: string[] };
 
@@ -18,7 +18,7 @@ type Sent = { key: string; rules: string[] };
 function fakeClient(
   refuse: Record<
     string,
-    { level: "nobody" | "contacts" | "any"; error: string }
+    { level: "nobody" | "contacts" | "everybody" | "any"; error: string }
   > = {},
 ) {
   const sent: Sent[] = [];
@@ -26,9 +26,11 @@ function fakeClient(
     invoke: async (req: any) => {
       const key = String(req.key?.className ?? "");
       const rules = (req.rules ?? []).map((r: any) => String(r.className));
-      const level = rules.includes("InputPrivacyValueAllowContacts")
-        ? "contacts"
-        : "nobody";
+      const level = rules.includes("InputPrivacyValueAllowAll")
+        ? "everybody"
+        : rules.includes("InputPrivacyValueAllowContacts")
+          ? "contacts"
+          : "nobody";
       const refusal = refuse[key];
       if (refusal && (refusal.level === "any" || refusal.level === level)) {
         const err: any = new Error(refusal.error);
@@ -139,6 +141,89 @@ describe("hardenPrivacy", () => {
 
     // A dead session must fail the account, not be recorded as an unsupported setting
     await expect(hardenPrivacy(client)).rejects.toThrow("AUTH_KEY_UNREGISTERED");
+  });
+});
+
+describe("applyPrivacy", () => {
+  it("writes each key at the level asked for", async () => {
+    const { client, sent } = fakeClient();
+    const result = await applyPrivacy(client, {
+      phoneNumber: "nobody",
+      profilePhoto: "everybody",
+      lastSeen: "contacts",
+    });
+
+    expect(forKey(sent, "InputPrivacyKeyPhoneNumber")?.rules).toEqual([
+      "InputPrivacyValueDisallowAll",
+    ]);
+    expect(forKey(sent, "InputPrivacyKeyProfilePhoto")?.rules).toEqual([
+      "InputPrivacyValueAllowAll",
+    ]);
+    expect(forKey(sent, "InputPrivacyKeyStatusTimestamp")?.rules).toEqual([
+      "InputPrivacyValueAllowContacts",
+      "InputPrivacyValueDisallowAll",
+    ]);
+    expect(result.settings).toEqual({
+      phoneNumber: "nobody",
+      profilePhoto: "everybody",
+      lastSeen: "contacts",
+    });
+    expect(result.nobody).toBe(1);
+    expect(result.contacts).toEqual(["lastSeen"]);
+    expect(result.everybody).toEqual(["profilePhoto"]);
+  });
+
+  it("leaves a key out of the selection untouched", async () => {
+    const { client, sent } = fakeClient();
+    const result = await applyPrivacy(client, { about: "everybody" });
+
+    expect(sent).toHaveLength(1);
+    expect(forKey(sent, "InputPrivacyKeyAbout")).toBeTruthy();
+    expect(Object.keys(result.settings)).toEqual(["about"]);
+  });
+
+  it("hands a previously hidden setting back to everyone", async () => {
+    // The point of the levels: an earlier run hid the avatar, this one puts it back
+    const { client } = fakeClient();
+    const hidden = await applyPrivacy(client, { profilePhoto: "nobody" });
+    expect(hidden.settings.profilePhoto).toBe("nobody");
+
+    const restored = await applyPrivacy(client, { profilePhoto: "everybody" });
+    expect(restored.settings.profilePhoto).toBe("everybody");
+    expect(restored.nobody).toBe(0);
+  });
+
+  it("gives contacts for a nobody asked of a key Telegram has no nobody for", async () => {
+    const { client, sent } = fakeClient();
+    const result = await applyPrivacy(client, { addedByPhone: "nobody" });
+
+    expect(forKey(sent, "InputPrivacyKeyAddedByPhone")?.rules).toEqual([
+      "InputPrivacyValueAllowContacts",
+      "InputPrivacyValueDisallowAll",
+    ]);
+    expect(result.settings.addedByPhone).toBe("contacts");
+  });
+
+  it("does not widen a refused setting past what was asked for", async () => {
+    const { client } = fakeClient({
+      InputPrivacyKeyAbout: { level: "contacts", error: "PRIVACY_VALUE_INVALID" },
+    });
+    const result = await applyPrivacy(client, { about: "contacts" });
+
+    // Falling back to everybody would be the opposite of the request, so it is skipped instead
+    expect(result.settings.about).toBe("unsupported");
+    expect(result.everybody).toEqual([]);
+  });
+
+  it("ignores unknown keys and levels", async () => {
+    const { client, sent } = fakeClient();
+    const result = await applyPrivacy(client, {
+      nonsense: "nobody",
+      about: "sometimes" as any,
+    });
+
+    expect(sent).toHaveLength(0);
+    expect(result.settings).toEqual({});
   });
 });
 
