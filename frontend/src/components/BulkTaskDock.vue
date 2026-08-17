@@ -22,7 +22,10 @@
 
       <div v-for="task in tasks" :key="task.id" class="task-card">
         <div class="task-card-top">
-          <span class="task-card-name">{{ bulkTaskTitle(task.kind) }}</span>
+          <span class="task-card-name">
+            {{ bulkTaskTitle(task.kind) }}
+            <span v-if="task.label" class="task-card-scope">{{ task.label }}</span>
+          </span>
           <span class="task-card-state" :class="`state-${task.state}`">
             {{ t(`bulkTasks.state.${task.state}`) }}
           </span>
@@ -251,6 +254,14 @@ onMounted(() => startBulkTaskPolling());
 
 .task-card-name {
   font-weight: 600;
+}
+
+/* Several job queues can run at once, so each says which templates it covers */
+.task-card-scope {
+  margin-left: 6px;
+  font-weight: 400;
+  font-size: 11px;
+  color: #8c8c8c;
 }
 
 .task-card-state {

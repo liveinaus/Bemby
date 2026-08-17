@@ -96,6 +96,7 @@ import {
   type BulkTask,
   type StartBulkTaskResult,
 } from "../jobs/bulkTasks";
+import { resetBulkRunSlots } from "../jobs/runSlots";
 import { savePasskeySecret } from "../tg/passkeyStore";
 
 const SCHEMA = `
@@ -119,9 +120,14 @@ const SCHEMA = `
     additional_attributes TEXT
   );
   CREATE TABLE jobs (
-    id       INTEGER PRIMARY KEY AUTOINCREMENT,
-    name     TEXT NOT NULL DEFAULT 'Job',
-    job_type TEXT NOT NULL DEFAULT 'checkin'
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL DEFAULT 'Job',
+    job_type    TEXT NOT NULL DEFAULT 'checkin',
+    template_id INTEGER
+  );
+  CREATE TABLE job_templates (
+    id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL DEFAULT 'Template'
   );
   CREATE TABLE job_logs (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,9 +160,16 @@ function addAccount(
   return Number(lastInsertRowid);
 }
 
-function addJob(name: string): number {
+function addJob(name: string, templateId: number | null = null): number {
   const { lastInsertRowid } = testDb
-    .prepare("INSERT INTO jobs (name) VALUES (?)")
+    .prepare("INSERT INTO jobs (name, template_id) VALUES (?, ?)")
+    .run(name, templateId);
+  return Number(lastInsertRowid);
+}
+
+function addTemplate(name: string): number {
+  const { lastInsertRowid } = testDb
+    .prepare("INSERT INTO job_templates (name) VALUES (?)")
     .run(name);
   return Number(lastInsertRowid);
 }
@@ -191,8 +204,12 @@ beforeAll(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   resetBulkTasks();
+  // A queue abandoned by an earlier test would otherwise still hold its run slots
+  resetBulkRunSlots();
   defaultCreds = { apiId: 1, apiHash: "global-hash" };
-  testDb.exec("DELETE FROM tg_accounts; DELETE FROM jobs; DELETE FROM job_logs; DELETE FROM settings;");
+  testDb.exec(
+    "DELETE FROM tg_accounts; DELETE FROM jobs; DELETE FROM job_templates; DELETE FROM job_logs; DELETE FROM settings;",
+  );
   tg.getSessionDc.mockReturnValue({ dcId: 2 });
   live.isAuthError.mockReturnValue(false);
 });
@@ -762,6 +779,48 @@ describe("bulk job runs", () => {
     expect(
       (testDb.prepare("SELECT status FROM job_logs WHERE id = 1").get() as { status: string }).status,
     ).toBe("failed");
+  });
+
+  it("queues by template, so another template's batch runs alongside", async () => {
+    const sntp = addTemplate("SNTP signup");
+    const creds = addTemplate("Telegram API credentials");
+    const a = addJob("SNTP signup - 095", sntp);
+    const b = addJob("SNTP signup - 096", sntp);
+    const c = addJob("Telegram API credentials - 039", creds);
+    startManualJobRun.mockImplementation((jobId: number) => {
+      const { lastInsertRowid } = testDb
+        .prepare("INSERT INTO job_logs (job_id, status, message) VALUES (?, 'success', 'Completed')")
+        .run(jobId);
+      return { ok: true, logId: Number(lastInsertRowid), completion: Promise.resolve() };
+    });
+
+    // Nothing is awaited until the assertions are done, so both queues are still
+    // holding every item when they are screened
+    const first = task(startBulkJobRuns([a, b], 0));
+    expect(first.label).toBe("SNTP signup");
+
+    const alongside = startBulkJobRuns([c], 0);
+    expect(alongside.ok).toBe(true);
+    if (alongside.ok) expect(alongside.task.label).toBe("Telegram API credentials");
+
+    // The same template is still one queue at a time, and points at the one running
+    const clash = startBulkJobRuns([a, b], 0);
+    expect(clash.ok).toBe(false);
+    if (!clash.ok) {
+      expect(clash.conflictTaskId).toBe(first.id);
+      expect(clash.error).toContain("SNTP signup");
+    }
+
+    // A job already queued cannot be handed to a second queue under another scope
+    const overlap = startBulkJobRuns([a, c], 0);
+    expect(overlap.ok).toBe(false);
+    if (!overlap.ok) {
+      expect(overlap.error).toContain("Already queued");
+      expect(overlap.conflictTaskId).toBe(first.id);
+    }
+
+    await settle(first);
+    if (alongside.ok) await settle(alongside.task);
   });
 
   it("reports a failed run with the log's own message", async () => {

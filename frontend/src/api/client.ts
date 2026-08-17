@@ -3014,6 +3014,10 @@ export type BulkTaskItem = {
 export type BulkTask = {
   id: string;
   kind: BulkTaskKind;
+  /** Queues of one kind run side by side while their scopes differ (job runs: by template). */
+  scope: string;
+  /** Readable name for the scope, shown beside the task title. */
+  label: string;
   createdAt: string;
   finishedAt: string | null;
   state: BulkTaskState;

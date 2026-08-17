@@ -42,6 +42,22 @@ export function runningTaskOfKind(kind: BulkTaskKind): BulkTask | null {
   return tasks.value.find((t) => t.kind === kind && t.state === "running") ?? null;
 }
 
+/** The running queue that already holds any of these items, e.g. the jobs just selected. */
+export function runningTaskWithRef(
+  kind: BulkTaskKind,
+  refIds: number[],
+): BulkTask | null {
+  const wanted = new Set(refIds);
+  return (
+    tasks.value.find(
+      (t) =>
+        t.kind === kind &&
+        t.state === "running" &&
+        t.items.some((i) => wanted.has(i.refId)),
+    ) ?? null
+  );
+}
+
 export function taskById(id: string | null): BulkTask | null {
   if (!id) return null;
   return tasks.value.find((t) => t.id === id) ?? null;

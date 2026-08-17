@@ -721,6 +721,8 @@ const zh = {
     bulkRunMaxLabel: "单个任务最长运行时间（秒）",
     bulkRunMaxHint: "超过此时间的任务会被终止，队列继续执行；填 0 表示不限制。",
     bulkRunStart: "开始运行",
+    bulkRunConflict: "所选任务已有批量运行在进行中，下面显示的就是该队列。其它模板可以同时运行。",
+    bulkRunHint: "按模板排队：其它模板的批量运行不受影响，可同时进行。",
     bulkWindowTitle: "修改时间窗口",
     bulkWindowApply: "应用",
     extractToTemplate: "另存为模板",
@@ -2925,6 +2927,10 @@ const en: typeof zh = {
     bulkRunMaxLabel: "Max run time per job (seconds)",
     bulkRunMaxHint: "A job past this is terminated so the queue carries on; 0 waits indefinitely.",
     bulkRunStart: "Start Running",
+    bulkRunConflict:
+      "Some of the selected jobs are already in a running bulk run; that queue is shown below. Other templates can run at the same time.",
+    bulkRunHint:
+      "Queues are per template: a bulk run on another template is unaffected and can run alongside.",
     bulkWindowTitle: "Change Time Window",
     bulkWindowApply: "Apply",
     extractToTemplate: "Save as Template",

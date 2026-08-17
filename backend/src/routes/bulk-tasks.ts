@@ -42,7 +42,10 @@ function optionalSeconds(value: unknown): number | undefined {
 
 function respond(res: import("express").Response, result: StartBulkTaskResult): void {
   if (!result.ok) {
-    res.status(400).json({ error: result.error });
+    // 409 carries the queue already holding this scope, so the panel can show it
+    // instead of leaving the operator to guess what is in the way.
+    const status = result.conflictTaskId ? 409 : 400;
+    res.status(status).json({ error: result.error, taskId: result.conflictTaskId });
     return;
   }
   res.status(201).json(result.task);

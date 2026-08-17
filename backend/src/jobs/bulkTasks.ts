@@ -45,6 +45,14 @@ export type BulkTaskItem = {
 export type BulkTask = {
   id: string;
   kind: BulkTaskKind;
+  /**
+   * What this queue occupies. Two queues of one kind may run side by side as long as
+   * their scopes differ -- job runs scope themselves by template, so one template's
+   * batch no longer blocks another's. Empty means one queue per kind, as before.
+   */
+  scope: string;
+  /** Readable name for the scope, shown beside the task title. */
+  label: string;
   createdAt: string;
   finishedAt: string | null;
   state: BulkTaskState;
@@ -84,6 +92,11 @@ export type BulkTaskHandler = (
 export type StartBulkTaskInput = {
   kind: BulkTaskKind;
   entries: BulkTaskEntry[];
+  /** Queues of one kind are mutually exclusive within a scope. Defaults to one per kind. */
+  scope?: string;
+  label?: string;
+  /** How many queues of this kind may run at once, across scopes. Defaults to one. */
+  maxRunning?: number;
   /** Pause between items, in seconds; spaces out Telegram calls. */
   gapSeconds?: number;
   handler: BulkTaskHandler;
@@ -91,7 +104,7 @@ export type StartBulkTaskInput = {
 
 export type StartBulkTaskResult =
   | { ok: true; task: BulkTask }
-  | { ok: false; error: string };
+  | { ok: false; error: string; conflictTaskId?: string };
 
 /** Finished tasks are kept this long so the panel can still show the outcome. */
 const FINISHED_TTL_MS = 6 * 60 * 60 * 1000;
@@ -166,10 +179,50 @@ export function getBulkTask(id: string): BulkTask | null {
 }
 
 export function runningTaskOfKind(kind: BulkTaskKind): BulkTask | null {
-  for (const task of tasks.values()) {
-    if (task.kind === kind && task.state === "running") return task;
+  return runningTasksOfKind(kind)[0] ?? null;
+}
+
+export function runningTasksOfKind(kind: BulkTaskKind): BulkTask[] {
+  return [...tasks.values()].filter(
+    (task) => task.kind === kind && task.state === "running",
+  );
+}
+
+/**
+ * Items of this kind that a running queue still owes work to. A job already queued
+ * elsewhere must not be handed to a second queue, or the two would run it at once.
+ */
+export function queuedRefIds(kind: BulkTaskKind): Set<number> {
+  const ids = new Set<number>();
+  for (const task of runningTasksOfKind(kind)) {
+    for (const item of task.items) {
+      if (item.status === "pending" || item.status === "waiting" || item.status === "working") {
+        ids.add(item.refId);
+      }
+    }
   }
-  return null;
+  return ids;
+}
+
+/**
+ * The refusal to hand back when a queue already holds this scope, or null when it is
+ * free. Callers that screen a selection first use this so the answer still names the
+ * queue in the way, rather than whichever check happened to run first.
+ */
+export function scopeConflict(
+  kind: BulkTaskKind,
+  scope: string,
+): { ok: false; error: string; conflictTaskId: string } | null {
+  const held = runningTasksOfKind(kind).find((task) => task.scope === scope);
+  if (!held) return null;
+  const what = held.label
+    ? `${KIND_LABELS[kind]} task for ${held.label}`
+    : `${KIND_LABELS[kind]} task`;
+  return {
+    ok: false,
+    error: `A background ${what} is already running`,
+    conflictTaskId: held.id,
+  };
 }
 
 /** Asks a running task to stop after the item in flight; false if it had finished. */
@@ -253,11 +306,16 @@ async function runTask(task: BulkTask, handler: BulkTaskHandler): Promise<void> 
 }
 
 export function startBulkTask(input: StartBulkTaskInput): StartBulkTaskResult {
-  const running = runningTaskOfKind(input.kind);
-  if (running) {
+  const scope = input.scope ?? "";
+  const label = input.label ?? "";
+  const running = runningTasksOfKind(input.kind);
+  const conflict = scopeConflict(input.kind, scope);
+  if (conflict) return conflict;
+  const maxRunning = Math.max(1, input.maxRunning ?? 1);
+  if (running.length >= maxRunning) {
     return {
       ok: false,
-      error: `A background ${KIND_LABELS[input.kind]} task is already running`,
+      error: `Already running ${running.length} background ${KIND_LABELS[input.kind]} queues (limit ${maxRunning}). Wait for one to finish, or terminate it.`,
     };
   }
   if (!Array.isArray(input.entries) || !input.entries.length) {
@@ -267,6 +325,8 @@ export function startBulkTask(input: StartBulkTaskInput): StartBulkTaskResult {
   const task: BulkTask = {
     id: crypto.randomUUID(),
     kind: input.kind,
+    scope,
+    label,
     createdAt: new Date().toISOString(),
     finishedAt: null,
     state: "running",

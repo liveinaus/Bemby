@@ -63,6 +63,9 @@ function adapt(
   return {
     id: batch.id,
     kind,
+    // One batch of each at a time, so these need no scope of their own
+    scope: "",
+    label: "",
     createdAt: batch.createdAt,
     finishedAt: batch.running ? null : batch.createdAt,
     state: batch.running ? "running" : batch.cancelled ? "cancelled" : "completed",

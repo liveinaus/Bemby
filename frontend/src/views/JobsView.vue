@@ -1090,8 +1090,16 @@
     <!-- Bulk run modal -->
     <div v-if="showBulkRunModal" class="modal-backdrop">
       <div class="modal" :style="bulkRunTask ? 'width:520px' : 'width:380px'">
-        <h3 class="modal-title">{{ t('jobs.bulkRunTitle') }}</h3>
-        <template v-if="!bulkRunTask">
+        <h3 class="modal-title">
+          {{ t('jobs.bulkRunTitle') }}
+          <span v-if="bulkRunTask?.label" class="modal-title-scope">{{ bulkRunTask.label }}</span>
+        </h3>
+        <p v-if="bulkRunConflict" class="bulk-run-conflict">
+          <i class="fa-solid fa-triangle-exclamation"></i> {{ t('jobs.bulkRunConflict') }}
+        </p>
+        <!-- A conflict waits for the queue it named to arrive with the next poll, rather
+             than offering the form again for a start that would be refused -->
+        <template v-if="!bulkRunTask && !bulkRunConflict">
           <div class="modal-body">
             <div class="form-group">
               <label class="form-label">{{ t('jobs.bulkRunDelayLabel') }}</label>
@@ -1103,6 +1111,7 @@
               <p class="form-hint">{{ t('jobs.bulkRunMaxHint') }}</p>
             </div>
             <p class="form-hint">{{ t('bulkTasks.serverNote') }}</p>
+            <p class="form-hint">{{ t('jobs.bulkRunHint') }}</p>
           </div>
           <div class="modal-footer">
             <button class="btn btn-ghost" @click="closeBulkRun"><i class="fa-solid fa-xmark"></i> {{ t('common.cancel') }}</button>
@@ -1110,7 +1119,10 @@
           </div>
         </template>
         <!-- Progress step -- rendered from the server-side task -->
-        <BulkTaskProgress v-else :task="bulkRunTask" @close="closeBulkRun" />
+        <BulkTaskProgress v-else-if="bulkRunTask" :task="bulkRunTask" @close="closeBulkRun" />
+        <div v-else class="modal-footer">
+          <button class="btn btn-primary" @click="closeBulkRun"><i class="fa-solid fa-check"></i> {{ t('common.close') }}</button>
+        </div>
       </div>
     </div>
 
@@ -1244,7 +1256,8 @@ import { loadJobIcons } from '../composables/jobIcons';
 import ManualBrowser from '../components/ManualBrowser.vue';
 import {
   onBulkTaskFinished,
-  runningTaskOfKind,
+  pokeBulkTasks,
+  runningTaskWithRef,
   startBulkTaskPolling,
   taskById,
   trackStartedTask,
@@ -1351,6 +1364,8 @@ const bulkRunDelay = ref(70);
 const bulkRunMaxSeconds = ref(1800);
 const bulkRunTaskId = ref<string | null>(null);
 const bulkRunTask = computed(() => taskById(bulkRunTaskId.value));
+/** Set when the server refused the selection because its templates are already queued. */
+const bulkRunConflict = ref('');
 const showBulkWindowModal = ref(false);
 const bulkWindowStart = ref(1400);
 const bulkWindowEnd = ref(1600);
@@ -2588,21 +2603,34 @@ async function startBulkRun() {
     const task = await bulkTasksApi.runJobs(ids, bulkRunDelay.value, bulkRunMaxSeconds.value);
     trackStartedTask(task);
     bulkRunTaskId.value = task.id;
+    bulkRunConflict.value = '';
     selectedJobIds.value = [];
   } catch (err: any) {
-    showBulkRunToast(err.response?.data?.error ?? t('bulkTasks.startFailed'));
+    const data = err.response?.data;
+    // 409 names the queue holding these templates: show that one rather than a bare error
+    if (data?.taskId) {
+      bulkRunConflict.value = data.error ?? '';
+      bulkRunTaskId.value = data.taskId;
+      pokeBulkTasks();
+      return;
+    }
+    showBulkRunToast(data?.error ?? t('bulkTasks.startFailed'));
   }
 }
 
 function openBulkRun() {
-  // A queue still running from an earlier visit keeps showing its progress
-  bulkRunTaskId.value = runningTaskOfKind('run-jobs')?.id ?? null;
+  // Queues are per template now, so attach to the one already holding these jobs --
+  // any other queue is somebody else's batch and must not be mistaken for this one.
+  bulkRunConflict.value = '';
+  bulkRunTaskId.value =
+    runningTaskWithRef('run-jobs', selectedJobIds.value)?.id ?? null;
   showBulkRunModal.value = true;
 }
 
 function closeBulkRun() {
   showBulkRunModal.value = false;
   bulkRunTaskId.value = null;
+  bulkRunConflict.value = '';
 }
 
 const manualBrowserJobId = ref<number | null>(null);
@@ -2686,6 +2714,22 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.modal-title-scope {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #8c8c8c;
+}
+
+.bulk-run-conflict {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #fffbe6;
+  color: #ad6800;
+  font-size: 12px;
+}
+
 .name-with-icon {
   display: flex;
   align-items: center;

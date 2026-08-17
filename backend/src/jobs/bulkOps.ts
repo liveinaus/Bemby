@@ -20,12 +20,16 @@ import { describePrivacyResult } from "../tg/privacy";
 import { startManualJobRun } from "./manualRun";
 import { cancelJob } from "./cancellation";
 import {
+  queuedRefIds,
+  runningTasksOfKind,
+  scopeConflict,
   startBulkTask,
   TERMINATED,
   type BulkTaskContext,
   type BulkTaskEntry,
   type StartBulkTaskResult,
 } from "./bulkTasks";
+import { acquireBulkRunSlot } from "./runSlots";
 
 // Wires each long bulk action to the background task runner. Everything the UI
 // used to loop over in the browser starts here instead, so the page can be
@@ -41,6 +45,12 @@ const DEFAULT_JOB_GAP_SECONDS = 70;
  * Set to 0 to wait indefinitely.
  */
 const DEFAULT_JOB_MAX_RUN_SECONDS = 1800;
+/**
+ * How many job queues may run at once. Each covers its own templates, so this only
+ * stops an operator opening so many that the list stops being readable -- what caps
+ * the actual load is the run slots the items take.
+ */
+const MAX_RUN_JOB_QUEUES = 5;
 /** Grace given to a cancelled run to unwind before the batch gives up on it entirely. */
 const CANCEL_GRACE_MS = 30_000;
 
@@ -59,16 +69,70 @@ function authenticatedAccountEntries(ids: number[]): BulkTaskEntry[] {
   return rows.map((r) => ({ refId: r.id, refName: r.name }));
 }
 
-function jobEntries(ids: number[]): BulkTaskEntry[] {
+type JobSelectionRow = {
+  id: number;
+  name: string;
+  job_type: string;
+  template_id: number | null;
+  template_name: string | null;
+};
+
+function jobSelection(ids: number[]): JobSelectionRow[] {
   const unique = [...new Set(ids.map(Number).filter(Number.isInteger))];
   if (!unique.length) return [];
   const placeholders = unique.map(() => "?").join(",");
-  const rows = db
+  return db
     .prepare(
-      `SELECT id, name FROM jobs WHERE id IN (${placeholders}) ORDER BY id`,
+      `SELECT j.id, j.name, j.job_type, j.template_id, t.name AS template_name
+         FROM jobs j LEFT JOIN job_templates t ON t.id = j.template_id
+        WHERE j.id IN (${placeholders})
+        ORDER BY j.id`,
     )
-    .all(...unique) as Array<{ id: number; name: string }>;
-  return rows.map((r) => ({ refId: r.id, refName: r.name }));
+    .all(...unique) as JobSelectionRow[];
+}
+
+/**
+ * What a job's run queue competes for: its template, or its type when it has none
+ * (a bot or URL job answers to no template). Selections covering the same set of
+ * groups share a queue; anything else runs alongside.
+ */
+function jobGroupKey(row: JobSelectionRow): string {
+  return row.template_id ? `t${row.template_id}` : `y${row.job_type}`;
+}
+
+function jobGroupLabel(row: JobSelectionRow): string {
+  return row.template_name || row.job_type;
+}
+
+/** The running queue that owes this job a run, so the panel can point at it. */
+function holderOfJob(jobId: number) {
+  return runningTasksOfKind("run-jobs").find((task) =>
+    task.items.some(
+      (item) =>
+        item.refId === jobId &&
+        (item.status === "pending" ||
+          item.status === "waiting" ||
+          item.status === "working"),
+    ),
+  );
+}
+
+const MAX_LABEL_GROUPS = 3;
+
+/** Scope key and readable label for a selection, keyed on template where there is one. */
+function jobScope(rows: JobSelectionRow[]): { scope: string; label: string } {
+  const groups = new Map<string, string>();
+  for (const row of rows) groups.set(jobGroupKey(row), jobGroupLabel(row));
+  const keys = [...groups.keys()].sort();
+  const labels = keys.map((key) => groups.get(key)!);
+  const shown = labels.slice(0, MAX_LABEL_GROUPS).join(" + ");
+  return {
+    scope: keys.join("+"),
+    label:
+      labels.length > MAX_LABEL_GROUPS
+        ? `${shown} +${labels.length - MAX_LABEL_GROUPS}`
+        : shown,
+  };
 }
 
 const NO_ACCOUNTS: StartBulkTaskResult = {
@@ -380,8 +444,33 @@ export function startBulkJobRuns(
   gapSeconds?: number,
   maxRunSeconds?: number,
 ): StartBulkTaskResult {
-  const entries = jobEntries(jobIds);
-  if (!entries.length) return { ok: false, error: "No jobs in the selection" };
+  const rows = jobSelection(jobIds);
+  if (!rows.length) return { ok: false, error: "No jobs in the selection" };
+
+  // Screened before the overlap check below, so re-running a template that is already
+  // going says so -- and names its queue -- instead of listing the jobs inside it.
+  const { scope, label } = jobScope(rows);
+  const busy = scopeConflict("run-jobs", scope);
+  if (busy) return busy;
+
+  // A job queued elsewhere would otherwise be started twice at once, by two queues
+  // that each believe they own it.
+  const queued = queuedRefIds("run-jobs");
+  const clash = rows.filter((row) => queued.has(row.id));
+  if (clash.length) {
+    const names = clash.slice(0, 3).map((row) => row.name).join(", ");
+    const rest = clash.length > 3 ? ` and ${clash.length - 3} more` : "";
+    return {
+      ok: false,
+      error: `Already queued in another background run: ${names}${rest}`,
+      conflictTaskId: holderOfJob(clash[0].id)?.id,
+    };
+  }
+
+  const entries: BulkTaskEntry[] = rows.map((row) => ({
+    refId: row.id,
+    refName: row.name,
+  }));
   const maxRunMs =
     (Number.isFinite(maxRunSeconds) && (maxRunSeconds as number) >= 0
       ? (maxRunSeconds as number)
@@ -389,40 +478,58 @@ export function startBulkJobRuns(
   return startBulkTask({
     kind: "run-jobs",
     entries,
+    scope,
+    label,
+    maxRunning: MAX_RUN_JOB_QUEUES,
     gapSeconds: gapSeconds ?? DEFAULT_JOB_GAP_SECONDS,
     handler: async (item, ctx) => {
-      const started = startManualJobRun(item.refId);
-      if (!started.ok) throw new Error(started.error);
-      ctx.progress("Running");
-      const { timedOut } = await awaitRun(
-        started.logId,
-        started.completion,
-        ctx,
-        maxRunMs,
-      );
-      if (timedOut) {
-        const message = `Run passed the ${Math.round(maxRunMs / 1000)}s limit and was terminated`;
-        // A run that did not unwind inside the grace leaves its row open; settle it here so
-        // the log does not read as still running with nothing behind it.
-        db.prepare(
-          "UPDATE job_logs SET status = 'failed', message = ? WHERE id = ? AND status = 'running'",
-        ).run(message, started.logId);
-        throw new Error(message);
+      // Queues no longer take turns, so the runs inside them do: this is what keeps
+      // several template queues from opening a browser each at the same moment.
+      ctx.progress("Waiting for a run slot");
+      const slot = await acquireBulkRunSlot(ctx.cancelled);
+      if (!slot) throw new Error(TERMINATED);
+      try {
+        return await runOneJob(item.refId, ctx, maxRunMs);
+      } finally {
+        slot.release();
       }
-      const log = db
-        .prepare("SELECT status, message FROM job_logs WHERE id = ?")
-        .get(started.logId) as
-        | { status: string; message: string | null }
-        | undefined;
-      if (log?.status === "failed") {
-        // A run aborted by the terminate button is not the job's own failure
-        if (ctx.cancelled()) throw new Error(TERMINATED);
-        throw new Error(log.message || "Job run failed");
-      }
-      return {
-        message: log?.message ?? "Completed",
-        data: { logId: started.logId, status: log?.status ?? "unknown" },
-      };
     },
   });
+}
+
+async function runOneJob(
+  jobId: number,
+  ctx: BulkTaskContext,
+  maxRunMs: number,
+): Promise<{ message: string; data: Record<string, unknown> }> {
+  const started = startManualJobRun(jobId);
+  if (!started.ok) throw new Error(started.error);
+  ctx.progress("Running");
+  const { timedOut } = await awaitRun(
+    started.logId,
+    started.completion,
+    ctx,
+    maxRunMs,
+  );
+  if (timedOut) {
+    const message = `Run passed the ${Math.round(maxRunMs / 1000)}s limit and was terminated`;
+    // A run that did not unwind inside the grace leaves its row open; settle it here so
+    // the log does not read as still running with nothing behind it.
+    db.prepare(
+      "UPDATE job_logs SET status = 'failed', message = ? WHERE id = ? AND status = 'running'",
+    ).run(message, started.logId);
+    throw new Error(message);
+  }
+  const log = db
+    .prepare("SELECT status, message FROM job_logs WHERE id = ?")
+    .get(started.logId) as { status: string; message: string | null } | undefined;
+  if (log?.status === "failed") {
+    // A run aborted by the terminate button is not the job's own failure
+    if (ctx.cancelled()) throw new Error(TERMINATED);
+    throw new Error(log.message || "Job run failed");
+  }
+  return {
+    message: log?.message ?? "Completed",
+    data: { logId: started.logId, status: log?.status ?? "unknown" },
+  };
 }
