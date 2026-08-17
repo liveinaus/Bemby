@@ -1627,7 +1627,10 @@ const zh = {
     providerKeyStored: "已保存 Token（留空则沿用）",
     providerUrlPlaceholder: "列表下载地址（https://...）",
     providerSubUrlPlaceholder: "订阅地址（https://your.worker.dev/sub?token={token}）",
-    providerSynced: "已导入：新增 {added}，移除 {removed}，共 {total} 个代理",
+    providerSynced: "已导入：新增 {added}，更新 {updated}，移除 {removed}，共 {total} 个代理",
+    proxySyncMatchByName: "刷新时按名称更新已有代理（推荐）",
+    proxySyncMatchByNameHint:
+      "订阅节点更换地址后会得到新的标识，若直接删除再新增，原先绑定该代理的任务就会失去代理。开启后按名称匹配并原地更新，保留原有绑定；关闭则按标识处理，视为移除并新增。",
     providerSyncFailed: "导入失败",
     addProxy: "添加",
     proxyTesting: "测试中...",
@@ -3852,7 +3855,10 @@ const en: typeof zh = {
     providerKeyStored: "Token saved (leave blank to reuse)",
     providerUrlPlaceholder: "List download URL (https://...)",
     providerSubUrlPlaceholder: "Subscription URL (https://your.worker.dev/sub?token={token})",
-    providerSynced: "Imported: {added} added, {removed} removed, {total} proxies total",
+    providerSynced: "Imported: {added} added, {updated} updated, {removed} removed, {total} proxies total",
+    proxySyncMatchByName: "On refresh, update a proxy of the same name (recommended)",
+    proxySyncMatchByNameHint:
+      "A subscription node that changes address comes back under a new identity. Dropping it and importing it afresh leaves every job pinned to it with no proxy; matching on the name updates the entry in place and keeps the pin. Turn this off to go by identity alone, which reads as a removal and an addition.",
     providerSyncFailed: "Import failed",
     addProxy: "Add",
     proxyTesting: "Testing...",

@@ -59,6 +59,7 @@ import { installVnc, removeVnc, vncInstallLog, vncStatus } from "../jobs/vncInst
 import {
   clearCfExitGeo,
   providersForClient,
+  PROXY_SYNC_MATCH_BY_NAME_KEY,
   saveProviders,
   syncProviders,
   type ProxyProvider,
@@ -108,6 +109,7 @@ export const ALLOWED_KEYS = [
   NOTIFY_BOT_TARGET_KEY,
   "ua_presets",
   "proxies",
+  PROXY_SYNC_MATCH_BY_NAME_KEY,
   "tg_app_clients",
   "tg_client_mode",
   "default_tg_api_id",

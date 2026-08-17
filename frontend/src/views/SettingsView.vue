@@ -1531,6 +1531,22 @@
               </button>
             </div>
 
+            <!-- What a refresh does with an entry the provider re-issues under a new
+                 identity: keep the id a job is pinned to, or treat it as a new proxy -->
+            <div class="form-group" style="margin-top: 10px">
+              <label class="form-check">
+                <input
+                  type="checkbox"
+                  v-model="proxySyncMatchByName"
+                  @change="saveProxySyncMatchByName"
+                />
+                <span>{{ t("settings.proxySyncMatchByName") }}</span>
+              </label>
+              <p style="font-size: 12px; color: #888; margin: 4px 0 0 24px">
+                {{ t("settings.proxySyncMatchByNameHint") }}
+              </p>
+            </div>
+
             <div v-if="providersMsg" class="success-msg" style="margin-top: 8px">{{ providersMsg }}</div>
             <div v-if="providersErrorMsg" class="error-msg" style="margin-top: 8px">{{ providersErrorMsg }}</div>
           </div>
@@ -3425,6 +3441,18 @@ const providersSaving = ref(false);
 const providersSyncing = ref(false);
 const providersMsg = ref("");
 const providersErrorMsg = ref("");
+// On by default, so a refresh updates an entry in place rather than leaving a job with no proxy
+const proxySyncMatchByName = ref(true);
+
+async function saveProxySyncMatchByName() {
+  try {
+    await settingsApi.update({
+      proxy_sync_match_by_name: String(proxySyncMatchByName.value),
+    });
+  } catch {
+    proxySyncMatchByName.value = !proxySyncMatchByName.value;
+  }
+}
 
 type ProxyForm = {
   protocol: "socks5" | "socks4";
@@ -3809,6 +3837,8 @@ onMounted(async () => {
     accountDisplayWithTgName.value = s.account_display_with_tg_name === "true";
     scheduleSeparatePageSetting.value = s.schedule_separate_page === "true";
     jobsTemplateEditButtonSetting.value = s.jobs_template_edit_button === "true";
+    // Unset means on: only an explicit "false" turns it off
+    proxySyncMatchByName.value = s.proxy_sync_match_by_name !== "false";
     applyDataStoreSetting(s);
     dataStoreSetting.value = dataStoreEnabled.value;
     form.default_play_duration = Number(s.default_play_duration ?? 300);
@@ -4091,6 +4121,7 @@ async function syncProviders(providerId?: string) {
     }
     providersMsg.value = t("settings.providerSynced")
       .replace("{added}", String(res.added ?? 0))
+      .replace("{updated}", String(res.updated ?? 0))
       .replace("{removed}", String(res.removed ?? 0))
       .replace("{total}", String(res.total ?? 0));
     const failed = (res.providers ?? []).filter((p) => !p.ok);

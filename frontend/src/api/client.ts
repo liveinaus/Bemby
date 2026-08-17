@@ -1688,6 +1688,12 @@ export type Settings = {
   schedule_separate_page?: string;
   /** "true" adds a template-edit button to templated jobs on the jobs page. */
   jobs_template_edit_button?: string;
+  /**
+   * "false" makes a provider refresh drop an entry whose remote identity changed and import it
+   * afresh. Unset or "true" keeps the id, matching on the name, so a job pinned to it is not
+   * left with no proxy.
+   */
+  proxy_sync_match_by_name?: string;
   /** "true" turns on the data store: its menu entry, its API and its job steps. */
   data_store_enabled?: string;
   /**

@@ -77,6 +77,20 @@ export type SyncResult = {
   total: number;
 };
 
+/**
+ * Whether a refresh keeps a proxy's id when the provider hands back the same name under a
+ * new remote identity. On by default, and this is why: an id is what a job pins to. A
+ * subscription that rotates its nodes' addresses gives each one a new id, which without this
+ * reads as the whole list being removed and a fresh one added -- and every job pinned to one
+ * of them is left with no proxy. Matching on the name instead updates the entry in place, so
+ * the pin survives what is only a new address for the same node.
+ */
+export const PROXY_SYNC_MATCH_BY_NAME_KEY = "proxy_sync_match_by_name";
+
+export function proxySyncMatchesByName(): boolean {
+  return readSetting(PROXY_SYNC_MATCH_BY_NAME_KEY) !== "false";
+}
+
 // ── Stored configuration ──────────────────────────────────────────────────────
 
 function readSetting(key: string): string | undefined {
@@ -658,6 +672,37 @@ function readProxies(): BembyProxy[] {
 const importedByProvider = (id: string) => `${IMPORTED_ID_PREFIX}${id}:`;
 
 /**
+ * Gives a fetched proxy the id the entry of the same name already had, where the provider no
+ * longer lists that entry's own id. The fetched list is edited in place; the ids taken over
+ * come back, so the caller can report them as updated rather than as a removal and an
+ * addition. See `PROXY_SYNC_MATCH_BY_NAME_KEY` for why this matters.
+ */
+function rematchByName(
+  fetched: BembyProxy[],
+  previous: Map<string, BembyProxy>,
+): Set<string> {
+  const fetchedIds = new Set(fetched.map((p) => p.id));
+  // Only entries this fetch did not bring back under their own id are up for matching
+  const spare = new Map<string, BembyProxy[]>();
+  for (const p of previous.values()) {
+    if (fetchedIds.has(p.id)) continue;
+    const key = p.name.trim();
+    if (!key) continue;
+    (spare.get(key) ?? spare.set(key, []).get(key)!).push(p);
+  }
+
+  const taken = new Set<string>();
+  for (const p of fetched) {
+    if (previous.has(p.id)) continue;
+    const match = spare.get(p.name.trim())?.shift();
+    if (!match) continue;
+    p.id = match.id;
+    taken.add(match.id);
+  }
+  return taken;
+}
+
+/**
  * Pulls the current list from each enabled provider (or just `onlyProviderId`) and
  * rewrites that provider's share of the proxy list. Manually added proxies, and imports
  * belonging to providers that were not synced, are left as they are. Ids are derived
@@ -705,12 +750,21 @@ export async function syncProviders(onlyProviderId?: string): Promise<SyncResult
   const kept = existing.filter((p) => !isReplaced(p));
   const previous = new Map(existing.filter(isReplaced).map((p) => [p.id, p]));
 
+  // Same name, new remote identity: keep the id the jobs are pinned to and let the rest of
+  // the entry be rewritten. Only entries the provider no longer lists are up for matching,
+  // and each is claimed once, so two nodes sharing a name cannot both take it.
+  const rematchedIds = proxySyncMatchesByName()
+    ? rematchByName(fetched, previous)
+    : new Set<string>();
+
   let added = 0;
   let updated = 0;
   for (const p of fetched) {
     const prev = previous.get(p.id);
     if (!prev) added++;
-    else if (prev.url !== p.url || prev.name !== p.name) updated++;
+    // A rematched entry counts as updated whatever its url reads as: what changed is the
+    // node behind the name, which the url of a tunnelled node does not show
+    else if (rematchedIds.has(p.id) || prev.url !== p.url || prev.name !== p.name) updated++;
   }
   const fetchedIds = new Set(fetched.map((p) => p.id));
   const removed = [...previous.keys()].filter((id) => !fetchedIds.has(id)).length;

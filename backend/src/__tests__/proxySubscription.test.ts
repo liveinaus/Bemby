@@ -29,7 +29,12 @@ vi.mock("../tg/vlessTunnel", async (importOriginal) => {
 });
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchFromProvider, resolveProviderUrl, type ProxyProvider } from "../tg/proxyProviders";
+import {
+  fetchFromProvider,
+  resolveProviderUrl,
+  syncProviders,
+  type ProxyProvider,
+} from "../tg/proxyProviders";
 
 const UUID = "d342d11e-d424-4583-b36e-524ab1f0afa4";
 const BODY = `vless://${UUID}@cf.example.com:443?type=ws&security=tls&host=w.dev&path=%2F#Sydney`;
@@ -123,5 +128,47 @@ describe("fetching a subscription", () => {
   it("reports a body with nothing it can carry", async () => {
     fetchMock.mockResolvedValueOnce({ ok: true, status: 200, text: async () => "trojan://x@a:443" });
     await expect(fetchFromProvider(SUB)).rejects.toThrow(/No VLESS-over-WebSocket nodes/);
+  });
+});
+
+// A subscription that re-issues the same node on a new address gives it a new identity, and
+// with it a new id -- which is what a job pins to. See PROXY_SYNC_MATCH_BY_NAME_KEY.
+describe("refreshing a subscription whose nodes moved", () => {
+  const MOVED = `vless://${UUID}@cf2.example.com:443?type=ws&security=tls&host=w.dev&path=%2F#Sydney`;
+
+  async function firstImport(): Promise<string> {
+    store.set("proxy_providers", JSON.stringify([SUB]));
+    await syncProviders();
+    const [proxy] = JSON.parse(store.get("proxies") ?? "[]");
+    return proxy.id;
+  }
+
+  it("keeps the id a job is pinned to, and reports it as updated", async () => {
+    const before = await firstImport();
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, text: async () => MOVED });
+
+    const result = await syncProviders();
+    const proxies = JSON.parse(store.get("proxies") ?? "[]");
+    expect(proxies).toHaveLength(1);
+    expect(proxies[0].id).toBe(before);
+    expect(result).toMatchObject({ added: 0, updated: 1, removed: 0, total: 1 });
+  });
+
+  it("goes by identity alone when the setting is off", async () => {
+    const before = await firstImport();
+    store.set("proxy_sync_match_by_name", "false");
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, text: async () => MOVED });
+
+    const result = await syncProviders();
+    const proxies = JSON.parse(store.get("proxies") ?? "[]");
+    expect(proxies[0].id).not.toBe(before);
+    expect(result).toMatchObject({ added: 1, updated: 0, removed: 1 });
+  });
+
+  it("leaves a node that did not move alone", async () => {
+    const before = await firstImport();
+    const result = await syncProviders();
+    expect(JSON.parse(store.get("proxies") ?? "[]")[0].id).toBe(before);
+    expect(result).toMatchObject({ added: 0, updated: 0, removed: 0 });
   });
 });
