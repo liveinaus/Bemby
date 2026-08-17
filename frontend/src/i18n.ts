@@ -1295,6 +1295,9 @@ const zh = {
     profile: "配置文件",
     profileHint: "本次手动会话使用该任务的浏览器配置文件与代理出口，因此手动登录留下的 Cookie 正是后续自动运行会用到的",
     profileTemp: "临时（不保留）",
+    proxy: "代理",
+    proxyHint: "本次会话的出口，即该任务自动运行时使用的同一个代理",
+    proxyDirect: "直连",
     ephemeralNote:
       "该任务使用 {noProfile}：本次会话运行在一次性临时配置文件上（与自动运行一致，含独立设备指纹），关闭后连同 Cookie 一起删除。若希望手动登录能被后续自动运行复用，请先给该任务设置一个配置文件名称。",
     footHint:
@@ -3507,6 +3510,9 @@ const en: typeof zh = {
     profile: "Profile",
     profileHint: "This session runs on the job's own browser profile and exits through its proxy, so the cookie a manual login leaves behind is the one the scheduled runs will use",
     profileTemp: "temporary (nothing kept)",
+    proxy: "Proxy",
+    proxyHint: "The exit this session goes out through, the same one the job's scheduled runs use",
+    proxyDirect: "direct",
     ephemeralNote:
       "This job runs on {noProfile}, so the session has a throwaway profile of its own -- the same as its scheduled runs, device fingerprint included -- and everything in it, cookies included, goes when the browser closes. Give the job a profile name if a login here should survive for the scheduled runs to use.",
     footHint:

@@ -5,6 +5,7 @@ import { db } from "../db/database";
 import {
   CF_NO_PROFILE_KEY,
   cfProfileKey,
+  cfProxyLabelForRun,
   launchCfBrowser,
   startPrivateDisplay,
   type LaunchedBrowser,
@@ -52,6 +53,12 @@ export type ManualSession = {
   jobName: string;
   /** The profile it is running on, which is the whole point: the job must share it. */
   profileKey: string;
+  /**
+   * The exit it goes out through, by the name the proxy list gives it. Worth showing: a
+   * session on another IP leaves a cookie the scheduled run may not be able to use, and
+   * nothing on the screen itself says which exit is behind it.
+   */
+  proxyLabel?: string;
   /**
    * The job runs on `{noProfile}`, so this session has a throwaway profile of its own and
    * keeps nothing: worth saying, since a login left here goes when the browser does.
@@ -283,6 +290,7 @@ export async function startManualSession(opts: {
     jobId: opts.job.id,
     jobName: opts.job.name,
     profileKey: browser.profileKey,
+    proxyLabel: browser.proxyLabel,
     ...(ephemeral ? { ephemeral: true } : {}),
     vncPort: vnc.port,
     startedAt: Date.now(),
@@ -336,6 +344,9 @@ export async function watchRun(runId: string): Promise<ManualSession> {
     jobId: run.jobId ?? 0,
     jobName: run.jobName ?? `Run ${runId}`,
     profileKey: "",
+    // The run owns the browser, so its exit is read off that rather than worked out again:
+    // a job on a random pick drew its exit once, and drawing a second time would name another
+    ...(cfProxyLabelForRun(runId) ? { proxyLabel: cfProxyLabelForRun(runId) } : {}),
     vncPort: vnc.port,
     startedAt: Date.now(),
     lastSeenAt: Date.now(),

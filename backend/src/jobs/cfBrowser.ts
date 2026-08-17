@@ -24,7 +24,7 @@ import { applyCfFontEnv } from "./cfFonts";
 import { anyCfLicenseKey, cfLicenseUsage, leaseCfLicenseKey } from "./cfLicense";
 import { db } from "../db/database";
 import { dataDir } from "./paths";
-import { cfExitGeo, type CfExitGeo } from "../tg/proxyProviders";
+import { cfExitGeo, proxyLabelForUrl, type CfExitGeo } from "../tg/proxyProviders";
 
 // The browser behind the Cloudflare solver: CloakBrowser, a Chromium built with
 // source-level fingerprint patches (canvas, WebGL, audio, fonts, WebRTC, TLS,
@@ -1290,6 +1290,8 @@ export type LaunchedBrowser = {
   page: Page;
   /** Stable id of the exit this browser goes out through. */
   key: string;
+  /** What that exit is called, for showing: its name in the proxy list, or `direct`. */
+  proxyLabel: string;
   /** The profile it is running on, which is what decides whose cookies it has. */
   profileKey: string;
   /**
@@ -1355,7 +1357,17 @@ const liveBrowsers = new Set<{
   close: () => Promise<void>;
   /** Which job run this browser belongs to, so one run can be stopped on its own. */
   runId?: string;
+  /** The exit it goes out through, so a viewer watching the run can say which one. */
+  proxyLabel?: string;
 }>();
+
+/** The exit a running job's browser is on, for a viewer attached to that run's screen. */
+export function cfProxyLabelForRun(runId: string): string | undefined {
+  for (const browser of liveBrowsers) {
+    if (browser.runId === runId && browser.proxyLabel) return browser.proxyLabel;
+  }
+  return undefined;
+}
 
 /** How many solver browsers are open right now. */
 export function cfBrowsersRunning(): number {
@@ -1696,6 +1708,7 @@ export async function launchCfBrowser(
       context,
       page,
       key,
+      proxyLabel: proxyLabelForUrl(proxyUrl),
       runId: opts.runId,
       profileKey,
       deviceSeed,

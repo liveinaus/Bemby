@@ -12,7 +12,7 @@ vi.mock("../db/database", () => ({
 }));
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { cfProxyCandidatesFor, rememberCfProxy } from "../tg/proxyProviders";
+import { cfProxyCandidatesFor, proxyLabelForUrl, rememberCfProxy } from "../tg/proxyProviders";
 
 const POOL = [
   { id: "p1", name: "Proxy One", url: "http://u:p@1.1.1.1:8080" },
@@ -94,5 +94,22 @@ describe("cfProxyCandidatesFor", () => {
 
   it("drops a pinned exit that has already been refused", () => {
     expect(cfProxyCandidatesFor({ proxyId: "p3", tryAll: false, exclude: ["p3"] })).toEqual([]);
+  });
+});
+
+// What a session or a run says it is going out through. Never the url: it carries credentials.
+describe("proxyLabelForUrl", () => {
+  it("gives the name the proxy list holds", () => {
+    expect(proxyLabelForUrl(POOL[1].url)).toBe("Proxy Two");
+  });
+
+  it("says direct when there is no proxy at all", () => {
+    expect(proxyLabelForUrl(undefined)).toBe("direct");
+  });
+
+  it("falls back to host and port for an exit not in the list, credentials left out", () => {
+    const label = proxyLabelForUrl("http://user:secret@9.9.9.9:3128");
+    expect(label).toBe("9.9.9.9:3128");
+    expect(label).not.toContain("secret");
   });
 });

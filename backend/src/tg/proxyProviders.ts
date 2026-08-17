@@ -534,6 +534,22 @@ export function proxyUrlFor(
   return readProxies().find((p) => p.id === proxyId)?.url;
 }
 
+/**
+ * What an exit is called, for showing. The name it goes by in the proxy list when the url is
+ * one of those, otherwise host and port -- never the url itself, which carries its credentials.
+ */
+export function proxyLabelForUrl(url: string | undefined): string {
+  if (!url) return "direct";
+  const named = readProxies().find((p) => p.url === url)?.name?.trim();
+  if (named) return named;
+  try {
+    const u = new URL(url);
+    return u.port ? `${u.hostname}:${u.port}` : u.hostname;
+  } catch {
+    return "proxy";
+  }
+}
+
 /** Fisher-Yates over a copy: the caller's list is a setting, not ours to reorder. */
 function shuffled<T>(list: T[]): T[] {
   const out = [...list];

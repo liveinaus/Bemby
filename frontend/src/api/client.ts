@@ -1791,6 +1791,8 @@ export type ManualSession = {
   runId?: string;
   jobName: string;
   profileKey: string;
+  /** The exit it goes out through, by the name the proxy list gives it, or `direct`. */
+  proxyLabel?: string;
   /** The job runs on {noProfile}: this session has a throwaway profile and keeps nothing. */
   ephemeral?: boolean;
   vncPort: number;

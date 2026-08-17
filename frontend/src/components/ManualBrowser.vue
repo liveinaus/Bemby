@@ -14,6 +14,11 @@
           {{ t("manualBrowser.profile") }}:
           {{ session.ephemeral ? t("manualBrowser.profileTemp") : session.profileKey }}
         </span>
+        <!-- And which exit it goes out through: a cookie is only as good as the IP it was
+             issued to, and the screen says nothing about that -->
+        <span v-if="session?.proxyLabel" class="mb-profile" :title="t('manualBrowser.proxyHint')">
+          {{ t("manualBrowser.proxy") }}: {{ proxyText }}
+        </span>
         <button
           v-if="props.runId"
           class="btn btn-sm"
@@ -137,6 +142,13 @@ const typing = ref(false);
 const clipBox = ref<HTMLTextAreaElement>();
 let rfb: any = null;
 let keepAlive: ReturnType<typeof setInterval> | null = null;
+
+// `direct` is the backend's own word for no proxy at all; say it in the panel's language
+const proxyText = computed(() =>
+  session.value?.proxyLabel === "direct"
+    ? t("manualBrowser.proxyDirect")
+    : (session.value?.proxyLabel ?? ""),
+);
 
 const stateText = computed(() => t(`manualBrowser.state.${state.value}`));
 const stateClass = computed(() => ({
