@@ -84,19 +84,41 @@
               <table>
                 <thead>
                   <tr>
-                    <th style="width: 22%">{{ t("data.colKey") }}</th>
-                    <th>{{ t("data.colValue") }}</th>
-                    <th class="col-hide-mobile" style="width: 18%">{{ t("data.colUpdated") }}</th>
+                    <th
+                      class="th-sort"
+                      style="width: 22%"
+                      :class="sortKey === 'key' ? 'sort-active' : ''"
+                      @click="setSort('key')"
+                    >
+                      {{ t("data.colKey") }} <span class="sort-icon">{{ sortIcon("key") }}</span>
+                    </th>
+                    <!-- Hidden on a phone: a wrapped value makes the row taller than the screen -->
+                    <th
+                      class="th-sort col-hide-mobile"
+                      :class="sortKey === 'value' ? 'sort-active' : ''"
+                      @click="setSort('value')"
+                    >
+                      {{ t("data.colValue") }} <span class="sort-icon">{{ sortIcon("value") }}</span>
+                    </th>
+                    <th
+                      class="th-sort col-hide-mobile"
+                      style="width: 18%"
+                      :class="sortKey === 'updated' ? 'sort-active' : ''"
+                      @click="setSort('updated')"
+                    >
+                      {{ t("data.colUpdated") }}
+                      <span class="sort-icon">{{ sortIcon("updated") }}</span>
+                    </th>
                     <th style="width: 15%">{{ t("common.actions") }}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-if="!records.length">
+                  <tr v-if="!sortedRecords.length">
                     <td colspan="4" class="empty">{{ t("data.noRecords") }}</td>
                   </tr>
-                  <tr v-for="r in records" :key="r.id">
+                  <tr v-for="r in sortedRecords" :key="r.id">
                     <td style="font-family: monospace">{{ r.key }}</td>
-                    <td class="data-value-cell">{{ previewValue(r.value) }}</td>
+                    <td class="data-value-cell col-hide-mobile">{{ previewValue(r.value) }}</td>
                     <td class="col-hide-mobile">{{ fmtDate(r.updatedAt) }}</td>
                     <td>
                       <div class="actions">
@@ -383,6 +405,7 @@ import {
   setDataFolderNames,
 } from "../composables/dataStore";
 import { copyText } from "../utils/clipboard";
+import { usePersistedRef } from "../composables/usePersistedRef";
 
 // Folders and the records of the one in hand. A value is edited as the text of it: whether
 // `{"a":1}` is an object or a string is settled by the backend, so the panel does not have to
@@ -417,6 +440,45 @@ const deleteRecordTarget = ref<DataRecord | null>(null);
 const selectedFolder = computed(
   () => folders.value.find((f) => f.id === selectedFolderId.value) ?? null,
 );
+
+// The whole folder is in hand, so sorting is done here rather than asked of the server.
+// Key ascending is where it starts, which is the order the records arrive in.
+const sortKey = usePersistedRef<"key" | "value" | "updated">("bemby:data:sortKey", "key");
+const sortDir = usePersistedRef<"asc" | "desc">("bemby:data:sortDir", "asc");
+
+function setSort(key: "key" | "value" | "updated") {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === "asc" ? "desc" : "asc";
+  } else {
+    sortKey.value = key;
+    sortDir.value = "asc";
+  }
+}
+
+function sortIcon(key: string): string {
+  if (sortKey.value !== key) return "↕";
+  return sortDir.value === "asc" ? "↑" : "↓";
+}
+
+// Numeric collation, so key_2 comes before key_10 rather than after it
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+const sortedRecords = computed(() => {
+  const rows = [...records.value];
+  const dir = sortDir.value === "asc" ? 1 : -1;
+  rows.sort((a, b) => {
+    if (sortKey.value === "updated") {
+      // Stamps are same-format strings, so comparing them is comparing the times
+      return dir * (a.updatedAt ?? "").localeCompare(b.updatedAt ?? "");
+    }
+    const key = sortKey.value === "value" ? "value" : "key";
+    // Values are sorted on what the row shows, not on the raw object behind it
+    const left = key === "value" ? previewValue(a.value) : a.key;
+    const right = key === "value" ? previewValue(b.value) : b.key;
+    return dir * collator.compare(left, right);
+  });
+  return rows;
+});
 
 onMounted(async () => {
   await loadDataStoreSetting();
@@ -769,6 +831,30 @@ async function exportStore(folderId?: number) {
 </script>
 
 <style scoped>
+.th-sort {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.th-sort:hover {
+  background: #f0f4ff;
+}
+
+.th-sort.sort-active {
+  color: #3730a3;
+}
+
+.sort-icon {
+  font-size: 10px;
+  color: #ccc;
+  margin-left: 2px;
+}
+
+.th-sort.sort-active .sort-icon {
+  color: #6366f1;
+}
+
 .data-layout {
   display: grid;
   grid-template-columns: 260px 1fr;
