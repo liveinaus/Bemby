@@ -128,6 +128,26 @@ describe('testEmbyConnection', () => {
     expect(auth).not.toContain('SenPlayer');
   });
 
+  it('keeps a multi-word client name from the user agent', async () => {
+    mockAuthSuccess();
+    await testEmbyConnection('https://emby.example.com', {
+      ...creds,
+      userAgent: 'Hills Windows/1.3.1 (windows; 19041.vb_release.191206-1406)',
+    });
+    const auth = (mockUndiciFetch.mock.calls[0][1] as any).headers['X-Emby-Authorization'];
+    expect(auth).toContain('Client="Hills Windows"');
+    expect(auth).toContain('Version="1.3.1"');
+    expect(auth).not.toContain('SenPlayer');
+  });
+
+  it('falls back to a versionless client name rather than the default UA', async () => {
+    mockAuthSuccess();
+    await testEmbyConnection('https://emby.example.com', { ...creds, userAgent: 'Hills Windows' });
+    const auth = (mockUndiciFetch.mock.calls[0][1] as any).headers['X-Emby-Authorization'];
+    expect(auth).toContain('Client="Hills Windows"');
+    expect(auth).not.toContain('SenPlayer');
+  });
+
   it('routes through the configured proxy when proxyId is given', async () => {
     vi.mocked(db.prepare).mockReturnValue({
       get: vi.fn().mockImplementation((key: string) =>

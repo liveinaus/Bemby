@@ -121,10 +121,15 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 // from the chosen UA so a custom preset (e.g. "CapyPlayer/1.0") is reflected in
 // the Emby backend instead of a hardcoded client name.
 function parseUaClient(ua: string): { client: string; version: string } {
-  const match = /^([^/\s]+)\/([^\s(]+)/.exec(ua.trim());
+  // The product name may contain spaces ("Hills Windows/1.3.1 (windows; ...)"),
+  // so match lazily up to the first slash rather than to the first whitespace.
+  const match = /^([^/]+?)\/([^\s(]+)/.exec(ua.trim());
   if (match?.[1] && match?.[2]) {
-    return { client: match[1], version: match[2] };
+    return { client: match[1].trim(), version: match[2] };
   }
+  // No version at all ("Hills Windows"): still report the client the UA names.
+  const bare = ua.trim().replace(/\/+$/, '').trim();
+  if (bare) return { client: bare, version: '1.0' };
   return parseUaClient(DEFAULT_UA);
 }
 
