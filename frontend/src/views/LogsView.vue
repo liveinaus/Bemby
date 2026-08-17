@@ -112,6 +112,16 @@
                       ></i
                       >{{ l.message ?? "—" }}</span
                     >
+                    <!-- A run showing a screen can be watched from here, and taken over -->
+                    <button
+                      v-if="watchableRun(l)"
+                      class="btn btn-sm btn-ghost btn-icon"
+                      style="flex-shrink: 0; color: #2e9e5b"
+                      :title="t('manualBrowser.watch')"
+                      @click.stop="manualBrowserRunId = watchableRun(l) as string"
+                    >
+                      <i class="fa-solid fa-eye"></i>
+                    </button>
                     <button
                       v-if="l.status === 'running'"
                       class="btn btn-sm btn-danger"
@@ -1228,6 +1238,12 @@
         </table>
       </div>
     </div>
+
+    <ManualBrowser
+      v-if="manualBrowserRunId"
+      :run-id="manualBrowserRunId"
+      @closed="manualBrowserRunId = null"
+    />
   </div>
 </template>
 
@@ -1235,12 +1251,14 @@
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import DebugPanel from "../components/DebugPanel.vue";
 import PaginationBar from "../components/PaginationBar.vue";
+import ManualBrowser from "../components/ManualBrowser.vue";
 import {
   logsApi,
   jobsApi,
   debugApi,
   settingsApi,
   aiSuppliersApi,
+  manualBrowserApi,
   type Log,
   type Job,
   type CheckinAttemptLog,
@@ -1272,6 +1290,48 @@ const stopping = ref(new Set<number>());
 const rerunning = ref(new Set<number>());
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let detailPollTimer: ReturnType<typeof setTimeout> | null = null;
+
+// ── Watching a run's screen ───────────────────────────────────────────────────
+// A run only puts a screen up once it reaches the page it has to open, so which rows can be
+// watched is polled rather than settled when the list loads: quickly while something is
+// running, slowly otherwise, so the eye arrives and goes without a reload.
+const manualBrowserRunId = ref<string | null>(null);
+const liveRuns = ref<Record<number, string>>({});
+const LIVE_RUN_POLL_BUSY_MS = 3000;
+const LIVE_RUN_POLL_IDLE_MS = 15000;
+let liveRunTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** The run to watch for a row: its job's, while that row is the one still going. */
+function watchableRun(log: Log): string | undefined {
+  return log.status === "running" ? liveRuns.value[log.jobId] : undefined;
+}
+
+async function refreshLiveRuns() {
+  try {
+    // `watching: false` -- a poll from this list is nobody looking at a screen, and it must
+    // not keep a hand-driven session from idling out
+    const { runs } = await manualBrowserApi.status({ watching: false });
+    const map: Record<number, string> = {};
+    for (const r of runs ?? []) if (r.jobId) map[r.jobId] = r.runId;
+    liveRuns.value = map;
+  } catch {
+    liveRuns.value = {};
+  }
+}
+
+function pollLiveRuns() {
+  if (liveRunTimer) clearTimeout(liveRunTimer);
+  const busy =
+    logs.value.some((l) => l.status === "running") ||
+    Object.keys(liveRuns.value).length > 0;
+  liveRunTimer = setTimeout(
+    async () => {
+      await refreshLiveRuns();
+      pollLiveRuns();
+    },
+    busy ? LIVE_RUN_POLL_BUSY_MS : LIVE_RUN_POLL_IDLE_MS,
+  );
+}
 
 // ── AI debug panel ────────────────────────────────────────────────────────────
 const debugKey = ref<string | null>(null);
@@ -1414,6 +1474,8 @@ const retriedStepNums = computed(() => {
 onMounted(async () => {
   jobs.value = await jobsApi.list();
   await load();
+  await refreshLiveRuns();
+  pollLiveRuns();
   settingsApi
     .get()
     .then((s) => {
@@ -1586,6 +1648,7 @@ function statusBadge(s: Log["status"]) {
 
 onUnmounted(() => {
   if (pollTimer) clearTimeout(pollTimer);
+  if (liveRunTimer) clearTimeout(liveRunTimer);
   clearDetailPoll();
 });
 
