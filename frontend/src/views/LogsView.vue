@@ -1270,6 +1270,7 @@ import {
 } from "../api/client";
 import { t, locale } from "../i18n";
 import { usePersistedRef } from "../composables/usePersistedRef";
+import { useAvailableFilter } from "../composables/useAvailableFilter";
 import { debounce } from "../composables/useDebounce";
 
 const logs = ref<Log[]>([]);
@@ -1279,6 +1280,10 @@ const filterText = usePersistedRef<string>("bemby:logs:filterText", "");
 const filterStatus = usePersistedRef<string>("bemby:logs:filterStatus", "");
 const showDevLogs = usePersistedRef<boolean>("bemby:logs:showDevLogs", false);
 const showRetired = usePersistedRef<boolean>("bemby:logs:showRetired", false);
+// A deleted or retired job drops out of the dropdown, so the filter goes with it rather than
+// leaving the list empty with nothing on screen to say why. The select drives its own reload,
+// hence the callback.
+useAvailableFilter(filterJobId, () => jobs.value.map((j) => j.id), "", onFilterChange);
 const page = ref(1);
 const pageSize = usePersistedRef<number>("bemby:logs:pageSize", 50);
 const total = ref(0);

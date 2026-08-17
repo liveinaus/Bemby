@@ -17,13 +17,13 @@
           :class="filterType === opt.value ? 'btn-primary' : 'btn-ghost'"
           @click="filterType = opt.value"
         >{{ opt.label }}</button>
-        <select v-if="accounts.length > 1" v-model="filterAccountId" class="form-select" style="width:160px;height:30px;font-size:13px;padding:0 8px">
+        <select v-if="accountFilterOptions.length" v-model="filterAccountId" class="form-select" style="width:160px;height:30px;font-size:13px;padding:0 8px">
           <option value="">{{ t('jobs.allAccounts') }}</option>
-          <option v-for="a in accounts" :key="a.id" :value="a.id">{{ formatAccountLabel(a) }}</option>
+          <option v-for="a in accountFilterOptions" :key="a.id" :value="a.id">{{ formatAccountLabel(a) }}</option>
         </select>
-        <select v-if="botUrlTplOptions.length > 1" v-model="filterBotUrlTpl" class="form-select" style="width:180px;height:30px;font-size:13px;padding:0 8px">
+        <select v-if="botUrlTplFilterOptions.length" v-model="filterBotUrlTpl" class="form-select" style="width:180px;height:30px;font-size:13px;padding:0 8px">
           <option value="">{{ t('jobs.allBotUrlTpl') }}</option>
-          <option v-for="opt in botUrlTplOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          <option v-for="opt in botUrlTplFilterOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
         </select>
         <input v-model="filterName" class="form-input" style="width:160px;height:30px;font-size:13px;padding:0 8px" :placeholder="t('jobs.filterPlaceholder')" />
         <button
@@ -1236,6 +1236,7 @@ import { jobsApi, accountsApi, bulkTasksApi, manualBrowserApi, settingsApi, logs
 import { t, locale } from '../i18n';
 import { regexValid } from '../utils/regexCheck';
 import { usePersistedRef } from '../composables/usePersistedRef';
+import { useAvailableFilter } from '../composables/useAvailableFilter';
 import { formatAccountLabel, loadAccountDisplaySetting } from '../composables/accountDisplay';
 import { loadSchedulePageSetting, scheduleSeparatePage } from '../composables/schedulePage';
 import { loadTemplateEditButtonSetting, templateEditButton } from '../composables/templateEditButton';
@@ -1347,6 +1348,15 @@ const botUrlTplOptions = computed(() => {
   const tplVals = facets.value.templates.map(t => ({ value: `tpl:${t.id}`, label: `[T] ${t.name}` }));
   return [...botVals, ...tplVals];
 });
+// What each dropdown actually offers: nothing to choose between means no dropdown, and the
+// guards below drop a filter the moment it leaves this list -- deleting the last job of a
+// template would otherwise leave the filter set to it and every other job hidden.
+const accountFilterOptions = computed(() => (accounts.value.length > 1 ? accounts.value : []));
+const botUrlTplFilterOptions = computed(() =>
+  botUrlTplOptions.value.length > 1 ? botUrlTplOptions.value : [],
+);
+useAvailableFilter(filterAccountId, () => accountFilterOptions.value.map(a => a.id), '');
+useAvailableFilter(filterBotUrlTpl, () => botUrlTplFilterOptions.value.map(o => o.value), '');
 
 const showLastSuccess = usePersistedRef<boolean>('bemby:jobs:showLastSuccess', false);
 const sortKey = usePersistedRef<string>('bemby:jobs:sortKey', '');
