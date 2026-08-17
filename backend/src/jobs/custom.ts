@@ -52,7 +52,12 @@ import { handOverJob } from "./jobHandover";
 import { getNotifyConfig, sendBotNotify } from "./notify";
 import { EMAIL_CODE_LOOKBACK_MS, fetchGmailCode } from "./emailCode";
 import { leaseEmail, pollForCode } from "./msOauth2api";
-import { exchangeAuthCode, msOauthClientId } from "./msOauth2";
+import {
+  exchangeAuthCode,
+  msOauthClientId,
+  msOauthClientIdFor,
+  msOauthStepsIn,
+} from "./msOauth2";
 import { saveAccountApiCredentials, waitForTgLoginCode } from "./tgApiCredentials";
 import { fillSecrets, missingSecretRefs } from "../db/secrets";
 import { displayForRun } from "./runDisplays";
@@ -3085,6 +3090,19 @@ export async function runCustom(
                 if (!/^https?:\/\//i.test(url))
                   throw new Error(`URL must start with http:// or https:// (got "${url}")`);
 
+                // The app the sign-in address carries has to be the one the exchange will
+                // use. Checked before the browser starts: an empty id sends the sign-in out
+                // as `client_id=`, which Microsoft refuses only after the whole sign-in wait
+                // has been spent, and the step holding the id is never reached.
+                const msOauthClientIdForRun = msOauthClientIdFor(webSteps, msOauthClientId());
+                if (!msOauthClientIdForRun && msOauthStepsIn(webSteps).length) {
+                  throw new Error(
+                    "No Microsoft application (client) id: set one on the OAuth2 step, or in " +
+                      "Settings for the whole panel. Without it the sign-in address goes out " +
+                      "with an empty client_id and Microsoft refuses it.",
+                  );
+                }
+
                 // The budget covers this action's whole browser life, retries included
                 const tune = cfTuning();
                 const budgetMs =
@@ -3306,7 +3324,7 @@ export async function runCustom(
                     // The Microsoft app a `web_ms_oauth2` step signs in against. Here as well
                     // as on the step because the sign-in URL carries it too, and a template
                     // that had to spell it out would be one app's rather than this panel's
-                    msOauthClientId: msOauthClientId(),
+                    msOauthClientId: msOauthClientIdForRun,
                     ...(account
                       ? { accountPhone: account.phoneNumber, accountName: account.name }
                       : {}),

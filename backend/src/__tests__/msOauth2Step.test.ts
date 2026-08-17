@@ -13,7 +13,7 @@ import { db } from "../db/database";
 import { CF_TUNING_KEY } from "../jobs/cfTuning";
 import { createFolder, createRecord, readDataValue } from "../db/dataStore";
 import { runWebSteps, type WebStepHooks } from "../jobs/cloudflare";
-import { authCodeFromUrl } from "../jobs/msOauth2";
+import { authCodeFromUrl, msOauthClientIdFor, msOauthStepsIn } from "../jobs/msOauth2";
 import type { WebStep } from "../types";
 
 /** Enough of a page for steps that never touch one; the address is what this suite reads. */
@@ -166,6 +166,33 @@ describe("web_ms_oauth2", () => {
 
     expect(result.ok).toBe(false);
     expect(result.logs[0].error).toContain("consent_required");
+  });
+});
+
+// The sign-in address is built from `{msOauthClientId}` before any step runs, so which id that
+// comes to decides whether the browser is sent somewhere Microsoft will accept at all.
+describe("msOauthClientIdFor", () => {
+  const oauthStep = (clientId?: string): WebStep =>
+    ({ type: "web_ms_oauth2", varName: "refreshToken", ...(clientId ? { clientId } : {}) }) as WebStep;
+
+  it("prefers the id the step names over the panel setting", () => {
+    expect(msOauthClientIdFor([oauthStep("step-app")], "settings-app")).toBe("step-app");
+  });
+
+  it("falls back to the setting when no step names one", () => {
+    expect(msOauthClientIdFor([oauthStep()], "settings-app")).toBe("settings-app");
+  });
+
+  it("finds a step inside a loop, which is where these live", () => {
+    const steps = [
+      { type: "web_for_each", varName: "mailboxes", steps: [oauthStep("nested-app")] },
+    ] as WebStep[];
+    expect(msOauthClientIdFor(steps, "")).toBe("nested-app");
+    expect(msOauthStepsIn(steps)).toHaveLength(1);
+  });
+
+  it("comes to nothing when neither names one, which is what the run is stopped on", () => {
+    expect(msOauthClientIdFor([oauthStep()], "  ")).toBe("");
   });
 });
 

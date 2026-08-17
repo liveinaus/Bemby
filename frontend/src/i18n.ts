@@ -1051,7 +1051,7 @@ const zh = {
       labelMsClientSecret: "客户端密钥（引用）",
       msClientSecretPlaceholder: "{msOauthClientSecret}",
       msClientHint:
-        "客户端密钥不直接填在这里：请先在「设置 → 密钥」中新增一个名为 msOauthClientSecret 的密钥，此处只写它的引用名，模板与导出文件中都不会带上密钥本身。应用注册为「公共客户端」（没有密钥）时留空",
+        "客户端密钥不直接填在这里：请先在「设置 → 密钥」中新增一个名为 msOauthClientSecret 的密钥，此处只写它的引用名，模板与导出文件中都不会带上密钥本身。应用注册为「公共客户端」（没有密钥）时留空。此处填写的应用 ID 同时用于登录地址中的 {msOauthClientId}，因此登录与换取始终使用同一个应用",
       labelMsRedirect: "重定向地址",
       msRedirectPlaceholder: "https://login.microsoftonline.com/common/oauth2/nativeclient",
       msRedirectHint:
@@ -3253,7 +3253,7 @@ const en: typeof zh = {
       labelMsClientSecret: "Client secret (by name)",
       msClientSecretPlaceholder: "{msOauthClientSecret}",
       msClientHint:
-        "The secret itself is not typed here: store it under Settings as a secret named msOauthClientSecret and name it here, so neither the template nor any export of it carries the value. Leave blank for an app registered as a public client, which has no secret",
+        "The secret itself is not typed here: store it under Settings as a secret named msOauthClientSecret and name it here, so neither the template nor any export of it carries the value. Leave blank for an app registered as a public client, which has no secret. The application id typed here also fills {msOauthClientId} in the sign-in address, so the sign-in and the exchange are against the same app",
       labelMsRedirect: "Redirect address",
       msRedirectPlaceholder: "https://login.microsoftonline.com/common/oauth2/nativeclient",
       msRedirectHint:

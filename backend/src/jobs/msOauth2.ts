@@ -1,5 +1,6 @@
 import { fetch as undiciFetch } from "undici";
 import { db } from "../db/database";
+import type { WebStep } from "../types";
 
 // Turning a signed-in Microsoft account into an OAuth2 refresh token, for a `web_ms_oauth2`
 // step. The browser does the half only a browser can do -- sign in as the mailbox, pass the
@@ -52,6 +53,32 @@ export function msOauthClientId(): string {
     | { value: string }
     | undefined;
   return (row?.value ?? "").trim();
+}
+
+/**
+ * The application a page's OAuth2 steps will sign in against: one named on a step wins over
+ * the panel-wide setting. The sign-in address is built from this as well (`{msOauthClientId}`),
+ * and it is built long before the step holding the id runs -- so reading only the setting sends
+ * the browser to an authorize URL with `client_id=` empty, which Microsoft refuses outright
+ * (AADSTS900144) after the whole sign-in wait has already been spent.
+ */
+export function msOauthClientIdFor(steps: WebStep[], fromSettings: string): string {
+  const named = msOauthStepsIn(steps)
+    .map((s) => (s.clientId ?? "").trim())
+    .find(Boolean);
+  return named || fromSettings.trim();
+}
+
+/** Every OAuth2 step on the page, loops and branches included -- that is where they live. */
+export function msOauthStepsIn(
+  steps: WebStep[] | undefined,
+): Array<Extract<WebStep, { type: "web_ms_oauth2" }>> {
+  const found: Array<Extract<WebStep, { type: "web_ms_oauth2" }>> = [];
+  for (const step of steps ?? []) {
+    if (step.type === "web_ms_oauth2") found.push(step);
+    else if ("steps" in step) found.push(...msOauthStepsIn(step.steps));
+  }
+  return found;
 }
 
 /**
