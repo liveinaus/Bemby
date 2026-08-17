@@ -726,6 +726,44 @@ describe("bulk job runs", () => {
     expect(done.items[1].status).toBe("done");
   });
 
+  it("terminates a run that outlives the ceiling and carries on with the queue", async () => {
+    const a = addJob("Job A");
+    const b = addJob("Job B");
+    let logId = 0;
+    startManualJobRun.mockImplementation((jobId: number) => {
+      logId += 1;
+      const id = logId;
+      testDb
+        .prepare("INSERT INTO job_logs (id, job_id, status, message) VALUES (?, ?, 'running', '')")
+        .run(id, jobId);
+      // The first run only ends when it is cancelled; the second finishes on its own
+      if (id === 1) {
+        return {
+          ok: true,
+          logId: id,
+          completion: new Promise<void>((resolve) => {
+            mocks.cancelJob.mockImplementation(() => {
+              resolve();
+              return true;
+            });
+          }),
+        };
+      }
+      testDb.prepare("UPDATE job_logs SET status = 'success', message = 'Completed' WHERE id = ?").run(id);
+      return { ok: true, logId: id, completion: Promise.resolve() };
+    });
+
+    const done = await settle(task(startBulkJobRuns([a, b], 0, 1)));
+    expect(mocks.cancelJob).toHaveBeenCalledWith(1);
+    expect(done.items[0].status).toBe("failed");
+    expect(done.items[0].error).toBe("Run passed the 1s limit and was terminated");
+    expect(done.items[1].status).toBe("done");
+    // The row the run left open is settled rather than reading as still running
+    expect(
+      (testDb.prepare("SELECT status FROM job_logs WHERE id = 1").get() as { status: string }).status,
+    ).toBe("failed");
+  });
+
   it("reports a failed run with the log's own message", async () => {
     const a = addJob("Job A");
     startManualJobRun.mockImplementation((jobId: number) => {

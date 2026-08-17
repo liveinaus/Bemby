@@ -34,6 +34,15 @@ import {
 const DEFAULT_TG_GAP_SECONDS = 30;
 const DEFAULT_FETCH_GAP_SECONDS = 5;
 const DEFAULT_JOB_GAP_SECONDS = 70;
+/**
+ * Ceiling on one run inside a batch. A run that stalls -- a dead proxy, a site that never
+ * answers, a browser call the deadline never reaches -- used to hold the whole queue until
+ * someone terminated it by hand. Past this the run is cancelled and the batch moves on.
+ * Set to 0 to wait indefinitely.
+ */
+const DEFAULT_JOB_MAX_RUN_SECONDS = 1800;
+/** Grace given to a cancelled run to unwind before the batch gives up on it entirely. */
+const CANCEL_GRACE_MS = 30_000;
 
 /** Selected accounts, in list order, restricted to ones with a live session. */
 function authenticatedAccountEntries(ids: number[]): BulkTaskEntry[] {
@@ -324,32 +333,59 @@ export function startBulkClean(
   });
 }
 
-/** Waits for a manual run, aborting it if the task is terminated meanwhile. */
+/**
+ * Waits for a manual run, aborting it if the task is terminated meanwhile or if it
+ * outlives `maxRunMs`. Returns true when the run was stopped by that ceiling, which the
+ * caller reports as this item's failure rather than the job's own.
+ */
 async function awaitRun(
   logId: number,
   completion: Promise<void>,
   ctx: BulkTaskContext,
-): Promise<void> {
+  maxRunMs = 0,
+): Promise<{ timedOut: boolean }> {
   let settled = false;
   void completion.finally(() => {
     settled = true;
   });
+  const deadline = maxRunMs > 0 ? Date.now() + maxRunMs : 0;
+  let timedOut = false;
   while (!settled) {
     if (ctx.cancelled()) {
       cancelJob(logId);
       break;
     }
+    if (deadline && Date.now() >= deadline) {
+      timedOut = true;
+      cancelJob(logId);
+      break;
+    }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
+  // Cancelling asks the run to stop; a wedged one may not manage it, and waiting on that
+  // is the stall this ceiling exists to end. Give it a moment to unwind, then move on.
+  if (timedOut) {
+    await Promise.race([
+      completion.catch(() => {}),
+      new Promise((resolve) => setTimeout(resolve, CANCEL_GRACE_MS)),
+    ]);
+    return { timedOut };
+  }
   await completion;
+  return { timedOut };
 }
 
 export function startBulkJobRuns(
   jobIds: number[],
   gapSeconds?: number,
+  maxRunSeconds?: number,
 ): StartBulkTaskResult {
   const entries = jobEntries(jobIds);
   if (!entries.length) return { ok: false, error: "No jobs in the selection" };
+  const maxRunMs =
+    (Number.isFinite(maxRunSeconds) && (maxRunSeconds as number) >= 0
+      ? (maxRunSeconds as number)
+      : DEFAULT_JOB_MAX_RUN_SECONDS) * 1000;
   return startBulkTask({
     kind: "run-jobs",
     entries,
@@ -358,7 +394,21 @@ export function startBulkJobRuns(
       const started = startManualJobRun(item.refId);
       if (!started.ok) throw new Error(started.error);
       ctx.progress("Running");
-      await awaitRun(started.logId, started.completion, ctx);
+      const { timedOut } = await awaitRun(
+        started.logId,
+        started.completion,
+        ctx,
+        maxRunMs,
+      );
+      if (timedOut) {
+        const message = `Run passed the ${Math.round(maxRunMs / 1000)}s limit and was terminated`;
+        // A run that did not unwind inside the grace leaves its row open; settle it here so
+        // the log does not read as still running with nothing behind it.
+        db.prepare(
+          "UPDATE job_logs SET status = 'failed', message = ? WHERE id = ? AND status = 'running'",
+        ).run(message, started.logId);
+        throw new Error(message);
+      }
       const log = db
         .prepare("SELECT status, message FROM job_logs WHERE id = ?")
         .get(started.logId) as

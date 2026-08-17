@@ -188,8 +188,19 @@ router.post("/clean", bulkMgmtGuard, (req, res) => {
 
 // POST /run-jobs -- trigger the selected jobs one after another
 router.post("/run-jobs", (req, res) => {
-  const { ids, gapSeconds } = req.body as { ids?: number[]; gapSeconds?: number };
-  respond(res, startBulkJobRuns(numberList(ids), optionalSeconds(gapSeconds)));
+  const { ids, gapSeconds, maxRunSeconds } = req.body as {
+    ids?: number[];
+    gapSeconds?: number;
+    maxRunSeconds?: number;
+  };
+  respond(
+    res,
+    startBulkJobRuns(
+      numberList(ids),
+      optionalSeconds(gapSeconds),
+      optionalSeconds(maxRunSeconds),
+    ),
+  );
 });
 
 export default router;

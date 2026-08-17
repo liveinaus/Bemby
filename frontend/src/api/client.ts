@@ -3067,8 +3067,8 @@ export const bulkTasksApi = {
       .then((r) => r.data),
   clean: (ids: number[], gapSeconds?: number) =>
     api.post<BulkTask>("/bulk-tasks/clean", { ids, gapSeconds }).then((r) => r.data),
-  runJobs: (ids: number[], gapSeconds?: number) =>
+  runJobs: (ids: number[], gapSeconds?: number, maxRunSeconds?: number) =>
     api
-      .post<BulkTask>("/bulk-tasks/run-jobs", { ids, gapSeconds })
+      .post<BulkTask>("/bulk-tasks/run-jobs", { ids, gapSeconds, maxRunSeconds })
       .then((r) => r.data),
 };

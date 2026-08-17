@@ -1097,6 +1097,11 @@
               <label class="form-label">{{ t('jobs.bulkRunDelayLabel') }}</label>
               <input v-model.number="bulkRunDelay" type="number" min="0" class="form-input" style="width:120px" @keyup.enter="startBulkRun" />
             </div>
+            <div class="form-group">
+              <label class="form-label">{{ t('jobs.bulkRunMaxLabel') }}</label>
+              <input v-model.number="bulkRunMaxSeconds" type="number" min="0" class="form-input" style="width:120px" @keyup.enter="startBulkRun" />
+              <p class="form-hint">{{ t('jobs.bulkRunMaxHint') }}</p>
+            </div>
             <p class="form-hint">{{ t('bulkTasks.serverNote') }}</p>
           </div>
           <div class="modal-footer">
@@ -1341,6 +1346,9 @@ const confirmBulkDisableJobs = ref(false);
 const confirmBulkRetireJobs = ref(false);
 const showBulkRunModal = ref(false);
 const bulkRunDelay = ref(70);
+// Ceiling on one run, so a job stuck on a dead proxy or an unreachable site does not hold
+// the queue; 0 waits indefinitely
+const bulkRunMaxSeconds = ref(1800);
 const bulkRunTaskId = ref<string | null>(null);
 const bulkRunTask = computed(() => taskById(bulkRunTaskId.value));
 const showBulkWindowModal = ref(false);
@@ -2577,7 +2585,7 @@ async function startBulkRun() {
   const ids = [...selectedJobIds.value];
   if (!ids.length) return;
   try {
-    const task = await bulkTasksApi.runJobs(ids, bulkRunDelay.value);
+    const task = await bulkTasksApi.runJobs(ids, bulkRunDelay.value, bulkRunMaxSeconds.value);
     trackStartedTask(task);
     bulkRunTaskId.value = task.id;
     selectedJobIds.value = [];
