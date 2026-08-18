@@ -569,12 +569,21 @@ export function findUrlButton(msg: Api.Message | undefined, matchText?: string):
   return undefined;
 }
 
-// Collects ALL bot messages; resolves when one has buttons, times out otherwise
+/**
+ * Collects the bot's messages and resolves once one carries buttons; on timeout it rejects
+ * with what it collected, so the caller can still show the reply and judge it by text.
+ *
+ * Edits count as arrivals too. A bot that posts its text first and only then edits that same
+ * message to attach the keyboard would otherwise never be seen to have sent buttons at all,
+ * and the run would time out with the reply sitting in front of it. An edit replaces the copy
+ * already collected, so the text judged on timeout is the message as it finally read.
+ */
 function waitForBotReply(
   client: TelegramClient,
   botUsername: string,
   timeoutMs: number,
   signal?: AbortSignal,
+  botPeerId?: string,
 ): Promise<Api.Message[]> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) { reject(new Error('Job cancelled')); return; }
@@ -584,6 +593,7 @@ function waitForBotReply(
     const cleanup = () => {
       clearTimeout(timer);
       client.removeEventHandler(handler, new NewMessage({}));
+      client.removeEventHandler(editHandler, new Raw({}));
       signal?.removeEventListener('abort', onAbort);
     };
 
@@ -595,15 +605,34 @@ function waitForBotReply(
     const onAbort = () => { cleanup(); reject(new Error('Job cancelled')); };
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    const handler = async (event: NewMessageEvent) => {
-      const msg = event.message as Api.Message;
-      collected.push(msg);
+    const consider = (msg: Api.Message, fromEdit = false) => {
+      const at = collected.findIndex(c => c.id === msg.id);
+      // An edit only speaks for a message this wait watched arrive. Anything else in the chat
+      // -- the bot editing something it posted yesterday -- is not the reply to this command.
+      if (fromEdit && at < 0) return;
+      if (at >= 0) collected[at] = msg;
+      else collected.push(msg);
       // Use replyMarkup (raw TLObject field) instead of msg.buttons getter, which
       // requires inputChat to be resolved and silently returns undefined when it isn't.
       if ((msg as any).replyMarkup) { cleanup(); resolve(collected); }
     };
 
+    const handler = async (event: NewMessageEvent) => consider(event.message as Api.Message);
+
+    const editHandler = async (update: any) => {
+      const isEdit =
+        update.className === 'UpdateEditMessage' ||
+        update.className === 'UpdateEditChannelMessage';
+      if (!isEdit) return;
+      const msg = update.message as Api.Message;
+      if (!msg || msg.out) return;
+      // Without the bot's own chat id an edit from anywhere would be taken for its reply
+      if (!botPeerId || !msg.peerId || utils.getPeerId(msg.peerId) !== botPeerId) return;
+      consider(msg, true);
+    };
+
     client.addEventHandler(handler, new NewMessage({ fromUsers: [botUsername] }));
+    client.addEventHandler(editHandler, new Raw({}));
   });
 }
 
@@ -969,11 +998,25 @@ export async function runCheckin(
     }
   };
 
+  /**
+   * Whether the configured outcome texts already settle this run, either way. Used where no
+   * buttons message ever arrives: a bot that does the whole check-in from the command replies
+   * with text alone, and that text is the result the job was told to look for.
+   */
+  const outcomeDecided = (text: string): boolean =>
+    (!!failContains && text.includes(failContains)) ||
+    (!!successContains && text.includes(successContains));
+
   try {
     if (signal?.aborted) throw new Error('Job cancelled');
     const expandedCommand = expandCommand(startCommand);
     log.commandSent = expandedCommand; // record what was actually sent, not the template
-    const replyPromise = waitForBotReply(client, botUsername, replyTimeoutMs, signal);
+    // Before the wait starts: an edit update names its chat by id, and the wait has to know
+    // which id is the bot's to tell its edits from any other chat's. Not worth failing a run
+    // over: without it edits are simply ignored, exactly as they were before, and an
+    // unresolvable username still fails where it always did, on the send below.
+    const botPeerId = await client.getPeerId(botUsername).catch(() => undefined);
+    const replyPromise = waitForBotReply(client, botUsername, replyTimeoutMs, signal, botPeerId);
     const t_send = Date.now();
     await client.sendMessage(botUsername, { message: expandedCommand });
 
@@ -983,15 +1026,22 @@ export async function runCheckin(
       log.replyLatencyMs = Date.now() - t_send;
     } catch (err) {
       log.replyLatencyMs = Date.now() - t_send;
-      if (err instanceof BotReplyTimeoutError && err.partial.length > 0) {
-        const parsed = await parseMessages(err.partial, client, signal);
-        log.hasMedia = parsed.hasMedia;
-        log.commandResponseHtml = parsed.html;
-        log.commandResponseImages = parsed.images;
-        log.availableButtons = parsed.buttons;
-      }
+      if (!(err instanceof BotReplyTimeoutError) || !err.partial.length) throw err;
 
-      throw err;
+      const parsed = await parseMessages(err.partial, client, signal);
+      log.hasMedia = parsed.hasMedia;
+      log.commandResponseHtml = parsed.html;
+      log.commandResponseImages = parsed.images;
+      log.availableButtons = parsed.buttons;
+
+      // The bot did reply, just with no buttons to press -- which is how a bot that completes
+      // the check-in from the command alone answers. Where that reply carries the success or
+      // failure text this job was told to look for, it is the outcome, and reporting the wait
+      // for a buttons message as a timeout marked a check-in that plainly worked as failed.
+      if (!outcomeDecided(htmlToText(parsed.html))) throw err;
+      assertOutcome(htmlToText(parsed.html));
+      log.totalMs = Date.now() - attemptStart;
+      return log;
     }
 
     const parsed = await parseMessages(messages, client, signal);
@@ -1001,7 +1051,16 @@ export async function runCheckin(
     log.availableButtons = parsed.buttons;
 
     const buttonsMsg = [...messages].reverse().find(m => (m as any).replyMarkup instanceof Api.ReplyInlineMarkup);
-    if (!buttonsMsg) throw new Error('No message with buttons received');
+    if (!buttonsMsg) {
+      // A reply carrying a plain keyboard rather than an inline one has nothing to press
+      // either, so the outcome texts settle it the same way as above.
+      if (!outcomeDecided(htmlToText(parsed.html))) {
+        throw new Error('No message with buttons received');
+      }
+      assertOutcome(htmlToText(parsed.html));
+      log.totalMs = Date.now() - attemptStart;
+      return log;
+    }
 
     if (signal?.aborted) throw new Error('Job cancelled');
 
@@ -1033,7 +1092,6 @@ export async function runCheckin(
     }
 
     const peer = await client.getInputEntity(botUsername);
-    const botPeerId = await client.getPeerId(botUsername);
     let clicked = false;
     // Set when the checkin completes by opening a web URL behind Cloudflare
     // (e.g. a "我不是机器人" link) rather than by a callback.
