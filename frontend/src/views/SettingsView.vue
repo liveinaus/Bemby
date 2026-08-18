@@ -1230,171 +1230,195 @@
           <div v-if="proxiesMsg" class="success-msg">{{ proxiesMsg }}</div>
           <div v-if="proxiesError" class="error-msg">{{ proxiesError }}</div>
 
-          <div v-for="(p, i) in proxies" :key="p.id">
-            <div v-if="editingProxyId === p.id" class="proxy-edit-panel">
-              <div class="proxy-row">
-                <select
-                  v-model="editProxyForm.protocol"
-                  class="form-select"
-                  style="flex: 0 0 110px"
+          <!-- The list is what makes this card tall: a synced provider leaves dozens of
+               entries, so it folds away behind a count of what state they are in -->
+          <div class="proxy-fold">
+            <button class="btn btn-ghost btn-sm" @click="proxyListOpen = !proxyListOpen">
+              <i
+                :class="proxyListOpen ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'"
+              ></i>
+              {{ t("settings.proxyListTitle") }}
+              <span style="color: #888; font-weight: 400">({{ proxies.length }})</span>
+            </button>
+            <span class="proxy-fold-note">{{ proxyStateSummary }}</span>
+          </div>
+
+          <div v-if="proxyListOpen" class="proxy-list-box">
+            <div v-for="(p, i) in proxies" :key="p.id">
+              <div v-if="editingProxyId === p.id" class="proxy-edit-panel">
+                <div class="proxy-row">
+                  <select
+                    v-model="editProxyForm.protocol"
+                    class="form-select"
+                    style="flex: 0 0 110px"
+                  >
+                    <option value="socks5">SOCKS5</option>
+                    <option value="socks4">SOCKS4</option>
+                  </select>
+                  <input
+                    v-model.trim="editProxyForm.host"
+                    class="form-input"
+                    style="flex: 1"
+                    :placeholder="t('settings.proxyHost')"
+                    @input="onProxyHostInput(editProxyForm)"
+                  />
+                  <input
+                    v-model.trim="editProxyForm.port"
+                    class="form-input"
+                    style="flex: 0 0 80px"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    :placeholder="t('settings.proxyPort')"
+                  />
+                </div>
+                <div class="proxy-row">
+                  <input
+                    v-model.trim="editProxyForm.username"
+                    class="form-input"
+                    style="flex: 1"
+                    :placeholder="t('settings.proxyUsername')"
+                    autocomplete="off"
+                  />
+                  <input
+                    v-model.trim="editProxyForm.password"
+                    class="form-input"
+                    style="flex: 1"
+                    :placeholder="t('settings.proxyPassword')"
+                    autocomplete="off"
+                  />
+                </div>
+                <div class="proxy-row">
+                  <input
+                    v-model.trim="editProxyForm.name"
+                    class="form-input"
+                    style="flex: 0 0 160px"
+                    :placeholder="t('settings.proxyName')"
+                  />
+                  <label
+                    class="form-checkbox-label"
+                    style="flex: 0 0 auto"
+                    :title="t('settings.proxyPickedOnlyTip')"
+                  >
+                    <input type="checkbox" v-model="editProxyForm.autoPool" />
+                    {{ t("settings.proxyAutoPool") }}
+                  </label>
+                  <button
+                    class="btn btn-sm btn-primary"
+                    :disabled="
+                      proxyEditTesting ||
+                      !editProxyForm.name ||
+                      !editProxyForm.host
+                    "
+                    @click="saveProxyEdit(i)"
+                  >
+                    {{
+                      proxyEditTesting
+                        ? t("settings.proxyTesting")
+                        : t("common.save")
+                    }}
+                  </button>
+                  <button
+                    class="btn btn-sm btn-ghost"
+                    @click="editingProxyId = null"
+                  >
+                    {{ t("common.cancel") }}
+                  </button>
+                </div>
+              </div>
+              <div v-else class="ua-preset-row">
+                <span class="ua-preset-name">{{ p.name }}</span>
+                <span class="ua-preset-value">{{ p.url }}</span>
+                <span
+                  v-if="!proxySupportsTelegram(p.url)"
+                  class="badge badge-red"
+                  style="font-size: 10px"
+                  :title="t('settings.proxyBrowserOnlyTip')"
+                  >{{ t("settings.proxyBrowserOnly") }}</span
                 >
-                  <option value="socks5">SOCKS5</option>
-                  <option value="socks4">SOCKS4</option>
-                </select>
-                <input
-                  v-model.trim="editProxyForm.host"
-                  class="form-input"
-                  style="flex: 1"
-                  :placeholder="t('settings.proxyHost')"
-                  @input="onProxyHostInput(editProxyForm)"
-                />
-                <input
-                  v-model.trim="editProxyForm.port"
-                  class="form-input"
-                  style="flex: 0 0 80px"
-                  type="number"
-                  min="1"
-                  max="65535"
-                  :placeholder="t('settings.proxyPort')"
-                />
-              </div>
-              <div class="proxy-row">
-                <input
-                  v-model.trim="editProxyForm.username"
-                  class="form-input"
-                  style="flex: 1"
-                  :placeholder="t('settings.proxyUsername')"
-                  autocomplete="off"
-                />
-                <input
-                  v-model.trim="editProxyForm.password"
-                  class="form-input"
-                  style="flex: 1"
-                  :placeholder="t('settings.proxyPassword')"
-                  autocomplete="off"
-                />
-              </div>
-              <div class="proxy-row">
-                <input
-                  v-model.trim="editProxyForm.name"
-                  class="form-input"
-                  style="flex: 0 0 160px"
-                  :placeholder="t('settings.proxyName')"
-                />
-                <label
-                  class="form-checkbox-label"
-                  style="flex: 0 0 auto"
+                <span
+                  v-if="p.autoPool === false"
+                  class="badge"
+                  style="font-size: 10px"
                   :title="t('settings.proxyPickedOnlyTip')"
+                  >{{ t("settings.proxyPickedOnly") }}</span
                 >
-                  <input type="checkbox" v-model="editProxyForm.autoPool" />
-                  {{ t("settings.proxyAutoPool") }}
-                </label>
+                <!-- Off by hand outranks the tests' own verdict: they never set it, never
+                     clear it, and skip the exit while it stands -->
+                <span
+                  v-if="p.disabled"
+                  class="badge badge-red"
+                  style="font-size: 10px"
+                  :title="t('settings.proxyOffTip')"
+                  >{{ t("settings.proxyOff") }}</span
+                >
+                <!-- The verdict the last test left on the entry: a failed one is disabled
+                     until a later test, or the button beside it, puts it back -->
+                <span
+                  v-else-if="p.status === 'failed'"
+                  class="badge badge-red"
+                  style="font-size: 10px"
+                  :title="proxyStatusTip(p)"
+                  >{{ t("settings.proxyDisabled") }}</span
+                >
+                <span
+                  v-else-if="p.status === 'ok'"
+                  class="badge badge-green"
+                  style="font-size: 10px"
+                  :title="proxyStatusTip(p)"
+                  >{{ p.testMs ? `${p.testMs} ms` : t("settings.proxyStatusOk") }}</span
+                >
+                <span
+                  v-if="proxyTestResults[p.id]?.exitIp"
+                  class="badge"
+                  style="font-size: 10px"
+                  :title="t('settings.proxyExitIpTip')"
+                  >{{ proxyTestResults[p.id].exitIp }}</span
+                >
                 <button
-                  class="btn btn-sm btn-primary"
-                  :disabled="
-                    proxyEditTesting ||
-                    !editProxyForm.name ||
-                    !editProxyForm.host
-                  "
-                  @click="saveProxyEdit(i)"
+                  v-if="p.disabled || p.status === 'failed'"
+                  class="btn btn-sm btn-ghost btn-icon"
+                  :title="t('settings.proxyEnableTip')"
+                  @click="enableProxy(p.id)"
                 >
-                  {{
-                    proxyEditTesting
-                      ? t("settings.proxyTesting")
-                      : t("common.save")
-                  }}
+                  <i class="fa-solid fa-play"></i>
                 </button>
                 <button
-                  class="btn btn-sm btn-ghost"
-                  @click="editingProxyId = null"
+                  v-else
+                  class="btn btn-sm btn-ghost btn-icon"
+                  :title="t('settings.proxyDisableTip')"
+                  @click="disableProxy(p.id)"
                 >
-                  {{ t("common.cancel") }}
+                  <i class="fa-solid fa-ban"></i>
+                </button>
+                <button
+                  class="btn btn-sm btn-ghost btn-icon"
+                  :title="t('common.edit')"
+                  @click="startEditProxy(p)"
+                >
+                  <i class="fa-solid fa-pen"></i>
+                </button>
+                <button
+                  class="btn btn-sm btn-ghost ua-preset-del"
+                  :title="t('settings.proxyDeleteTip')"
+                  @click="removeProxy(i)"
+                >
+                  <i class="fa-solid fa-xmark"></i>
                 </button>
               </div>
-            </div>
-            <div v-else class="ua-preset-row">
-              <span class="ua-preset-name">{{ p.name }}</span>
-              <span class="ua-preset-value">{{ p.url }}</span>
-              <span
-                v-if="!proxySupportsTelegram(p.url)"
-                class="badge badge-red"
-                style="font-size: 10px"
-                :title="t('settings.proxyBrowserOnlyTip')"
-                >{{ t("settings.proxyBrowserOnly") }}</span
-              >
-              <span
-                v-if="p.autoPool === false"
-                class="badge"
-                style="font-size: 10px"
-                :title="t('settings.proxyPickedOnlyTip')"
-                >{{ t("settings.proxyPickedOnly") }}</span
-              >
-              <!-- Off by hand outranks the tests' own verdict: they never set it, never
-                   clear it, and skip the exit while it stands -->
-              <span
-                v-if="p.disabled"
-                class="badge badge-red"
-                style="font-size: 10px"
-                :title="t('settings.proxyOffTip')"
-                >{{ t("settings.proxyOff") }}</span
-              >
-              <!-- The verdict the last test left on the entry: a failed one is disabled
-                   until a later test, or the button beside it, puts it back -->
-              <span
-                v-else-if="p.status === 'failed'"
-                class="badge badge-red"
-                style="font-size: 10px"
-                :title="proxyStatusTip(p)"
-                >{{ t("settings.proxyDisabled") }}</span
-              >
-              <span
-                v-else-if="p.status === 'ok'"
-                class="badge badge-green"
-                style="font-size: 10px"
-                :title="proxyStatusTip(p)"
-                >{{ p.testMs ? `${p.testMs} ms` : t("settings.proxyStatusOk") }}</span
-              >
-              <span
-                v-if="proxyTestResults[p.id]?.exitIp"
-                class="badge"
-                style="font-size: 10px"
-                :title="t('settings.proxyExitIpTip')"
-                >{{ proxyTestResults[p.id].exitIp }}</span
-              >
-              <button
-                v-if="p.disabled || p.status === 'failed'"
-                class="btn btn-sm btn-ghost btn-icon"
-                :title="t('settings.proxyEnableTip')"
-                @click="enableProxy(p.id)"
-              >
-                <i class="fa-solid fa-play"></i>
-              </button>
-              <button
-                v-else
-                class="btn btn-sm btn-ghost btn-icon"
-                :title="t('settings.proxyDisableTip')"
-                @click="disableProxy(p.id)"
-              >
-                <i class="fa-solid fa-ban"></i>
-              </button>
-              <button
-                class="btn btn-sm btn-ghost btn-icon"
-                :title="t('common.edit')"
-                @click="startEditProxy(p)"
-              >
-                <i class="fa-solid fa-pen"></i>
-              </button>
-              <button
-                class="btn btn-sm btn-ghost ua-preset-del"
-                :title="t('settings.proxyDeleteTip')"
-                @click="removeProxy(i)"
-              >
-                <i class="fa-solid fa-xmark"></i>
-              </button>
             </div>
           </div>
 
-          <div class="proxy-edit-panel" style="margin-top: 8px">
+          <div class="proxy-fold">
+            <button class="btn btn-ghost btn-sm" @click="proxyAddOpen = !proxyAddShown">
+              <i
+                :class="proxyAddShown ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'"
+              ></i>
+              {{ t("settings.addProxyTitle") }}
+            </button>
+          </div>
+
+          <div v-if="proxyAddShown" class="proxy-edit-panel" style="margin-top: 4px">
             <div class="proxy-row">
               <select
                 v-model="newProxy.protocol"
@@ -1459,15 +1483,25 @@
               </button>
             </div>
           </div>
-          <p style="font-size: 11px; color: #888; margin: 4px 0 0">
+          <p v-if="proxyAddShown" style="font-size: 11px; color: #888; margin: 4px 0 0">
             {{ t("settings.proxyUrlHint") }}
           </p>
 
           <!-- Import from a proxy provider -->
-          <div class="proxy-edit-panel" style="margin-top: 12px">
-            <div class="card-section-title" style="font-size: 12px">
+          <div class="proxy-fold">
+            <button class="btn btn-ghost btn-sm" @click="proxyProvidersOpen = !proxyProvidersOpen">
+              <i
+                :class="
+                  proxyProvidersOpen ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'
+                "
+              ></i>
               {{ t("settings.providersSection") }}
-            </div>
+              <span v-if="providers.length" style="color: #888; font-weight: 400"
+                >({{ providers.length }})</span
+              >
+            </button>
+          </div>
+          <div v-if="proxyProvidersOpen" class="proxy-edit-panel" style="margin-top: 4px">
             <p style="font-size: 11px; color: #888; margin: 0 0 8px">
               {{ t("settings.providersHint") }}
             </p>
@@ -1588,10 +1622,15 @@
           </div>
 
           <!-- What a test asks of an exit, and how often it is asked on its own -->
-          <div class="proxy-edit-panel" style="margin-top: 12px">
-            <div class="card-section-title" style="font-size: 12px">
+          <div class="proxy-fold">
+            <button class="btn btn-ghost btn-sm" @click="proxyHealthOpen = !proxyHealthOpen">
+              <i
+                :class="proxyHealthOpen ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'"
+              ></i>
               {{ t("settings.proxyHealthSection") }}
-            </div>
+            </button>
+          </div>
+          <div v-if="proxyHealthOpen" class="proxy-edit-panel" style="margin-top: 4px">
             <p style="font-size: 12px; color: #888; margin: 0 0 6px">
               {{ t("settings.proxyHealthHint") }}
             </p>
@@ -1631,8 +1670,15 @@
                 {{ proxyHealthSaving ? t("common.saving") : t("common.save") }}
               </button>
             </div>
-            <p style="font-size: 11px; color: #888; margin: 4px 0 0">
+            <p style="font-size: 11px; color: #888; margin: 4px 0 8px">
               {{ t("settings.proxyTestIntervalHint") }}
+            </p>
+            <label class="form-checkbox-label" style="margin-bottom: 4px">
+              <input type="checkbox" v-model="proxyCheckBeforeUse" />
+              <span>{{ t("settings.proxyCheckBeforeUse") }}</span>
+            </label>
+            <p style="font-size: 11px; color: #888; margin: 0 0 0 24px">
+              {{ t("settings.proxyCheckBeforeUseHint") }}
             </p>
           </div>
 
@@ -2667,6 +2713,7 @@ import type {
 } from "../api/client";
 import { t } from "../i18n";
 import { proxySupportsTelegram } from "../utils/proxy";
+import { usePersistedRef } from "../composables/usePersistedRef";
 import { setAccountDisplayWithTgName } from "../composables/accountDisplay";
 import { setSchedulePageSeparate } from "../composables/schedulePage";
 import {
@@ -3510,6 +3557,36 @@ const newPresetName = ref("");
 const newPresetValue = ref("");
 
 const proxies = ref<Proxy[]>([]);
+// Folded away by default: a synced list runs to dozens of rows and pushed the rest of the
+// page off screen. Remembered, so working through the proxies does not mean re-opening it.
+const proxyListOpen = usePersistedRef<boolean>("bemby:settings:proxyListOpen", false);
+const proxyAddOpen = usePersistedRef<boolean>("bemby:settings:proxyAddOpen", false);
+const proxyProvidersOpen = usePersistedRef<boolean>("bemby:settings:proxyProvidersOpen", false);
+const proxyHealthOpen = usePersistedRef<boolean>("bemby:settings:proxyHealthOpen", false);
+
+/**
+ * The add-a-proxy form stands open while there is nothing configured at all, so a fresh
+ * install does not open on four folded rows with no obvious place to start.
+ */
+const proxyAddShown = computed(
+  () => proxyAddOpen.value || (!proxies.value.length && !providers.value.length),
+);
+
+/** What the folded list would show: how many exits can be drawn, and why the rest cannot. */
+const proxyStateSummary = computed(() => {
+  const list = proxies.value;
+  if (!list.length) return "";
+  const off = list.filter((p) => p.disabled).length;
+  const failed = list.filter((p) => !p.disabled && p.status === "failed").length;
+  const parts = [
+    t("settings.proxyUsableCount")
+      .replace("{n}", String(list.length - off - failed))
+      .replace("{total}", String(list.length)),
+  ];
+  if (failed) parts.push(`${failed} ${t("settings.proxyDisabled")}`);
+  if (off) parts.push(`${off} ${t("settings.proxyOff")}`);
+  return parts.join(" · ");
+});
 const proxiesSaving = ref(false);
 const proxyTesting = ref(false);
 const editingProxyId = ref<string | null>(null);
@@ -3914,6 +3991,7 @@ onMounted(async () => {
     proxyTestCf.value = s.proxy_test_cf === "true";
     proxyTestExtraUrl.value = s.proxy_test_extra_url ?? "";
     proxyTestIntervalHours.value = Number(s.proxy_test_interval_hours) || 0;
+    proxyCheckBeforeUse.value = s.proxy_check_before_use === "true";
     try {
       appClients.value = JSON.parse(s.tg_app_clients ?? "[]");
     } catch {
@@ -4201,6 +4279,7 @@ async function disableProxy(id: string) {
 // How thoroughly and how often the exits are tested. The extra checks are opt-in: each one
 // that is on can disable an exit, which is the point of turning it on.
 const proxyTestCf = ref(false);
+const proxyCheckBeforeUse = ref(false);
 const proxyTestExtraUrl = ref("");
 const proxyTestIntervalHours = ref(0);
 const proxyHealthSaving = ref(false);
@@ -4214,6 +4293,7 @@ async function saveProxyHealth() {
       proxy_test_cf: String(proxyTestCf.value),
       proxy_test_extra_url: proxyTestExtraUrl.value.trim(),
       proxy_test_interval_hours: String(Math.max(0, Number(proxyTestIntervalHours.value) || 0)),
+      proxy_check_before_use: String(proxyCheckBeforeUse.value),
     });
     proxiesMsg.value = t("settings.saved");
   } catch (err: any) {
@@ -5260,6 +5340,28 @@ async function signOutEverywhere() {
   .s-col-6 {
     grid-column: span 12;
   }
+}
+
+/* One folded sub-section's header row: the toggle, and a note that stands in for what is
+   hidden so the card still says something useful while closed */
+.proxy-fold {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.proxy-fold-note {
+  font-size: 11px;
+  color: #888;
+}
+
+/* A provider can leave dozens of rows, so the open list scrolls in place rather than
+   pushing everything below it off screen */
+.proxy-list-box {
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: 4px;
 }
 
 .proxy-edit-panel {

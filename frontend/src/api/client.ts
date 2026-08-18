@@ -1724,6 +1724,8 @@ export type Settings = {
   proxy_test_extra_url?: string;
   /** Hours between automatic proxy tests. "0" leaves testing to the operator. */
   proxy_test_interval_hours?: string;
+  /** "true" makes a run verify its exit before going out through it. */
+  proxy_check_before_use?: string;
   /** "true" turns on the data store: its menu entry, its API and its job steps. */
   data_store_enabled?: string;
   /**

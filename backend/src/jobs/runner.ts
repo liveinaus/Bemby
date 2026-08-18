@@ -17,6 +17,7 @@ import { runAutoreg, AutoregJobError, type AutoregJobLog } from "./autoreg";
 import { db } from "../db/database";
 import { resolveAppClientParams } from "../tg/appClient";
 import { proxyUrlFor, type ProxyChoice } from "../tg/proxyProviders";
+import { checkedProxyUrl } from "../tg/proxyHealth";
 
 /**
  * The proxy a job or its template picked, if any. The job's own config wins, so a
@@ -89,6 +90,20 @@ export function resolveWebProxyUrl(
   return choice.proxyId
     ? proxyUrlFor(choice.proxyId, choice.pool)
     : proxyUrlFor(accountProxyId);
+}
+
+/**
+ * The same exit, but verified first where "check the proxy before a run uses it" is on: a draw
+ * settles on the first candidate that answers, and a single exit that refuses throws, which
+ * fails the run instead of letting it out through the host's own address. With the option off
+ * this is `resolveWebProxyUrl` exactly.
+ */
+export function resolveCheckedWebProxyUrl(
+  accountProxyId: string | null | undefined,
+  job: Job,
+): Promise<string | undefined> {
+  const choice = configProxyChoice(job.config, job.templateId);
+  return checkedProxyUrl(choice.proxyId ? choice : { proxyId: accountProxyId ?? undefined });
 }
 
 export function parseTgProxy(
@@ -178,7 +193,7 @@ export async function runJob(
             throw new Error("No API credentials available for this account");
           // Telegram follows the account's exit; the browser may use the job's
           const checkinProxy = parseTgProxy(resolveTgProxyUrl(account.proxyId, job));
-          const checkinProxyUrl = resolveWebProxyUrl(account.proxyId, job);
+          const checkinProxyUrl = await resolveCheckedWebProxyUrl(account.proxyId, job);
           const checkinDevice = resolveAppClientParams(account.id, account.appClientId);
           let checkinCfg: CheckinConfig = {};
           try {
@@ -252,7 +267,7 @@ export async function runJob(
           const rawCfg = JSON.parse(job.config ?? '{"actions":[]}');
           // Telegram follows the account's exit; the browser may use the job's
           const customProxy = parseTgProxy(resolveTgProxyUrl(account.proxyId, job));
-          const customProxyUrl = resolveWebProxyUrl(account.proxyId, job);
+          const customProxyUrl = await resolveCheckedWebProxyUrl(account.proxyId, job);
           const customDevice = resolveAppClientParams(account.id, account.appClientId);
           const customLog = await runCustom(
             account.apiId,

@@ -7,7 +7,17 @@ import { SocksClient } from "socks";
 import { db } from "../db/database";
 import { parseTgProxy } from "../jobs/runner";
 import { isVlessListener } from "./vlessTunnel";
-import { IMPORTED_ID_PREFIX, recordProxyTestResults } from "./proxyProviders";
+import {
+  CF_PROXY_DIRECT,
+  CF_PROXY_RANDOM,
+  IMPORTED_ID_PREFIX,
+  proxyById,
+  proxyUrlFor,
+  randomProxyOrder,
+  recordProxyTestResults,
+  type BembyProxy,
+  type ProxyChoice,
+} from "./proxyProviders";
 import type { TgProxy } from "../types";
 
 // Reachability of the stored proxies, and the status each test leaves behind. A failed exit
@@ -42,6 +52,8 @@ export const PROXY_TEST_CF_KEY = "proxy_test_cf";
 export const PROXY_TEST_EXTRA_URL_KEY = "proxy_test_extra_url";
 /** How often the whole list is re-tested on its own, in hours. 0 turns it off. */
 export const PROXY_TEST_INTERVAL_KEY = "proxy_test_interval_hours";
+/** Check the exit answers immediately before a run goes out through it. */
+export const PROXY_CHECK_BEFORE_USE_KEY = "proxy_check_before_use";
 
 const PROXY_TEST_TIMEOUT_MS = 6000;
 // Tested together rather than one after another: a list of 80 would take eight minutes
@@ -399,4 +411,87 @@ export function stopProxyHealthChecks(): void {
   if (firstRunTimer) clearTimeout(firstRunTimer);
   healthTimer = undefined;
   firstRunTimer = undefined;
+}
+
+// ── The check a run makes for itself ──────────────────────────────────────────
+
+/** Whether a run verifies its exit before going out through it. */
+export function checksProxyBeforeUse(): boolean {
+  return readSetting(PROXY_CHECK_BEFORE_USE_KEY) === "true";
+}
+
+/**
+ * Most exits one run will check before giving up. A draw works down the pool in order, and
+ * each refusal costs up to the test timeout, so the cap is what keeps a pool of ninety dead
+ * exits from holding a run for nine minutes.
+ */
+const PRE_USE_MAX_TRIES = 5;
+
+/** Nothing the run was allowed to use answered, so it has no exit to go out through. */
+export class ProxyUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProxyUnavailableError";
+  }
+}
+
+/**
+ * The exit a run should use, verified first when that option is on. A draw is checked one
+ * candidate at a time in draw order and the first that answers is the one used, so a pool
+ * routes around an exit that has gone bad since the last test. A single exit -- a pinned
+ * proxy, or a pool with one candidate left -- has nothing to fall back to, so the run fails
+ * rather than quietly leaving through the host's own address.
+ *
+ * Only reachability is checked here: it is the fast question, and the deeper ones (Cloudflare,
+ * an extra URL) belong to the scheduled test rather than to every run's critical path.
+ *
+ * Outcomes are recorded like any other test, so an exit that fails here is disabled and drops
+ * out of later draws, and one that answers is marked working.
+ */
+export async function checkedProxyUrl(choice: ProxyChoice): Promise<string | undefined> {
+  const { proxyId, pool } = choice;
+  if (!proxyId || proxyId === CF_PROXY_DIRECT) return undefined;
+  if (!checksProxyBeforeUse()) return proxyUrlFor(proxyId, pool);
+
+  const pinned = proxyId === CF_PROXY_RANDOM ? undefined : proxyById(proxyId);
+  const candidates: BembyProxy[] =
+    proxyId === CF_PROXY_RANDOM ? randomProxyOrder(pool) : pinned?.url ? [pinned] : [];
+  if (!candidates.length) {
+    throw new ProxyUnavailableError(
+      proxyId === CF_PROXY_RANDOM
+        ? "Proxy check: the pool has no exit left to draw from"
+        : `Proxy check: proxy "${proxyId}" is no longer configured`,
+    );
+  }
+
+  const options: ProxyTestOptions = {};
+  const results: ProxyTestResult[] = [];
+  let chosen: BembyProxy | undefined;
+
+  for (const proxy of candidates.slice(0, PRE_USE_MAX_TRIES)) {
+    const outcome = await testProxyUrl(proxy.url, options);
+    results.push({ id: proxy.id, name: proxy.name, ...outcome });
+    if (outcome.ok) {
+      chosen = proxy;
+      break;
+    }
+    console.warn(`[proxy] pre-use check: "${proxy.name}" refused (${outcome.error})`);
+  }
+
+  // Recorded whichever way it went, so a refusal here disables the exit for later draws
+  if (results.length) recordProxyTestResults(results);
+
+  if (!chosen) {
+    const last = results[results.length - 1];
+    throw new ProxyUnavailableError(
+      candidates.length === 1
+        ? `Proxy check: "${last.name}" refused the connection (${last.error})`
+        : `Proxy check: ${results.length} of ${candidates.length} exits checked, none answered ` +
+          `(last: ${last.name} -- ${last.error})`,
+    );
+  }
+  if (results.length > 1) {
+    console.log(`[proxy] pre-use check: using "${chosen.name}" after ${results.length} tries`);
+  }
+  return chosen.url;
 }

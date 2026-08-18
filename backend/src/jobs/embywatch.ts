@@ -4,6 +4,7 @@ import { db } from '../db/database';
 import type { EmbywatchConfig, EmbywatchEpisode, EmbywatchLog, RealWatchNote } from '../types';
 import { expandCommand } from './checkin';
 import { proxyUrlFor } from '../tg/proxyProviders';
+import { checkedProxyUrl } from '../tg/proxyHealth';
 
 // Per-username cache of the expanded device name. Persisting it keeps random
 // tokens (e.g. {word:4}) stable across runs; we only re-expand when the template
@@ -1242,7 +1243,9 @@ export async function runEmbywatch(
   const playDuration = config.playDuration ?? Number(getSetting('default_play_duration') ?? 300);
   const deviceName = resolveDeviceName(getSetting('default_device_name') ?? 'Yamby', config.username);
 
-  const proxyUrl = resolveProxyUrl(config.proxyId, config.proxyPool);
+  // Verified first where that option is on: a pool routes around a dead exit, and a single
+  // one that refuses fails the run (see checkedProxyUrl)
+  const proxyUrl = await checkedProxyUrl({ proxyId: config.proxyId, pool: config.proxyPool });
   const insecureTls = config.ignoreSslErrors === true;
   if (insecureTls) console.warn('[embywatch] TLS certificate verification is disabled for this job');
 

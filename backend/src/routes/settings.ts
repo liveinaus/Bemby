@@ -61,6 +61,7 @@ import {
   type ProxyProvider,
 } from "../tg/proxyProviders";
 import {
+  PROXY_CHECK_BEFORE_USE_KEY,
   PROXY_TEST_CF_KEY,
   PROXY_TEST_EXTRA_URL_KEY,
   PROXY_TEST_INTERVAL_KEY,
@@ -117,6 +118,7 @@ export const ALLOWED_KEYS = [
   PROXY_TEST_CF_KEY,
   PROXY_TEST_EXTRA_URL_KEY,
   PROXY_TEST_INTERVAL_KEY,
+  PROXY_CHECK_BEFORE_USE_KEY,
   "tg_app_clients",
   "tg_client_mode",
   "default_tg_api_id",

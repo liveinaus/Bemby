@@ -1649,6 +1649,9 @@ const zh = {
       "订阅节点更换地址后会得到新的标识，若直接删除再新增，原先绑定该代理的任务就会失去代理。开启后按名称匹配并原地更新，保留原有绑定；关闭则按标识处理，视为移除并新增。",
     providerSyncFailed: "导入失败",
     addProxy: "添加",
+    addProxyTitle: "手动添加代理",
+    proxyListTitle: "代理列表",
+    proxyUsableCount: "{n}/{total} 可用",
     proxyTesting: "测试中...",
     proxyTestFailed: "代理连接失败",
     proxyDeleteTip: "删除",
@@ -1673,6 +1676,9 @@ const zh = {
       "能建立连接不代表能过 Cloudflare。此项通过代理请求 challenges.cloudflare.com/cdn-cgi/trace，同时读取出口 IP。隧道节点（VLESS 订阅）会跳过此项：Cloudflare Worker 无法连接 Cloudflare 自己的地址。",
     proxyTestExtraPlaceholder: "额外检查的网址（可选），例如 https://example.com/",
     proxyTestExtraHint: "再增加一个必须能通过代理访问的 HTTPS 地址；返回 4xx/5xx 视为失败。",
+    proxyCheckBeforeUse: "使用前先检查代理",
+    proxyCheckBeforeUseHint:
+      "任务运行前先测试将要使用的代理：若为随机池，按抽取顺序依次检查并使用第一个可用的（最多 5 个）；若只有一个代理（指定代理，或池内已无其他可用代理），检查失败则任务直接失败，而不会改用本机 IP 出网。检查结果同样会写入状态，失败的代理会被停用。注意：每次运行会因此多一次连接测试。",
     proxyTestInterval: "自动测试间隔（小时）",
     proxyTestIntervalHint:
       "0 表示关闭。开启后按此间隔自动测试全部代理，供应商列表变化或代理失效时无需手动处理：失效的自动停用，恢复的自动启用。",
@@ -3914,6 +3920,9 @@ const en: typeof zh = {
       "A subscription node that changes address comes back under a new identity. Dropping it and importing it afresh leaves every job pinned to it with no proxy; matching on the name updates the entry in place and keeps the pin. Turn this off to go by identity alone, which reads as a removal and an addition.",
     providerSyncFailed: "Import failed",
     addProxy: "Add",
+    addProxyTitle: "Add a proxy by hand",
+    proxyListTitle: "Proxy list",
+    proxyUsableCount: "{n}/{total} usable",
     proxyTesting: "Testing...",
     proxyTestFailed: "Proxy connection failed",
     proxyDeleteTip: "Delete",
@@ -3941,6 +3950,9 @@ const en: typeof zh = {
     proxyTestExtraPlaceholder: "One more URL to check (optional), e.g. https://example.com/",
     proxyTestExtraHint:
       "An extra HTTPS address the exit must fetch. A 4xx or 5xx answer counts as a failure.",
+    proxyCheckBeforeUse: "Check the exit before a run uses it",
+    proxyCheckBeforeUseHint:
+      "A run tests the exit it is about to use. A random pool is checked in draw order and the first that answers is the one used, up to five tries; a single exit -- a pinned proxy, or a pool with nothing else left -- fails the run instead of letting it out through the host's own address. The outcome is recorded like any other test, so a refusal disables that exit for later draws. Costs one connect per run.",
     proxyTestInterval: "Automatic test every (hours)",
     proxyTestIntervalHint:
       "0 turns it off. Otherwise the whole list is tested on this interval, so a supplier's pool keeps itself current: exits that stop answering drop out of every draw, and ones that come back are picked up again.",

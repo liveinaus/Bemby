@@ -595,6 +595,19 @@ export function randomProxyPool(poolIds?: string[]): BembyProxy[] {
   return healthy.length ? healthy : pool;
 }
 
+/**
+ * The same pool in draw order, for a caller that has to work down it rather than take one:
+ * a pre-use check tries these in turn, and a Cloudflare fall-through follows the same order.
+ */
+export function randomProxyOrder(poolIds?: string[]): BembyProxy[] {
+  return shuffled(randomProxyPool(poolIds));
+}
+
+/** One entry by id, whatever its status: a pin is honoured even when the exit is out. */
+export function proxyById(id: string): BembyProxy | undefined {
+  return readProxies().find((p) => p.id === id);
+}
+
 /** One proxy drawn from that pool, or undefined when the pool holds none. */
 export function pickRandomProxy(poolIds?: string[]): BembyProxy | undefined {
   const pool = randomProxyPool(poolIds);
