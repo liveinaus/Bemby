@@ -6,7 +6,7 @@
 
     <div class="settings-grid">
       <!-- System defaults -->
-      <div class="card s-col-4">
+      <div class="card">
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.sysDefaults") }}</div>
 
@@ -60,7 +60,7 @@
       </div>
 
       <!-- TG Notifications -->
-      <div class="card s-col-4">
+      <div class="card">
         <div class="card-body">
           <div class="card-section-title">
             {{ t("settings.notifySection") }}
@@ -256,7 +256,7 @@
       </div>
 
       <!-- Cloudflare solver -->
-      <div class="card s-col-4">
+      <div class="card">
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.cfSolver.title") }}</div>
           <p style="font-size: 12px; color: #888; margin: 0 0 12px">
@@ -782,7 +782,7 @@
       </div>
 
       <!-- Admin credentials -->
-      <div class="card s-col-4">
+      <div class="card">
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.adminCreds") }}</div>
 
@@ -856,7 +856,7 @@
       </div>
 
       <!-- General settings -->
-      <div class="card s-col-6">
+      <div class="card">
         <div class="card-body">
           <div class="card-section-title">
             {{ t("settings.generalSection") }}
@@ -1059,7 +1059,7 @@
       </div>
 
       <!-- Secrets: named values a job config refers to as {name} -->
-      <div class="card s-col-6">
+      <div class="card">
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.secretsSection") }}</div>
           <p style="font-size: 12px; color: #888; margin: 0 0 12px">
@@ -1145,7 +1145,7 @@
            from. The key is write-only, the same round trip the bot token makes. The whole
            card is absent unless the server offers the feature (MSOAUTH2API), so a panel with
            no install to point at never mentions it -->
-      <div v-if="msApiAvailable" class="card s-col-6">
+      <div v-if="msApiAvailable" class="card">
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.msapi.title") }}</div>
           <p style="font-size: 12px; color: #888; margin: 0 0 12px">
@@ -1218,7 +1218,7 @@
       </div>
 
       <!-- Proxies -->
-      <div class="card s-col-6">
+      <div class="card">
         <div class="card-body">
           <div class="card-section-title">
             {{ t("settings.proxiesSection") }}
@@ -1708,7 +1708,7 @@
       </div>
 
       <!-- TG App Clients -->
-      <div class="card s-col-6">
+      <div class="card">
         <div class="card-body">
           <div class="card-section-title">
             {{ t("settings.appClientsSection") }}
@@ -1923,7 +1923,7 @@
       </div>
 
       <!-- Emby defaults -->
-      <div class="card s-col-6">
+      <div class="card">
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.embyDefaults") }}</div>
 
@@ -2019,7 +2019,7 @@
       </div>
 
       <!-- Import / Export -->
-      <div class="card s-col-6">
+      <div class="card">
         <div class="card-body">
           <div class="card-section-title">
             {{ t("settings.importExport.title") }}
@@ -2195,210 +2195,105 @@
           </button>
         </div>
       </div>
+    </div>
 
-      <!-- AI settings -->
-      <div class="card s-col-12">
-        <div class="card-body">
-          <div class="card-section-title">{{ t("settings.aiSection") }}</div>
-          <p style="font-size: 12px; color: #888; margin: 0 0 16px">
-            {{ t("settings.aiHint") }}
+    <!-- AI settings. Full width, so it sits between the two sets of columns rather than
+         spanning them: a spanner's margins are truncated at the break it forces, which left
+         it touching the card above it. -->
+    <div class="card settings-wide">
+      <div class="card-body">
+        <div class="card-section-title">{{ t("settings.aiSection") }}</div>
+        <p style="font-size: 12px; color: #888; margin: 0 0 16px">
+          {{ t("settings.aiHint") }}
+        </p>
+
+        <!-- Fallback toggle -->
+        <div class="form-group">
+          <label class="form-check">
+            <input v-model="form.ai_fallback_enabled" type="checkbox" @change="saveFallbackEnabled" />
+            <span>{{ t("settings.aiFallbackLabel") }}</span>
+          </label>
+          <p style="font-size: 12px; color: #888; margin: 4px 0 0 24px">
+            {{ t("settings.aiFallbackHint") }}
           </p>
+        </div>
 
-          <!-- Fallback toggle -->
-          <div class="form-group">
-            <label class="form-check">
-              <input v-model="form.ai_fallback_enabled" type="checkbox" @change="saveFallbackEnabled" />
-              <span>{{ t("settings.aiFallbackLabel") }}</span>
-            </label>
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0 24px">
-              {{ t("settings.aiFallbackHint") }}
-            </p>
+        <!-- Providers list -->
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+          "
+        >
+          <div class="card-section-title" style="margin: 0">
+            {{ t("settings.aiProvidersSection") }}
           </div>
-
-          <!-- Providers list -->
-          <div
-            style="
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              margin-bottom: 10px;
-            "
+          <button
+            class="btn btn-ghost btn-sm"
+            @click="showAddSupplier = true"
           >
-            <div class="card-section-title" style="margin: 0">
-              {{ t("settings.aiProvidersSection") }}
-            </div>
-            <button
-              class="btn btn-ghost btn-sm"
-              @click="showAddSupplier = true"
-            >
-              <i class="fa-solid fa-plus"></i> {{ t("settings.addProvider") }}
-            </button>
-          </div>
+            <i class="fa-solid fa-plus"></i> {{ t("settings.addProvider") }}
+          </button>
+        </div>
 
-          <div v-if="aiSuppliersLoading" style="color: #888; font-size: 13px">
-            {{ t("common.loading") }}
+        <div v-if="aiSuppliersLoading" style="color: #888; font-size: 13px">
+          {{ t("common.loading") }}
+        </div>
+        <div
+          v-else-if="!suppliers.length"
+          style="color: #aaa; font-size: 13px; margin-bottom: 12px"
+        >
+          {{ t("settings.noSuppliers") }}
+        </div>
+
+        <div v-for="s in suppliers" :key="s.id" class="supplier-card">
+          <!-- Supplier header -->
+          <div v-if="editingSupplierId !== s.id" class="supplier-header">
+            <div class="supplier-info">
+              <span class="supplier-name">{{ s.name }}</span>
+              <span class="supplier-url">{{ s.base_url }}</span>
+              <span class="supplier-timeout">{{ s.timeout_ms }}ms</span>
+            </div>
+            <div class="supplier-actions">
+              <button
+                class="btn btn-ghost btn-sm"
+                @click="startEditSupplier(s)"
+              >
+                {{ t("settings.editSupplier") }}
+              </button>
+              <button
+                class="btn btn-ghost btn-sm btn-danger"
+                @click="removeSupplier(s.id)"
+              >
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
           </div>
           <div
-            v-else-if="!suppliers.length"
-            style="color: #aaa; font-size: 13px; margin-bottom: 12px"
+            v-if="editingSupplierId !== s.id && !s.api_key"
+            class="supplier-no-key-warning"
           >
-            {{ t("settings.noSuppliers") }}
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            {{ t("settings.supplierNoApiKey") }}
           </div>
 
-          <div v-for="s in suppliers" :key="s.id" class="supplier-card">
-            <!-- Supplier header -->
-            <div v-if="editingSupplierId !== s.id" class="supplier-header">
-              <div class="supplier-info">
-                <span class="supplier-name">{{ s.name }}</span>
-                <span class="supplier-url">{{ s.base_url }}</span>
-                <span class="supplier-timeout">{{ s.timeout_ms }}ms</span>
-              </div>
-              <div class="supplier-actions">
-                <button
-                  class="btn btn-ghost btn-sm"
-                  @click="startEditSupplier(s)"
-                >
-                  {{ t("settings.editSupplier") }}
-                </button>
-                <button
-                  class="btn btn-ghost btn-sm btn-danger"
-                  @click="removeSupplier(s.id)"
-                >
-                  <i class="fa-solid fa-trash"></i>
-                </button>
-              </div>
-            </div>
-            <div
-              v-if="editingSupplierId !== s.id && !s.api_key"
-              class="supplier-no-key-warning"
-            >
-              <i class="fa-solid fa-triangle-exclamation"></i>
-              {{ t("settings.supplierNoApiKey") }}
-            </div>
-
-            <!-- Supplier edit form -->
-            <div v-if="editingSupplierId === s.id" class="supplier-edit-form">
-              <div class="form-row">
-                <div class="form-group">
-                  <label class="form-label">{{
-                    t("settings.supplierName")
-                  }}</label>
-                  <input v-model.trim="editForm.name" class="form-input" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">{{
-                    t("settings.supplierTimeout")
-                  }}</label>
-                  <input
-                    v-model.number="editForm.timeout_ms"
-                    class="form-input"
-                    type="number"
-                    min="1000"
-                    step="1000"
-                  />
-                </div>
-              </div>
-              <div class="form-group">
-                <label class="form-label">{{
-                  t("settings.supplierBaseUrl")
-                }}</label>
-                <input
-                  v-model.trim="editForm.base_url"
-                  class="form-input"
-                  placeholder="https://openrouter.ai/api/v1"
-                />
-              </div>
-              <div class="form-group">
-                <label class="form-label">{{
-                  t("settings.supplierApiKey")
-                }}</label>
-                <input
-                  v-model.trim="editForm.api_key"
-                  class="form-input"
-                  type="text"
-                  autocomplete="off"
-                  placeholder="sk-..."
-                />
-              </div>
-              <div style="display: flex; gap: 8px">
-                <button
-                  class="btn btn-primary btn-sm"
-                  :disabled="supplierSaving"
-                  @click="saveEditSupplier(s.id)"
-                >
-                  {{
-                    supplierSaving
-                      ? t("common.saving")
-                      : t("settings.saveSupplier")
-                  }}
-                </button>
-                <button
-                  class="btn btn-ghost btn-sm"
-                  @click="editingSupplierId = null"
-                >
-                  {{ t("settings.cancelEdit") }}
-                </button>
-              </div>
-            </div>
-
-            <!-- Models -->
-            <div class="supplier-models">
-              <div class="supplier-models-label">
-                {{ t("settings.supplierModels") }}
-              </div>
-              <div class="supplier-model-chips">
-                <span v-for="m in s.models" :key="m.id" class="model-chip">
-                  {{ m.model_id }}
-                  <button
-                    class="model-chip-del"
-                    @click="removeModel(s.id, m.id)"
-                  >
-                    <i class="fa-solid fa-xmark"></i>
-                  </button>
-                </span>
-                <span
-                  v-if="!s.models.length"
-                  style="color: #aaa; font-size: 12px"
-                  >—</span
-                >
-              </div>
-              <div class="model-add-row">
-                <input
-                  v-model.trim="newModelInputs[s.id]"
-                  class="form-input form-input-sm"
-                  :placeholder="t('settings.modelId')"
-                  @keyup.enter="addModel(s.id)"
-                />
-                <button
-                  class="btn btn-ghost btn-sm"
-                  :disabled="!newModelInputs[s.id]"
-                  @click="addModel(s.id)"
-                >
-                  <i class="fa-solid fa-plus"></i> {{ t("settings.addModel") }}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Add supplier form -->
-          <div v-if="showAddSupplier" class="supplier-card supplier-edit-form">
+          <!-- Supplier edit form -->
+          <div v-if="editingSupplierId === s.id" class="supplier-edit-form">
             <div class="form-row">
               <div class="form-group">
                 <label class="form-label">{{
                   t("settings.supplierName")
                 }}</label>
-                <input
-                  v-model.trim="newSupplierForm.name"
-                  class="form-input"
-                  placeholder="OpenRouter"
-                />
+                <input v-model.trim="editForm.name" class="form-input" />
               </div>
               <div class="form-group">
                 <label class="form-label">{{
                   t("settings.supplierTimeout")
                 }}</label>
                 <input
-                  v-model.number="newSupplierForm.timeout_ms"
+                  v-model.number="editForm.timeout_ms"
                   class="form-input"
                   type="number"
                   min="1000"
@@ -2411,7 +2306,7 @@
                 t("settings.supplierBaseUrl")
               }}</label>
               <input
-                v-model.trim="newSupplierForm.base_url"
+                v-model.trim="editForm.base_url"
                 class="form-input"
                 placeholder="https://openrouter.ai/api/v1"
               />
@@ -2421,7 +2316,7 @@
                 t("settings.supplierApiKey")
               }}</label>
               <input
-                v-model.trim="newSupplierForm.api_key"
+                v-model.trim="editForm.api_key"
                 class="form-input"
                 type="text"
                 autocomplete="off"
@@ -2431,12 +2326,8 @@
             <div style="display: flex; gap: 8px">
               <button
                 class="btn btn-primary btn-sm"
-                :disabled="
-                  supplierSaving ||
-                  !newSupplierForm.name ||
-                  !newSupplierForm.base_url
-                "
-                @click="createSupplier"
+                :disabled="supplierSaving"
+                @click="saveEditSupplier(s.id)"
               >
                 {{
                   supplierSaving
@@ -2446,54 +2337,167 @@
               </button>
               <button
                 class="btn btn-ghost btn-sm"
-                @click="showAddSupplier = false"
+                @click="editingSupplierId = null"
               >
                 {{ t("settings.cancelEdit") }}
               </button>
             </div>
           </div>
 
-          <div v-if="supplierError" class="error-msg" style="margin-top: 8px">
-            {{ supplierError }}
-          </div>
-
-          <!-- Default model -->
-          <div
-            style="
-              margin-top: 20px;
-              padding-top: 16px;
-              border-top: 1px solid #e5e7eb;
-            "
-          >
-            <div class="form-group">
-              <label class="form-label">{{ t("settings.defaultModel") }}</label>
-              <select v-model="form.ai_default_model_id" class="form-select">
-                <option value="">{{ t("settings.defaultModelNone") }}</option>
-                <optgroup v-for="s in suppliers" :key="s.id" :label="s.name">
-                  <option v-for="m in s.models" :key="m.id" :value="String(m.id)">
-                    {{ m.model_id }}
-                  </option>
-                </optgroup>
-              </select>
+          <!-- Models -->
+          <div class="supplier-models">
+            <div class="supplier-models-label">
+              {{ t("settings.supplierModels") }}
             </div>
-            <div v-if="aiMsg" class="success-msg">{{ aiMsg }}</div>
-            <div v-if="aiError" class="error-msg">{{ aiError }}</div>
+            <div class="supplier-model-chips">
+              <span v-for="m in s.models" :key="m.id" class="model-chip">
+                {{ m.model_id }}
+                <button
+                  class="model-chip-del"
+                  @click="removeModel(s.id, m.id)"
+                >
+                  <i class="fa-solid fa-xmark"></i>
+                </button>
+              </span>
+              <span
+                v-if="!s.models.length"
+                style="color: #aaa; font-size: 12px"
+                >—</span
+              >
+            </div>
+            <div class="model-add-row">
+              <input
+                v-model.trim="newModelInputs[s.id]"
+                class="form-input form-input-sm"
+                :placeholder="t('settings.modelId')"
+                @keyup.enter="addModel(s.id)"
+              />
+              <button
+                class="btn btn-ghost btn-sm"
+                :disabled="!newModelInputs[s.id]"
+                @click="addModel(s.id)"
+              >
+                <i class="fa-solid fa-plus"></i> {{ t("settings.addModel") }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add supplier form -->
+        <div v-if="showAddSupplier" class="supplier-card supplier-edit-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">{{
+                t("settings.supplierName")
+              }}</label>
+              <input
+                v-model.trim="newSupplierForm.name"
+                class="form-input"
+                placeholder="OpenRouter"
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">{{
+                t("settings.supplierTimeout")
+              }}</label>
+              <input
+                v-model.number="newSupplierForm.timeout_ms"
+                class="form-input"
+                type="number"
+                min="1000"
+                step="1000"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{
+              t("settings.supplierBaseUrl")
+            }}</label>
+            <input
+              v-model.trim="newSupplierForm.base_url"
+              class="form-input"
+              placeholder="https://openrouter.ai/api/v1"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{
+              t("settings.supplierApiKey")
+            }}</label>
+            <input
+              v-model.trim="newSupplierForm.api_key"
+              class="form-input"
+              type="text"
+              autocomplete="off"
+              placeholder="sk-..."
+            />
+          </div>
+          <div style="display: flex; gap: 8px">
             <button
-              class="btn btn-primary"
-              :disabled="aiSaving"
-              @click="saveAi"
+              class="btn btn-primary btn-sm"
+              :disabled="
+                supplierSaving ||
+                !newSupplierForm.name ||
+                !newSupplierForm.base_url
+              "
+              @click="createSupplier"
             >
-              <i class="fa-solid fa-floppy-disk"></i>
               {{
-                aiSaving ? t("common.saving") : t("settings.saveDefaultModel")
+                supplierSaving
+                  ? t("common.saving")
+                  : t("settings.saveSupplier")
               }}
+            </button>
+            <button
+              class="btn btn-ghost btn-sm"
+              @click="showAddSupplier = false"
+            >
+              {{ t("settings.cancelEdit") }}
             </button>
           </div>
         </div>
-      </div>
 
+        <div v-if="supplierError" class="error-msg" style="margin-top: 8px">
+          {{ supplierError }}
+        </div>
+
+        <!-- Default model -->
+        <div
+          style="
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid #e5e7eb;
+          "
+        >
+          <div class="form-group">
+            <label class="form-label">{{ t("settings.defaultModel") }}</label>
+            <select v-model="form.ai_default_model_id" class="form-select">
+              <option value="">{{ t("settings.defaultModelNone") }}</option>
+              <optgroup v-for="s in suppliers" :key="s.id" :label="s.name">
+                <option v-for="m in s.models" :key="m.id" :value="String(m.id)">
+                  {{ m.model_id }}
+                </option>
+              </optgroup>
+            </select>
+          </div>
+          <div v-if="aiMsg" class="success-msg">{{ aiMsg }}</div>
+          <div v-if="aiError" class="error-msg">{{ aiError }}</div>
+          <button
+            class="btn btn-primary"
+            :disabled="aiSaving"
+            @click="saveAi"
+          >
+            <i class="fa-solid fa-floppy-disk"></i>
+            {{
+              aiSaving ? t("common.saving") : t("settings.saveDefaultModel")
+            }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-grid">
       <!-- Memory -->
-      <div class="card s-col-6">
+      <div class="card">
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.memorySection") }}</div>
 
@@ -2557,7 +2561,7 @@
       </div>
 
       <!-- Restarting the backend: the way out when the process itself is what is stuck -->
-      <div class="card s-col-6">
+      <div class="card">
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.system.title") }}</div>
           <p style="font-size: 12px; color: #888; margin: 0 0 10px">
@@ -5315,31 +5319,64 @@ async function signOutEverywhere() {
   color: #dc2626;
 }
 
+/*
+ * Cards pack into columns rather than a row-aligned grid. A grid shares row heights, so the
+ * browser panel -- a couple of thousand pixels on its own -- set the height of its whole row
+ * and left every card beside it sitting above a hole the size of the page. In columns each
+ * card simply follows the one above it, the browser balances the columns, and the height a
+ * tall card needs is spent on the cards below it instead of on gaps.
+ */
 .settings-grid {
-  display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: 20px;
-  align-items: start;
+  column-count: 2;
+  column-gap: 20px;
+  /* On the container itself, not on the last card inside it: a margin at the end of a column
+     is a margin against a fragmentainer break, which the engine is free to truncate -- and
+     that is exactly what left the full-width card below touching the card above it. */
+  margin-bottom: 20px;
 }
-.s-col-4 {
-  grid-column: span 4;
-}
-.s-col-6 {
-  grid-column: span 6;
-}
-.s-col-12 {
-  grid-column: span 12;
-}
-@media (max-width: 960px) {
-  .s-col-4 {
-    grid-column: span 6;
+
+/* A third column once there is room for one without squeezing the wider forms */
+@media (min-width: 2000px) {
+  .settings-grid {
+    column-count: 3;
   }
 }
+
 @media (max-width: 640px) {
-  .s-col-4,
-  .s-col-6 {
-    grid-column: span 12;
+  .settings-grid {
+    column-count: 1;
   }
+}
+
+.settings-grid > .card {
+  /* A card is one unit: never break down the middle of a form */
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+  margin: 0 0 20px;
+}
+
+/* A card too wide for one column stands between two sets of columns instead of inside them */
+.settings-wide {
+  margin: 0 0 20px;
+}
+
+.settings-wide .card-body {
+  padding: 18px;
+}
+
+.settings-wide .card-section-title {
+  margin-bottom: 12px;
+}
+
+/* A little tighter than a card elsewhere in the app: this page is a dozen of them at once,
+   and the padding adds up to a screenful on its own */
+.settings-grid .card-body {
+  padding: 18px;
+}
+
+.settings-grid .card-section-title {
+  margin-bottom: 12px;
 }
 
 /* One folded sub-section's header row: the toggle, and a note that stands in for what is
