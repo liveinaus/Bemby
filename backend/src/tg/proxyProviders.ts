@@ -60,6 +60,12 @@ export type BembyProxy = {
    */
   autoPool?: boolean;
   /**
+   * Turned off by hand. Nothing automatic touches this: a test never sets it and never
+   * clears it, and a proxy carrying it is skipped by the tests altogether, so only the
+   * operator can put the exit back. `status` is the tests' own verdict and is separate.
+   */
+  disabled?: boolean;
+  /**
    * What the last test made of this exit. `failed` disables it: no draw, no supplier, and no
    * Cloudflare fall-through will reach for it again until a later test finds it working.
    * Absent means never tested, which is treated as usable -- an untested list is the normal
@@ -76,8 +82,8 @@ export type BembyProxy = {
 
 export type ProxyStatus = "ok" | "failed";
 
-/** Whether an exit may be drawn: anything but one a test has knocked out. */
-export const proxyUsable = (p: BembyProxy) => p.status !== "failed";
+/** Whether an exit may be drawn: not turned off by hand, and not knocked out by a test. */
+export const proxyUsable = (p: BembyProxy) => !p.disabled && p.status !== "failed";
 
 export type ProviderSyncResult = {
   providerId: string;
@@ -579,11 +585,13 @@ export function randomProxyPool(poolIds?: string[]): BembyProxy[] {
     );
   };
 
-  const pool = inPool();
+  // An exit turned off by hand is out of the draw for good, fallback included: that switch
+  // is an instruction, not a measurement, so nothing here may reason its way around it.
+  const pool = inPool().filter((p) => !p.disabled);
   const healthy = pool.filter(proxyUsable);
-  // A pool where every exit last tested as failed still draws from it: going out through a
-  // proxy that may have come back is better than the alternative, which is the run leaving
-  // through the host's own address because the draw came up empty.
+  // A pool where every exit left in it last tested as failed still draws from it: going out
+  // through a proxy that may have come back is better than the alternative, which is the run
+  // leaving through the host's own address because the draw came up empty.
   return healthy.length ? healthy : pool;
 }
 
@@ -767,15 +775,25 @@ export function recordProxyTestResults(
   return { failed, recovered };
 }
 
-/** Puts an exit back in service, whatever the last test made of it. */
-export function clearProxyStatus(id: string): boolean {
+/**
+ * Turns an exit off by hand, or puts it back in service. Only this is allowed to clear the
+ * manual switch: a test that finds the exit working leaves it off, which is the whole point
+ * of having a switch separate from the verdict. Putting one back also drops a failed verdict,
+ * so a single action is enough however the exit came to be out of the draws.
+ */
+export function setProxyOff(id: string, off: boolean): boolean {
   const list = readProxies();
   const entry = list.find((p) => p.id === id);
   if (!entry) return false;
-  delete entry.status;
-  delete entry.testedAt;
-  delete entry.testMs;
-  delete entry.testError;
+  if (off) {
+    entry.disabled = true;
+  } else {
+    delete entry.disabled;
+    delete entry.status;
+    delete entry.testedAt;
+    delete entry.testMs;
+    delete entry.testError;
+  }
   writeSetting("proxies", JSON.stringify(list));
   return true;
 }

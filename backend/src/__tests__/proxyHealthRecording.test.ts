@@ -74,6 +74,24 @@ describe("testStoredProxies", () => {
     expect(result.checks?.map((c) => c.name)).toEqual(["reach"]);
   });
 
+  it("skips an exit turned off by hand: a pass could not put it back anyway", async () => {
+    setProxies([
+      { id: "a", name: "A", url: "socks5://10.0.0.1:1080", disabled: true },
+      { id: "b", name: "B", url: "socks5://10.0.0.2:1080" },
+    ]);
+
+    const results = await testStoredProxies();
+
+    expect(results.map((r) => r.id)).toEqual(["b"]);
+    expect(mockCreateConnection).toHaveBeenCalledTimes(1);
+    expect(proxies()[0]).toEqual({
+      id: "a",
+      name: "A",
+      url: "socks5://10.0.0.1:1080",
+      disabled: true,
+    });
+  });
+
   it("keeps a filtered run to that provider's imports, leaving the rest untouched", async () => {
     setProxies([
       { id: "manual", name: "Manual", url: "socks5://10.0.0.1:1080" },

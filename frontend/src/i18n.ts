@@ -683,7 +683,8 @@ const zh = {
     proxyRandomPoolSupplierHint:
       "勾选供应商即代表其当前的全部代理，同步后新增或删除的代理会自动跟随，无需重新勾选。",
     proxyRandomPoolManual: "手动添加",
-    proxyRandomPoolDisabledHint: "健康检查失败的代理会被停用，不参与抽取；恢复后自动重新加入。",
+    proxyRandomPoolDisabledHint:
+      "健康检查失败的代理会被停用，不参与抽取，恢复后自动重新加入；手动关闭的代理则只能在设置中手动启用。",
     proxyRandomPoolBySupplier: "已由上方的供应商整体勾选",
     proxyBrowserOnlyHint:
       "此代理用于浏览器（Cloudflare 验证 / 小程序）。Telegram 连接始终使用账户上的代理，与登录时保持一致；若两者不同会导致同一会话出现两个 IP，触发 AUTH_KEY_DUPLICATED 并使会话失效。要让 Telegram 也走某个代理，请在账户上设置该代理（必要时重新登录）。",
@@ -1657,13 +1658,16 @@ const zh = {
     proxyTestAllFailed: "批量测试失败",
     proxyTestAllUnsaved: "请先保存代理列表，再测试全部",
     proxyDisabled: "已停用",
+    proxyOff: "已手动关闭",
+    proxyOffTip: "由你手动关闭：自动测试不会将其恢复，也不会再测试它，只有点击启用才会重新参与抽取",
+    proxyDisableTip: "手动关闭（自动测试不会恢复）",
     proxyDisabledTip: "上次测试失败，已停用：抽取、供应商与轮换都不会再使用它，直到测试通过",
     proxyStatusOk: "测试通过",
     proxyEnableTip: "重新启用（清除失败状态）",
     proxyExitIpTip: "Cloudflare 检测读取到的出口 IP",
     proxyHealthSection: "健康检查",
     proxyHealthHint:
-      "测试内容与频率。可达性检查始终执行，失败的代理会被停用；下面每项额外检查开启后，未通过同样会导致停用。已停用的代理仍会参与每次测试，通过后自动恢复。",
+      "测试内容与频率。可达性检查始终执行，失败的代理会被停用；下面每项额外检查开启后，未通过同样会导致停用。测试失败而停用的代理仍会参与每次测试，通过后自动恢复；手动关闭的代理不会被测试，也不会自动恢复。",
     proxyTestCf: "同时检查能否访问 challenges.cloudflare.com",
     proxyTestCfHint:
       "能建立连接不代表能过 Cloudflare。此项通过代理请求 challenges.cloudflare.com/cdn-cgi/trace，同时读取出口 IP。隧道节点（VLESS 订阅）会跳过此项：Cloudflare Worker 无法连接 Cloudflare 自己的地址。",
@@ -2915,7 +2919,7 @@ const en: typeof zh = {
       "Ticking a supplier takes in whatever it currently lists, so exits a sync adds or drops follow along without the pool being ticked again.",
     proxyRandomPoolManual: "Added by hand",
     proxyRandomPoolDisabledHint:
-      "An exit a health check disabled is left out of the draw, and rejoins it as soon as a later test finds it working.",
+      "An exit a health check disabled is left out of the draw, and rejoins it as soon as a later test finds it working. One turned off by hand stays out until it is turned back on in Settings.",
     proxyRandomPoolBySupplier: "Covered by the supplier tick above",
     proxyBrowserOnlyHint:
       "Used by the browser (Cloudflare checks / Mini Apps). The Telegram connection always follows the proxy set on the account, matching what login used: two exits for one session is what Telegram answers with AUTH_KEY_DUPLICATED, invalidating it. To route Telegram through a proxy, set it on the account (and re-authenticate if needed).",
@@ -3919,6 +3923,10 @@ const en: typeof zh = {
     proxyTestAllFailed: "Bulk proxy test failed",
     proxyTestAllUnsaved: "Save the proxy list before testing them all",
     proxyDisabled: "Disabled",
+    proxyOff: "Off",
+    proxyOffTip:
+      "Turned off by you: no test puts it back, and none is run on it either, so it rejoins the draws only when you enable it",
+    proxyDisableTip: "Turn off by hand (no test will put it back)",
     proxyDisabledTip:
       "Last test failed, so this exit is disabled: no draw, no supplier and no rotation reaches for it until a test finds it working",
     proxyStatusOk: "Test passed",
@@ -3926,7 +3934,7 @@ const en: typeof zh = {
     proxyExitIpTip: "Exit address the Cloudflare check read back",
     proxyHealthSection: "Health checks",
     proxyHealthHint:
-      "What a test asks of an exit, and how often. Reachability always runs and a failure disables the exit; each extra check below disables it too once turned on. Disabled exits are tested along with the rest, which is how one comes back.",
+      "What a test asks of an exit, and how often. Reachability always runs and a failure disables the exit; each extra check below disables it too once turned on. Exits a test disabled are tested along with the rest, which is how one comes back. Exits turned off by hand are skipped entirely and never come back on their own.",
     proxyTestCf: "Also check it can reach challenges.cloudflare.com",
     proxyTestCfHint:
       "Answering a connect is not the same as being let through by Cloudflare. This fetches challenges.cloudflare.com/cdn-cgi/trace through the exit, and reads the exit address back off it. Tunnel exits (VLESS subscriptions) skip it: a Cloudflare Worker cannot connect to Cloudflare's own addresses.",

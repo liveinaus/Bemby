@@ -382,6 +382,11 @@ export type Proxy = {
    * Absent means yes. Tunnel exits imported from a subscription set it false.
    */
   autoPool?: boolean;
+  /**
+   * Turned off by hand. No test sets or clears it, and tests skip the exit entirely, so it
+   * comes back only when the operator says so.
+   */
+  disabled?: boolean;
   /** What the last test made of it. `failed` disables the exit; absent means never tested. */
   status?: ProxyStatus;
   /** When that test ran, epoch ms. */
@@ -1935,7 +1940,12 @@ export const settingsApi = {
     api
       .post<{ results: ProxyTestResult[]; ok: number; proxies: string }>("/settings/test-proxies")
       .then((r) => r.data),
-  /** Puts a disabled exit back in service without waiting for a test to clear it. */
+  /** Turns an exit off by hand: no test puts it back, only enableProxy does. */
+  disableProxy: (id: string) =>
+    api
+      .post<{ proxies: string }>(`/settings/proxies/${encodeURIComponent(id)}/disable`)
+      .then((r) => r.data),
+  /** Puts an exit back in service, clearing a manual switch and a failed verdict alike. */
   enableProxy: (id: string) =>
     api
       .post<{ proxies: string }>(`/settings/proxies/${encodeURIComponent(id)}/enable`)

@@ -313,7 +313,8 @@ async function runCheck(name: string, run: () => Promise<unknown>): Promise<Prox
  * passwords masked, so testing those would only ever report an auth failure.
  *
  * `filter.providerIds` keeps the run to what those providers imported, which is what a sync
- * asks for: the list it just rewrote is the part whose health is unknown.
+ * asks for: the list it just rewrote is the part whose health is unknown. Exits turned off by
+ * hand are skipped throughout: only the operator puts one of those back.
  */
 export async function testStoredProxies(
   filter?: { providerIds?: string[] },
@@ -323,6 +324,9 @@ export async function testStoredProxies(
     (p) =>
       typeof p.id === "string" &&
       typeof p.url === "string" &&
+      // An exit turned off by hand is left alone: a pass here could not put it back anyway,
+      // so testing it would only spend a socket on a decision already made
+      p.disabled !== true &&
       (!prefixes?.length || prefixes.some((prefix) => (p.id as string).startsWith(prefix))),
   );
   const options = proxyTestOptions();

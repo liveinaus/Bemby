@@ -10,7 +10,7 @@
       <option v-if="allowDirect" value="direct">{{ t("jobs.custom.miniAppProxyDirect") }}</option>
       <option value="random">{{ t("jobs.proxyRandom") }}</option>
       <option v-for="p in proxies" :key="p.id" :value="p.id">
-        {{ p.name }}{{ p.status === "failed" ? ` (${t("settings.proxyDisabled")})` : "" }}
+        {{ p.name }}{{ usable(p) ? "" : ` (${offLabel(p)})` }}
       </option>
     </select>
     <div v-if="hint" style="font-size: 11px; color: #aaa; margin-top: 3px">{{ hint }}</div>
@@ -67,9 +67,9 @@
                 :disabled="isSupplierPicked(g.id)"
                 @change="toggle(p.id)"
               />
-              <span :class="{ 'proxy-pool-off': p.status === 'failed' }">{{ p.name }}</span>
-              <span v-if="p.status === 'failed'" class="badge badge-red" style="font-size: 9px">{{
-                t("settings.proxyDisabled")
+              <span :class="{ 'proxy-pool-off': !usable(p) }">{{ p.name }}</span>
+              <span v-if="!usable(p)" class="badge badge-red" style="font-size: 9px">{{
+                offLabel(p)
               }}</span>
             </label>
           </div>
@@ -79,9 +79,9 @@
       <div v-else class="proxy-pool-list">
         <label v-for="p in proxies" :key="p.id" class="form-checkbox-label proxy-pool-item">
           <input type="checkbox" :checked="pool.includes(p.id)" @change="toggle(p.id)" />
-          <span :class="{ 'proxy-pool-off': p.status === 'failed' }">{{ p.name }}</span>
-          <span v-if="p.status === 'failed'" class="badge badge-red" style="font-size: 9px">{{
-            t("settings.proxyDisabled")
+          <span :class="{ 'proxy-pool-off': !usable(p) }">{{ p.name }}</span>
+          <span v-if="!usable(p)" class="badge badge-red" style="font-size: 9px">{{
+            offLabel(p)
           }}</span>
         </label>
       </div>
@@ -113,8 +113,11 @@ const props = defineProps<{
   /** Proxy list id, "direct", "random", or "" for the blank option. */
   modelValue: string;
   pool: string[];
-  /** The proxy list as stored; `status: "failed"` marks an exit a test has disabled. */
-  proxies: Array<{ id: string; name: string; status?: string }>;
+  /**
+   * The proxy list as stored. `disabled` is an exit turned off by hand and `status: "failed"`
+   * one a test knocked out; neither is ever drawn.
+   */
+  proxies: Array<{ id: string; name: string; status?: string; disabled?: boolean }>;
   label: string;
   /** What a blank value means here: follow the template, follow the job, or no proxy at all. */
   blankLabel: string;
@@ -140,10 +143,19 @@ watch(
   { immediate: true },
 );
 
-type Group = { id: string; name: string; items: Array<{ id: string; name: string; status?: string }> };
+type Group = {
+  id: string;
+  name: string;
+  items: Array<{ id: string; name: string; status?: string; disabled?: boolean }>;
+};
 
 /** A disabled exit is shown but never drawn, so it is left out of every count. */
-const usable = (p: { status?: string }) => p.status !== "failed";
+const usable = (p: { status?: string; disabled?: boolean }) =>
+  !p.disabled && p.status !== "failed";
+
+/** What the badge beside an unusable exit says: turned off by hand, or failed its test. */
+const offLabel = (p: { status?: string; disabled?: boolean }) =>
+  p.disabled ? t("settings.proxyOff") : t("settings.proxyDisabled");
 
 const groups = computed<Group[]>(() => {
   const ids = providers.value.map((p) => p.id);

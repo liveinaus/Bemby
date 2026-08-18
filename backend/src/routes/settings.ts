@@ -53,7 +53,7 @@ import { exportCfProfiles, importCfProfiles } from "../jobs/cfProfileArchive";
 import { installVnc, removeVnc, vncInstallLog, vncStatus } from "../jobs/vncInstall";
 import {
   clearCfExitGeo,
-  clearProxyStatus,
+  setProxyOff,
   providersForClient,
   PROXY_SYNC_MATCH_BY_NAME_KEY,
   saveProviders,
@@ -976,14 +976,19 @@ router.post("/test-proxies", async (_req, res) => {
   });
 });
 
-/** Puts a disabled exit back in service without waiting for a test to clear it. */
-router.post("/proxies/:id/enable", (req, res) => {
-  if (!clearProxyStatus(req.params.id)) {
-    res.status(404).json({ error: "Proxy not found" });
-    return;
-  }
-  res.json({ proxies: maskProxies(currentProxiesRaw()) });
-});
+/**
+ * Turns one exit off by hand, or puts it back. Off stays off through every test and sync:
+ * only this route clears it, which is what separates it from a test's own verdict.
+ */
+for (const [path, off] of [["disable", true], ["enable", false]] as const) {
+  router.post(`/proxies/:id/${path}`, (req, res) => {
+    if (!setProxyOff(req.params.id, off)) {
+      res.status(404).json({ error: "Proxy not found" });
+      return;
+    }
+    res.json({ proxies: maskProxies(currentProxiesRaw()) });
+  });
+}
 
 export { testStoredProxies };
 export type { ProxyTestResult };

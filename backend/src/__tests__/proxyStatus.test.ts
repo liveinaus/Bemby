@@ -23,9 +23,9 @@ vi.mock("../tg/vlessTunnel", async (importOriginal) => {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cfProxyCandidatesFor,
-  clearProxyStatus,
   randomProxyPool,
   recordProxyTestResults,
+  setProxyOff,
   syncProviders,
   type BembyProxy,
 } from "../tg/proxyProviders";
@@ -101,15 +101,62 @@ describe("recordProxyTestResults", () => {
   });
 });
 
-describe("clearProxyStatus", () => {
-  it("puts a disabled exit back in the draw", () => {
-    expect(clearProxyStatus("p2")).toBe(true);
+describe("setProxyOff", () => {
+  it("puts a failed exit back in the draw", () => {
+    expect(setProxyOff("p2", false)).toBe(true);
     expect(proxies()[1].status).toBeUndefined();
     expect(randomProxyPool().map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
   });
 
+  it("takes an exit out by hand, whatever its verdict", () => {
+    setProxyOff("p1", true);
+    expect(proxies()[0]).toMatchObject({ disabled: true });
+    expect(randomProxyPool().map((p) => p.id)).toEqual(["p3"]);
+  });
+
   it("says so when there is no such exit", () => {
-    expect(clearProxyStatus("nope")).toBe(false);
+    expect(setProxyOff("nope", true)).toBe(false);
+  });
+});
+
+// The manual switch is an instruction, not a measurement: nothing automatic may undo it.
+describe("an exit turned off by hand", () => {
+  beforeEach(() => {
+    setProxies([OK, { ...UNTESTED, disabled: true }]);
+  });
+
+  it("is out of a draw over the whole list", () => {
+    expect(randomProxyPool().map((p) => p.id)).toEqual(["p1"]);
+  });
+
+  it("is out of a pool that names it, and of one naming its supplier", () => {
+    expect(randomProxyPool(["p1", "p3"]).map((p) => p.id)).toEqual(["p1"]);
+    setProxies([{ id: "pp:acme:1", name: "Acme", url: "http://4.4.4.4:80", disabled: true }]);
+    store.set(
+      "proxy_providers",
+      JSON.stringify([{ id: "acme", name: "Acme", type: "list", url: "https://acme.test/l" }]),
+    );
+    expect(randomProxyPool(["provider:acme"])).toEqual([]);
+  });
+
+  it("is not fallen back on when nothing else is left, unlike a failed one", () => {
+    setProxies([{ ...UNTESTED, disabled: true }]);
+    expect(randomProxyPool()).toEqual([]);
+  });
+
+  it("is not walked into by a Cloudflare fall-through", () => {
+    expect(cfProxyCandidatesFor({ primaryUrl: OK.url }).map((c) => c.id)).not.toContain("p3");
+  });
+
+  it("stays off when a test finds it working", () => {
+    recordProxyTestResults([{ id: "p3", ok: true, ms: 12 }]);
+    expect(proxies()[1]).toMatchObject({ disabled: true, status: "ok" });
+    expect(randomProxyPool().map((p) => p.id)).toEqual(["p1"]);
+  });
+
+  it("comes back only when it is turned on again", () => {
+    setProxyOff("p3", false);
+    expect(randomProxyPool().map((p) => p.id)).toEqual(["p1", "p3"]);
   });
 });
 

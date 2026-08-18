@@ -1329,10 +1329,19 @@
                 :title="t('settings.proxyPickedOnlyTip')"
                 >{{ t("settings.proxyPickedOnly") }}</span
               >
+              <!-- Off by hand outranks the tests' own verdict: they never set it, never
+                   clear it, and skip the exit while it stands -->
+              <span
+                v-if="p.disabled"
+                class="badge badge-red"
+                style="font-size: 10px"
+                :title="t('settings.proxyOffTip')"
+                >{{ t("settings.proxyOff") }}</span
+              >
               <!-- The verdict the last test left on the entry: a failed one is disabled
                    until a later test, or the button beside it, puts it back -->
               <span
-                v-if="p.status === 'failed'"
+                v-else-if="p.status === 'failed'"
                 class="badge badge-red"
                 style="font-size: 10px"
                 :title="proxyStatusTip(p)"
@@ -1353,12 +1362,20 @@
                 >{{ proxyTestResults[p.id].exitIp }}</span
               >
               <button
-                v-if="p.status === 'failed'"
+                v-if="p.disabled || p.status === 'failed'"
                 class="btn btn-sm btn-ghost btn-icon"
                 :title="t('settings.proxyEnableTip')"
                 @click="enableProxy(p.id)"
               >
-                <i class="fa-solid fa-rotate-left"></i>
+                <i class="fa-solid fa-play"></i>
+              </button>
+              <button
+                v-else
+                class="btn btn-sm btn-ghost btn-icon"
+                :title="t('settings.proxyDisableTip')"
+                @click="disableProxy(p.id)"
+              >
+                <i class="fa-solid fa-ban"></i>
               </button>
               <button
                 class="btn btn-sm btn-ghost btn-icon"
@@ -4160,12 +4177,22 @@ function proxyStatusTip(p: Proxy): string {
   return [head, when, p.testError].filter(Boolean).join(" · ");
 }
 
-/** Clears a failed verdict, which is what puts the exit back in the draws. */
+/** Puts an exit back in the draws, clearing a manual switch and a failed verdict alike. */
 async function enableProxy(id: string) {
   proxiesError.value = "";
   try {
     applyProxies((await settingsApi.enableProxy(id)).proxies);
     delete proxyTestResults.value[id];
+  } catch (err: any) {
+    proxiesError.value = err.response?.data?.error ?? t("settings.saveFailed");
+  }
+}
+
+/** Takes an exit out by hand. No test puts it back; only the button beside it does. */
+async function disableProxy(id: string) {
+  proxiesError.value = "";
+  try {
+    applyProxies((await settingsApi.disableProxy(id)).proxies);
   } catch (err: any) {
     proxiesError.value = err.response?.data?.error ?? t("settings.saveFailed");
   }
