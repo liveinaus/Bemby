@@ -166,3 +166,67 @@ describe("exits kept out of automatic pools", () => {
     expect(randomProxyPool().map((p) => p.id)).toEqual(["p1", "p2", "p3"]);
   });
 });
+
+// A pool may name a supplier instead of each of its exits, so a sync that adds or drops
+// proxies is followed without the pool being ticked again.
+describe("a pool naming a supplier", () => {
+  const IMPORTED = [
+    { id: "pp:acme:1", name: "Acme Sydney", url: "http://u:p@4.4.4.4:8080" },
+    { id: "pp:acme:2", name: "Acme Perth", url: "http://u:p@5.5.5.5:8080" },
+    { id: "pp:other:9", name: "Other Tokyo", url: "http://u:p@6.6.6.6:8080" },
+    { id: "pp:gone:1", name: "Deleted supplier", url: "http://u:p@7.7.7.7:8080" },
+  ];
+
+  beforeEach(() => {
+    store.set("proxies", JSON.stringify([...POOL, ...IMPORTED]));
+    store.set(
+      "proxy_providers",
+      JSON.stringify([
+        { id: "acme", name: "Acme", type: "list", url: "https://acme.test/list" },
+        { id: "other", name: "Other", type: "list", url: "https://other.test/list" },
+      ]),
+    );
+  });
+
+  it("draws from everything that supplier imported", () => {
+    expect(randomProxyPool(["provider:acme"]).map((p) => p.id)).toEqual(["pp:acme:1", "pp:acme:2"]);
+  });
+
+  it("takes in a proxy the supplier gains, without the pool changing", () => {
+    store.set(
+      "proxies",
+      JSON.stringify([...POOL, ...IMPORTED, { id: "pp:acme:3", name: "Acme Darwin", url: "http://u:p@8.8.8.8:8080" }]),
+    );
+    expect(randomProxyPool(["provider:acme"]).map((p) => p.id)).toContain("pp:acme:3");
+  });
+
+  it("mixes with proxies named one by one", () => {
+    expect(randomProxyPool(["p2", "provider:other"]).map((p) => p.id)).toEqual([
+      "p2",
+      "pp:other:9",
+    ]);
+  });
+
+  it("counts an import whose supplier is gone as ungrouped, alongside manual entries", () => {
+    expect(randomProxyPool(["provider:"]).map((p) => p.id)).toEqual([
+      "p1",
+      "p2",
+      "p3",
+      "pp:gone:1",
+    ]);
+  });
+
+  it("still honours autoPool only where no pool is named", () => {
+    store.set(
+      "proxies",
+      JSON.stringify([...IMPORTED, { id: "pp:acme:t", name: "Acme tunnel", url: "socks5://127.0.0.1:24080", autoPool: false }]),
+    );
+    expect(randomProxyPool().map((p) => p.id)).not.toContain("pp:acme:t");
+    expect(randomProxyPool(["provider:acme"]).map((p) => p.id)).toContain("pp:acme:t");
+  });
+
+  it("orders a Cloudflare fall-through inside the supplier", () => {
+    const got = cfProxyCandidatesFor({ proxyId: "random", proxyPool: ["provider:acme"] });
+    expect(got.map((c) => c.id).sort()).toEqual(["pp:acme:1", "pp:acme:2"]);
+  });
+});

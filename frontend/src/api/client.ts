@@ -371,6 +371,8 @@ export type EmbywatchConfig = {
   ignoreSslErrors?: boolean;
 };
 
+export type ProxyStatus = "ok" | "failed";
+
 export type Proxy = {
   id: string;
   name: string;
@@ -380,6 +382,20 @@ export type Proxy = {
    * Absent means yes. Tunnel exits imported from a subscription set it false.
    */
   autoPool?: boolean;
+  /** What the last test made of it. `failed` disables the exit; absent means never tested. */
+  status?: ProxyStatus;
+  /** When that test ran, epoch ms. */
+  testedAt?: number;
+  testMs?: number;
+  testError?: string;
+};
+
+/** One thing a test asked of an exit: `reach`, `cloudflare`, or `extra`. */
+export type ProxyCheck = {
+  name: string;
+  ok: boolean;
+  ms: number;
+  error?: string;
 };
 
 export type ProxyTestResult = {
@@ -389,6 +405,9 @@ export type ProxyTestResult = {
   error?: string;
   /** Round trip of the SOCKS connect, in ms. */
   ms: number;
+  checks?: ProxyCheck[];
+  /** Address the exit comes out on, when the Cloudflare check read it back. */
+  exitIp?: string;
 };
 
 export type CustomAction =
@@ -1694,6 +1713,12 @@ export type Settings = {
    * left with no proxy.
    */
   proxy_sync_match_by_name?: string;
+  /** "true" makes a proxy test also require the exit to reach challenges.cloudflare.com. */
+  proxy_test_cf?: string;
+  /** One more https URL a proxy test must fetch through the exit. Blank for none. */
+  proxy_test_extra_url?: string;
+  /** Hours between automatic proxy tests. "0" leaves testing to the operator. */
+  proxy_test_interval_hours?: string;
   /** "true" turns on the data store: its menu entry, its API and its job steps. */
   data_store_enabled?: string;
   /**
@@ -1901,10 +1926,19 @@ export const settingsApi = {
     api
       .post<{ ok: boolean; error?: string }>("/settings/test-proxy", { url })
       .then((r) => r.data),
-  /** Tests every stored proxy; the server reads the URLs, since ours are masked. */
+  /**
+   * Tests every stored proxy; the server reads the URLs, since ours are masked. The list
+   * comes back with the results: a test writes each exit's status, so the copy on screen is
+   * stale the moment they land.
+   */
   testAllProxies: () =>
     api
-      .post<{ results: ProxyTestResult[]; ok: number }>("/settings/test-proxies")
+      .post<{ results: ProxyTestResult[]; ok: number; proxies: string }>("/settings/test-proxies")
+      .then((r) => r.data),
+  /** Puts a disabled exit back in service without waiting for a test to clear it. */
+  enableProxy: (id: string) =>
+    api
+      .post<{ proxies: string }>(`/settings/proxies/${encodeURIComponent(id)}/enable`)
       .then((r) => r.data),
   /** `force` downloads the browser again over an existing one, i.e. updates it. */
   installCfSolver: (force = false, tier?: "free") =>
@@ -2126,6 +2160,12 @@ export type ProxySyncResult = {
     fetched?: number;
     error?: string;
   }>;
+  /** How many of the imported exits the health test that follows a sync covered. */
+  tested?: number;
+  /** How many of those passed; the rest are disabled until a later test clears them. */
+  reachable?: number;
+  /** The proxy list as the sync and its test left it, masked. */
+  proxies?: string;
 };
 
 // ── AI Suppliers ──────────────────────────────────────────────────────────────

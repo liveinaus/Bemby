@@ -59,7 +59,25 @@ export type BembyProxy = {
    * them to a fall-through only spends attempts on the same address.
    */
   autoPool?: boolean;
+  /**
+   * What the last test made of this exit. `failed` disables it: no draw, no supplier, and no
+   * Cloudflare fall-through will reach for it again until a later test finds it working.
+   * Absent means never tested, which is treated as usable -- an untested list is the normal
+   * state of a fresh import and must not be an empty pool.
+   */
+  status?: ProxyStatus;
+  /** When the last test ran, epoch ms. */
+  testedAt?: number;
+  /** How long the last test's connect took, ms. */
+  testMs?: number;
+  /** Why the last test failed. */
+  testError?: string;
 };
+
+export type ProxyStatus = "ok" | "failed";
+
+/** Whether an exit may be drawn: anything but one a test has knocked out. */
+export const proxyUsable = (p: BembyProxy) => p.status !== "failed";
 
 export type ProviderSyncResult = {
   providerId: string;
@@ -75,6 +93,8 @@ export type SyncResult = {
   updated: number;
   removed: number;
   total: number;
+  /** Providers whose list was actually rewritten, for the health test that follows. */
+  syncedProviderIds: string[];
 };
 
 /**
@@ -515,6 +535,22 @@ export const CF_PROXY_RANDOM = "random";
 export type ProxyChoice = { proxyId?: string; pool?: string[] };
 
 /**
+ * A pool entry naming a whole supplier rather than one exit: `provider:<providerId>`, or
+ * `provider:` on its own for the proxies no provider imported. A supplier keeps standing for
+ * whatever it currently lists, so a sync that adds or drops exits is followed without the
+ * pool having to be ticked again -- which a list of ids cannot do.
+ */
+export const POOL_PROVIDER_PREFIX = "provider:";
+
+/** The supplier a proxy belongs to: the provider that imported it, or "" when none did. */
+export function providerIdForProxy(proxyId: string, providerIds: Iterable<string>): string {
+  for (const id of providerIds) {
+    if (proxyId.startsWith(`${IMPORTED_ID_PREFIX}${id}:`)) return id;
+  }
+  return "";
+}
+
+/**
  * The proxies a random pick may draw from: the ones `poolIds` names, or every proxy in the
  * list when it names none. An entry with no url is not an exit and is left out.
  *
@@ -524,9 +560,31 @@ export type ProxyChoice = { proxyId?: string; pool?: string[] };
  */
 export function randomProxyPool(poolIds?: string[]): BembyProxy[] {
   const usable = readProxies().filter((p) => p.url);
-  if (!poolIds?.length) return usable.filter((p) => p.autoPool !== false);
-  const wanted = new Set(poolIds);
-  return usable.filter((p) => wanted.has(p.id));
+  const inPool = (): BembyProxy[] => {
+    if (!poolIds?.length) return usable.filter((p) => p.autoPool !== false);
+
+    const wanted = new Set(poolIds.filter((id) => !id.startsWith(POOL_PROVIDER_PREFIX)));
+    const suppliers = new Set(
+      poolIds
+        .filter((id) => id.startsWith(POOL_PROVIDER_PREFIX))
+        .map((id) => id.slice(POOL_PROVIDER_PREFIX.length)),
+    );
+    if (!suppliers.size) return usable.filter((p) => wanted.has(p.id));
+
+    // An import whose provider has since been deleted counts as ungrouped, the same way the
+    // picker shows it, so the two agree on what a supplier tick covers
+    const providerIds = readProviders().map((p) => p.id);
+    return usable.filter(
+      (p) => wanted.has(p.id) || suppliers.has(providerIdForProxy(p.id, providerIds)),
+    );
+  };
+
+  const pool = inPool();
+  const healthy = pool.filter(proxyUsable);
+  // A pool where every exit last tested as failed still draws from it: going out through a
+  // proxy that may have come back is better than the alternative, which is the run leaving
+  // through the host's own address because the draw came up empty.
+  return healthy.length ? healthy : pool;
 }
 
 /** One proxy drawn from that pool, or undefined when the pool holds none. */
@@ -632,9 +690,17 @@ export function cfProxyCandidatesFor(opts: {
 
   // `autoPool: false` keeps tunnel exits out of the fall-through: they share one address,
   // so working through them spends attempts without changing what the challenge sees. A
-  // pinned one is still honoured above, since that was asked for by name.
+  // pinned one is still honoured above, since that was asked for by name. An exit the last
+  // test knocked out is skipped for the same reason: the attempt would be spent on nothing.
   const rest: ProxyCandidate[] = pool
-    .filter((p) => p.url && p.autoPool !== false && p.url !== primary.url && !tried.has(p.id))
+    .filter(
+      (p) =>
+        p.url &&
+        p.autoPool !== false &&
+        proxyUsable(p) &&
+        p.url !== primary.url &&
+        !tried.has(p.id),
+    )
     .map((p) => ({ id: p.id, label: p.name, url: p.url }));
 
   // Lead with the proxy that cleared this host last time, wherever it sits in the pool
@@ -670,6 +736,49 @@ function readProxies(): BembyProxy[] {
 }
 
 const importedByProvider = (id: string) => `${IMPORTED_ID_PREFIX}${id}:`;
+
+/**
+ * Folds test outcomes into the stored list. The list is read again here rather than passed
+ * in, so a sync or an edit made while the tests were running is not written back over; an
+ * entry that has since gone is simply skipped. Returns what changed hands, for the log.
+ */
+export function recordProxyTestResults(
+  results: Array<{ id: string; ok: boolean; ms?: number; error?: string }>,
+): { failed: number; recovered: number } {
+  const outcome = new Map(results.map((r) => [r.id, r]));
+  let failed = 0;
+  let recovered = 0;
+
+  const list = readProxies().map((p) => {
+    const r = outcome.get(p.id);
+    if (!r) return p;
+    if (r.ok && p.status === "failed") recovered++;
+    if (!r.ok && p.status !== "failed") failed++;
+    return {
+      ...p,
+      status: (r.ok ? "ok" : "failed") as ProxyStatus,
+      testedAt: Date.now(),
+      testMs: r.ms,
+      ...(r.ok ? { testError: undefined } : { testError: r.error ?? "Connection failed" }),
+    };
+  });
+
+  writeSetting("proxies", JSON.stringify(list));
+  return { failed, recovered };
+}
+
+/** Puts an exit back in service, whatever the last test made of it. */
+export function clearProxyStatus(id: string): boolean {
+  const list = readProxies();
+  const entry = list.find((p) => p.id === id);
+  if (!entry) return false;
+  delete entry.status;
+  delete entry.testedAt;
+  delete entry.testMs;
+  delete entry.testError;
+  writeSetting("proxies", JSON.stringify(list));
+  return true;
+}
 
 /**
  * Gives a fetched proxy the id the entry of the same name already had, where the provider no
@@ -765,6 +874,16 @@ export async function syncProviders(onlyProviderId?: string): Promise<SyncResult
     // A rematched entry counts as updated whatever its url reads as: what changed is the
     // node behind the name, which the url of a tunnelled node does not show
     else if (rematchedIds.has(p.id) || prev.url !== p.url || prev.name !== p.name) updated++;
+
+    // What a test made of the exit carries over only while it is the same exit. A new
+    // address behind the entry is untested, so a re-issued proxy gets its chance rather
+    // than inheriting the verdict on the one it replaced.
+    if (prev && prev.url === p.url && !rematchedIds.has(p.id)) {
+      p.status = prev.status;
+      p.testedAt = prev.testedAt;
+      p.testMs = prev.testMs;
+      p.testError = prev.testError;
+    }
   }
   const fetchedIds = new Set(fetched.map((p) => p.id));
   const removed = [...previous.keys()].filter((id) => !fetchedIds.has(id)).length;
@@ -772,5 +891,12 @@ export async function syncProviders(onlyProviderId?: string): Promise<SyncResult
   const merged = [...kept, ...fetched];
   writeSetting("proxies", JSON.stringify(merged));
 
-  return { providers: results, added, updated, removed, total: merged.length };
+  return {
+    providers: results,
+    added,
+    updated,
+    removed,
+    total: merged.length,
+    syncedProviderIds: syncedIds,
+  };
 }

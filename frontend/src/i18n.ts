@@ -680,6 +680,11 @@ const zh = {
     proxyRandomPoolClear: "清空选择",
     proxyRandomPoolHint:
       "勾选可参与抽取的代理；全部不勾选则从整个代理列表中抽取。每次运行抽取一次，因此各次运行的出口 IP 不同；由于浏览器配置文件默认按 {ip} 命名，出口变化也意味着换一套 Cookie 与设备指纹。若同时开启了“拒绝时轮换所有可用代理”，轮换按抽取顺序在本池内进行，不会用到池外的代理。",
+    proxyRandomPoolSupplierHint:
+      "勾选供应商即代表其当前的全部代理，同步后新增或删除的代理会自动跟随，无需重新勾选。",
+    proxyRandomPoolManual: "手动添加",
+    proxyRandomPoolDisabledHint: "健康检查失败的代理会被停用，不参与抽取；恢复后自动重新加入。",
+    proxyRandomPoolBySupplier: "已由上方的供应商整体勾选",
     proxyBrowserOnlyHint:
       "此代理用于浏览器（Cloudflare 验证 / 小程序）。Telegram 连接始终使用账户上的代理，与登录时保持一致；若两者不同会导致同一会话出现两个 IP，触发 AUTH_KEY_DUPLICATED 并使会话失效。要让 Telegram 也走某个代理，请在账户上设置该代理（必要时重新登录）。",
     playbackRulesHint:
@@ -1637,6 +1642,7 @@ const zh = {
     providerUrlPlaceholder: "列表下载地址（https://...）",
     providerSubUrlPlaceholder: "订阅地址（https://your.worker.dev/sub?token={token}）",
     providerSynced: "已导入：新增 {added}，更新 {updated}，移除 {removed}，共 {total} 个代理",
+    providerSyncTested: "已即时测试：{ok}/{total} 可用（不可用的已停用）。",
     proxySyncMatchByName: "刷新时按名称更新已有代理（推荐）",
     proxySyncMatchByNameHint:
       "订阅节点更换地址后会得到新的标识，若直接删除再新增，原先绑定该代理的任务就会失去代理。开启后按名称匹配并原地更新，保留原有绑定；关闭则按标识处理，视为移除并新增。",
@@ -1650,6 +1656,22 @@ const zh = {
     proxyTestAllDone: "{ok}/{total} 个代理可用",
     proxyTestAllFailed: "批量测试失败",
     proxyTestAllUnsaved: "请先保存代理列表，再测试全部",
+    proxyDisabled: "已停用",
+    proxyDisabledTip: "上次测试失败，已停用：抽取、供应商与轮换都不会再使用它，直到测试通过",
+    proxyStatusOk: "测试通过",
+    proxyEnableTip: "重新启用（清除失败状态）",
+    proxyExitIpTip: "Cloudflare 检测读取到的出口 IP",
+    proxyHealthSection: "健康检查",
+    proxyHealthHint:
+      "测试内容与频率。可达性检查始终执行，失败的代理会被停用；下面每项额外检查开启后，未通过同样会导致停用。已停用的代理仍会参与每次测试，通过后自动恢复。",
+    proxyTestCf: "同时检查能否访问 challenges.cloudflare.com",
+    proxyTestCfHint:
+      "能建立连接不代表能过 Cloudflare。此项通过代理请求 challenges.cloudflare.com/cdn-cgi/trace，同时读取出口 IP。隧道节点（VLESS 订阅）会跳过此项：Cloudflare Worker 无法连接 Cloudflare 自己的地址。",
+    proxyTestExtraPlaceholder: "额外检查的网址（可选），例如 https://example.com/",
+    proxyTestExtraHint: "再增加一个必须能通过代理访问的 HTTPS 地址；返回 4xx/5xx 视为失败。",
+    proxyTestInterval: "自动测试间隔（小时）",
+    proxyTestIntervalHint:
+      "0 表示关闭。开启后按此间隔自动测试全部代理，供应商列表变化或代理失效时无需手动处理：失效的自动停用，恢复的自动启用。",
     appClientsSection: "TG 应用客户端",
     appClientsHint:
       "自定义 Telegram 登录时的设备信息，不同账户可使用不同客户端环境。",
@@ -2889,6 +2911,12 @@ const en: typeof zh = {
     proxyRandomPoolClear: "Clear",
     proxyRandomPoolHint:
       "Tick the proxies the draw may pick from; with none ticked it draws from the whole list. The draw happens once per run, so runs go out through different exits -- and since a browser profile is named after {ip} by default, a different exit also means different cookies and a different device fingerprint. With \"rotate through all proxies\" on as well, a refused exit falls through the rest of this pool in the order drawn, never to a proxy outside it.",
+    proxyRandomPoolSupplierHint:
+      "Ticking a supplier takes in whatever it currently lists, so exits a sync adds or drops follow along without the pool being ticked again.",
+    proxyRandomPoolManual: "Added by hand",
+    proxyRandomPoolDisabledHint:
+      "An exit a health check disabled is left out of the draw, and rejoins it as soon as a later test finds it working.",
+    proxyRandomPoolBySupplier: "Covered by the supplier tick above",
     proxyBrowserOnlyHint:
       "Used by the browser (Cloudflare checks / Mini Apps). The Telegram connection always follows the proxy set on the account, matching what login used: two exits for one session is what Telegram answers with AUTH_KEY_DUPLICATED, invalidating it. To route Telegram through a proxy, set it on the account (and re-authenticate if needed).",
     playbackRulesHint:
@@ -3876,6 +3904,7 @@ const en: typeof zh = {
     providerUrlPlaceholder: "List download URL (https://...)",
     providerSubUrlPlaceholder: "Subscription URL (https://your.worker.dev/sub?token={token})",
     providerSynced: "Imported: {added} added, {updated} updated, {removed} removed, {total} proxies total",
+    providerSyncTested: "Tested on arrival: {ok}/{total} usable, the rest disabled.",
     proxySyncMatchByName: "On refresh, update a proxy of the same name (recommended)",
     proxySyncMatchByNameHint:
       "A subscription node that changes address comes back under a new identity. Dropping it and importing it afresh leaves every job pinned to it with no proxy; matching on the name updates the entry in place and keeps the pin. Turn this off to go by identity alone, which reads as a removal and an addition.",
@@ -3889,6 +3918,24 @@ const en: typeof zh = {
     proxyTestAllDone: "{ok}/{total} proxies reachable",
     proxyTestAllFailed: "Bulk proxy test failed",
     proxyTestAllUnsaved: "Save the proxy list before testing them all",
+    proxyDisabled: "Disabled",
+    proxyDisabledTip:
+      "Last test failed, so this exit is disabled: no draw, no supplier and no rotation reaches for it until a test finds it working",
+    proxyStatusOk: "Test passed",
+    proxyEnableTip: "Put back in service (clears the failed verdict)",
+    proxyExitIpTip: "Exit address the Cloudflare check read back",
+    proxyHealthSection: "Health checks",
+    proxyHealthHint:
+      "What a test asks of an exit, and how often. Reachability always runs and a failure disables the exit; each extra check below disables it too once turned on. Disabled exits are tested along with the rest, which is how one comes back.",
+    proxyTestCf: "Also check it can reach challenges.cloudflare.com",
+    proxyTestCfHint:
+      "Answering a connect is not the same as being let through by Cloudflare. This fetches challenges.cloudflare.com/cdn-cgi/trace through the exit, and reads the exit address back off it. Tunnel exits (VLESS subscriptions) skip it: a Cloudflare Worker cannot connect to Cloudflare's own addresses.",
+    proxyTestExtraPlaceholder: "One more URL to check (optional), e.g. https://example.com/",
+    proxyTestExtraHint:
+      "An extra HTTPS address the exit must fetch. A 4xx or 5xx answer counts as a failure.",
+    proxyTestInterval: "Automatic test every (hours)",
+    proxyTestIntervalHint:
+      "0 turns it off. Otherwise the whole list is tested on this interval, so a supplier's pool keeps itself current: exits that stop answering drop out of every draw, and ones that come back are picked up again.",
     appClientsSection: "TG App Clients",
     appClientsHint:
       "Customise the device fingerprint Telegram sees per account to reduce the risk of bans.",

@@ -34,6 +34,7 @@ import { startScheduler } from "./scheduler";
 import { createPanelWss } from "./tg/wsHandler";
 import { createVncWss } from "./tg/vncBridge";
 import { startVlessTunnels, stopVlessTunnels } from "./tg/vlessTunnel";
+import { startProxyHealthChecks } from "./tg/proxyHealth";
 import { startMemoryMonitor, markCleanShutdown } from "./monitor/memory";
 import { claimInstanceLock, releaseInstanceLock } from "./instanceLock";
 
@@ -236,6 +237,8 @@ server.listen(PORT, BIND_HOST, () => {
   // Before the scheduler: a job whose proxy is a tunnel exit needs its listener up
   startVlessTunnels();
   startScheduler();
+  // After the tunnels, so their listeners are up before the first test judges them
+  startProxyHealthChecks();
 });
 
 // An OOM kill is SIGKILL and cannot be trapped, which is the point: a clean stop leaves

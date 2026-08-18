@@ -1232,7 +1232,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
-import { jobsApi, accountsApi, bulkTasksApi, manualBrowserApi, settingsApi, logsApi, templatesApi, type Job, type JobFacets, type JobTemplate, type Account, type Settings, type UAPreset, type EmbywatchConfig, type CustomConfig, type AutoregConfig, type CheckinConfig } from '../api/client';
+import { jobsApi, accountsApi, bulkTasksApi, manualBrowserApi, settingsApi, logsApi, templatesApi, type Job, type JobFacets, type JobTemplate, type Account, type Settings, type UAPreset, type EmbywatchConfig, type CustomConfig, type AutoregConfig, type CheckinConfig, type Proxy } from '../api/client';
 import { t, locale } from '../i18n';
 import { regexValid } from '../utils/regexCheck';
 import { usePersistedRef } from '../composables/usePersistedRef';
@@ -1321,7 +1321,7 @@ const settings = ref<Settings | null>(null);
 const uaPresets = computed<UAPreset[]>(() => {
   try { return JSON.parse(settings.value?.ua_presets ?? '[]'); } catch { return []; }
 });
-const proxiesList = computed<Array<{ id: string; name: string }>>(() => {
+const proxiesList = computed<Proxy[]>(() => {
   try { return JSON.parse(settings.value?.proxies ?? '[]'); } catch { return []; }
 });
 const running = ref(new Set<number>());

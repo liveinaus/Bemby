@@ -1329,18 +1329,37 @@
                 :title="t('settings.proxyPickedOnlyTip')"
                 >{{ t("settings.proxyPickedOnly") }}</span
               >
+              <!-- The verdict the last test left on the entry: a failed one is disabled
+                   until a later test, or the button beside it, puts it back -->
               <span
-                v-if="proxyTestResults[p.id]"
-                class="badge"
-                :class="proxyTestResults[p.id].ok ? 'badge-green' : 'badge-red'"
+                v-if="p.status === 'failed'"
+                class="badge badge-red"
                 style="font-size: 10px"
-                :title="proxyTestResults[p.id].error"
-                >{{
-                  proxyTestResults[p.id].ok
-                    ? `${proxyTestResults[p.id].ms} ms`
-                    : t("settings.proxyTestFailed")
-                }}</span
+                :title="proxyStatusTip(p)"
+                >{{ t("settings.proxyDisabled") }}</span
               >
+              <span
+                v-else-if="p.status === 'ok'"
+                class="badge badge-green"
+                style="font-size: 10px"
+                :title="proxyStatusTip(p)"
+                >{{ p.testMs ? `${p.testMs} ms` : t("settings.proxyStatusOk") }}</span
+              >
+              <span
+                v-if="proxyTestResults[p.id]?.exitIp"
+                class="badge"
+                style="font-size: 10px"
+                :title="t('settings.proxyExitIpTip')"
+                >{{ proxyTestResults[p.id].exitIp }}</span
+              >
+              <button
+                v-if="p.status === 'failed'"
+                class="btn btn-sm btn-ghost btn-icon"
+                :title="t('settings.proxyEnableTip')"
+                @click="enableProxy(p.id)"
+              >
+                <i class="fa-solid fa-rotate-left"></i>
+              </button>
               <button
                 class="btn btn-sm btn-ghost btn-icon"
                 :title="t('common.edit')"
@@ -1549,6 +1568,55 @@
 
             <div v-if="providersMsg" class="success-msg" style="margin-top: 8px">{{ providersMsg }}</div>
             <div v-if="providersErrorMsg" class="error-msg" style="margin-top: 8px">{{ providersErrorMsg }}</div>
+          </div>
+
+          <!-- What a test asks of an exit, and how often it is asked on its own -->
+          <div class="proxy-edit-panel" style="margin-top: 12px">
+            <div class="card-section-title" style="font-size: 12px">
+              {{ t("settings.proxyHealthSection") }}
+            </div>
+            <p style="font-size: 12px; color: #888; margin: 0 0 6px">
+              {{ t("settings.proxyHealthHint") }}
+            </p>
+            <label class="form-checkbox-label" style="margin-bottom: 4px">
+              <input type="checkbox" v-model="proxyTestCf" />
+              <span>{{ t("settings.proxyTestCf") }}</span>
+            </label>
+            <p style="font-size: 11px; color: #888; margin: 0 0 8px 24px">
+              {{ t("settings.proxyTestCfHint") }}
+            </p>
+            <div class="proxy-row">
+              <input
+                v-model.trim="proxyTestExtraUrl"
+                class="form-input"
+                style="flex: 1"
+                :placeholder="t('settings.proxyTestExtraPlaceholder')"
+              />
+            </div>
+            <p style="font-size: 11px; color: #888; margin: 4px 0 8px">
+              {{ t("settings.proxyTestExtraHint") }}
+            </p>
+            <div class="proxy-row">
+              <span style="font-size: 12px; color: #555">{{ t("settings.proxyTestInterval") }}</span>
+              <input
+                v-model.number="proxyTestIntervalHours"
+                class="form-input"
+                style="flex: 0 0 90px"
+                type="number"
+                min="0"
+                max="168"
+              />
+              <button
+                class="btn btn-ghost btn-sm"
+                :disabled="proxyHealthSaving"
+                @click="saveProxyHealth"
+              >
+                {{ proxyHealthSaving ? t("common.saving") : t("common.save") }}
+              </button>
+            </div>
+            <p style="font-size: 11px; color: #888; margin: 4px 0 0">
+              {{ t("settings.proxyTestIntervalHint") }}
+            </p>
           </div>
 
           <div class="proxy-row" style="margin-top: 14px">
@@ -3826,6 +3894,9 @@ onMounted(async () => {
       proxies.value = [];
     }
     savedProxiesJson.value = JSON.stringify(proxies.value);
+    proxyTestCf.value = s.proxy_test_cf === "true";
+    proxyTestExtraUrl.value = s.proxy_test_extra_url ?? "";
+    proxyTestIntervalHours.value = Number(s.proxy_test_interval_hours) || 0;
     try {
       appClients.value = JSON.parse(s.tg_app_clients ?? "[]");
     } catch {
@@ -4058,8 +4129,9 @@ async function testAllProxies() {
   proxiesTestingAll.value = true;
   proxyTestResults.value = {};
   try {
-    const { results, ok } = await settingsApi.testAllProxies();
+    const { results, ok, proxies: updated } = await settingsApi.testAllProxies();
     proxyTestResults.value = Object.fromEntries(results.map((r) => [r.id, r]));
+    applyProxies(updated);
     proxiesMsg.value = t("settings.proxyTestAllDone")
       .replace("{ok}", String(ok))
       .replace("{total}", String(results.length));
@@ -4068,6 +4140,59 @@ async function testAllProxies() {
       err.response?.data?.error ?? t("settings.proxyTestAllFailed");
   } finally {
     proxiesTestingAll.value = false;
+  }
+}
+
+/** Takes on a list the server rewrote, so the copy on screen is not saved back over it. */
+function applyProxies(raw: string | undefined) {
+  try {
+    proxies.value = JSON.parse(raw ?? "[]");
+    savedProxiesJson.value = JSON.stringify(proxies.value);
+  } catch {
+    /* keep what is on screen */
+  }
+}
+
+/** What the last test found, for the badge's tooltip: when it ran, and why it failed. */
+function proxyStatusTip(p: Proxy): string {
+  const when = p.testedAt ? new Date(p.testedAt).toLocaleString() : "";
+  const head = p.status === "failed" ? t("settings.proxyDisabledTip") : t("settings.proxyStatusOk");
+  return [head, when, p.testError].filter(Boolean).join(" · ");
+}
+
+/** Clears a failed verdict, which is what puts the exit back in the draws. */
+async function enableProxy(id: string) {
+  proxiesError.value = "";
+  try {
+    applyProxies((await settingsApi.enableProxy(id)).proxies);
+    delete proxyTestResults.value[id];
+  } catch (err: any) {
+    proxiesError.value = err.response?.data?.error ?? t("settings.saveFailed");
+  }
+}
+
+// How thoroughly and how often the exits are tested. The extra checks are opt-in: each one
+// that is on can disable an exit, which is the point of turning it on.
+const proxyTestCf = ref(false);
+const proxyTestExtraUrl = ref("");
+const proxyTestIntervalHours = ref(0);
+const proxyHealthSaving = ref(false);
+
+async function saveProxyHealth() {
+  proxiesMsg.value = "";
+  proxiesError.value = "";
+  proxyHealthSaving.value = true;
+  try {
+    await settingsApi.update({
+      proxy_test_cf: String(proxyTestCf.value),
+      proxy_test_extra_url: proxyTestExtraUrl.value.trim(),
+      proxy_test_interval_hours: String(Math.max(0, Number(proxyTestIntervalHours.value) || 0)),
+    });
+    proxiesMsg.value = t("settings.saved");
+  } catch (err: any) {
+    proxiesError.value = err.response?.data?.error ?? t("settings.saveFailed");
+  } finally {
+    proxyHealthSaving.value = false;
   }
 }
 
@@ -4124,18 +4249,19 @@ async function syncProviders(providerId?: string) {
       .replace("{updated}", String(res.updated ?? 0))
       .replace("{removed}", String(res.removed ?? 0))
       .replace("{total}", String(res.total ?? 0));
+    // Every import is tested on arrival, so say how it went rather than leaving the
+    // freshly disabled entries to be discovered in the list
+    if (res.tested) {
+      providersMsg.value += ` ${t("settings.providerSyncTested")
+        .replace("{ok}", String(res.reachable ?? 0))
+        .replace("{total}", String(res.tested))}`;
+    }
     const failed = (res.providers ?? []).filter((p) => !p.ok);
     if (failed.length) {
       providersErrorMsg.value = failed.map((p) => `${p.name}: ${p.error}`).join("; ");
     }
-    // The server rewrote the proxy list, so refresh what is on screen
-    const fresh = await settingsApi.get();
-    try {
-      proxies.value = JSON.parse(fresh.proxies ?? "[]");
-      savedProxiesJson.value = JSON.stringify(proxies.value);
-    } catch {
-      /* keep what is on screen */
-    }
+    // The server rewrote the proxy list, statuses and all, so take its copy
+    applyProxies(res.proxies ?? (await settingsApi.get()).proxies);
     await loadProviders();
   } catch (err: any) {
     providersErrorMsg.value = err.response?.data?.error ?? t("settings.providerSyncFailed");
