@@ -34,6 +34,31 @@ export type TgAccount = {
   createdAt: string;
 };
 
+export type JobProxyKind = "direct" | "proxy" | "provider" | "random";
+
+/** Which of the three settings a job's exit came from, so the panel can say why it wins. */
+export type JobProxySource = "job" | "template" | "account";
+
+/**
+ * The exit a job leaves by, worked out from the job, its template and its account. A pool is
+ * never listed out -- a supplier with two hundred entries is one answer to "where does this
+ * go", not two hundred -- so a draw is named by its supplier or counted.
+ */
+export type JobProxy = {
+  kind: JobProxyKind;
+  /** Exit or supplier name; empty for `direct` and for an unnamed draw. */
+  label: string;
+  source: JobProxySource;
+  /** Exits a draw may reach. Absent for a pinned exit and for direct. */
+  poolSize?: number;
+  /**
+   * The account's own exit, named only when the job or template overrides it. Telegram always
+   * follows the account's proxy whatever the job picks -- the job's is for the browser side --
+   * so a differing pick is worth showing rather than leaving to be found in a log.
+   */
+  tgLabel?: string;
+};
+
 export type Job = {
   id: number;
   name: string;
@@ -62,6 +87,8 @@ export type Job = {
   lastSuccessAt?: string | null;
   /** Icon-font class name, or "custom:<file>" for an uploaded one; null uses the default. */
   icon?: string | null;
+  /** Exit the job leaves by, worked out from job, template and account. List responses only. */
+  effectiveProxy?: JobProxy;
 };
 
 export type JobTemplate = {

@@ -62,13 +62,14 @@
               <th class="th-sort col-hide-mobile" :class="sortKey === 'botUrl' ? 'sort-active' : ''" @click="setSort('botUrl')">{{ t('jobs.colBotUrlTpl') }} <span class="sort-icon">{{ sortIcon('botUrl') }}</span></th>
               <th class="th-sort col-hide-mobile" :class="sortKey === 'window' ? 'sort-active' : ''" @click="setSort('window')">{{ t('jobs.colWindow') }} <span class="sort-icon">{{ sortIcon('window') }}</span></th>
               <th v-if="showLastSuccess" class="th-sort" :class="sortKey === 'lastSuccess' ? 'sort-active' : ''" @click="setSort('lastSuccess')">{{ t('jobs.colLastSuccess') }} <span class="sort-icon">{{ sortIcon('lastSuccess') }}</span></th>
+              <th v-if="jobProxyColumn" class="col-hide-mobile">{{ t('jobs.colProxy') }}</th>
               <th class="th-sort" :class="sortKey === 'enabled' ? 'sort-active' : ''" @click="setSort('enabled')">{{ t('jobs.colEnabled') }} <span class="sort-icon">{{ sortIcon('enabled') }}</span></th>
               <th>{{ t('common.actions') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!jobs.length">
-              <td :colspan="showLastSuccess ? 8 : 7" class="empty">{{ t('jobs.noJobs') }}</td>
+              <td :colspan="7 + (showLastSuccess ? 1 : 0) + (jobProxyColumn ? 1 : 0)" class="empty">{{ t('jobs.noJobs') }}</td>
             </tr>
             <tr
               v-for="(j, idx) in jobs" :key="j.id"
@@ -94,6 +95,12 @@
               <td v-if="showLastSuccess">
                 <span v-if="j.lastSuccessAt" class="last-success" :title="fmtDateTimeFull(j.lastSuccessAt)">{{ fmtSince(j.lastSuccessAt) }}</span>
                 <span v-else class="last-success-never">{{ t('jobs.neverSucceeded') }}</span>
+              </td>
+              <td v-if="jobProxyColumn" class="col-hide-mobile">
+                <span class="job-proxy" :class="`job-proxy-${j.effectiveProxy?.kind ?? 'direct'}`" :title="proxyTitle(j.effectiveProxy)">
+                  <i class="fa-solid" :class="proxyIcon(j.effectiveProxy)"></i>
+                  <span class="job-proxy-name">{{ proxyText(j.effectiveProxy) }}</span>
+                </span>
               </td>
               <td>
                 <span
@@ -1232,7 +1239,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
-import { jobsApi, accountsApi, bulkTasksApi, manualBrowserApi, settingsApi, logsApi, templatesApi, type Job, type JobFacets, type JobTemplate, type Account, type Settings, type UAPreset, type EmbywatchConfig, type CustomConfig, type AutoregConfig, type CheckinConfig, type Proxy } from '../api/client';
+import { jobsApi, accountsApi, bulkTasksApi, manualBrowserApi, settingsApi, logsApi, templatesApi, type Job, type JobFacets, type JobTemplate, type Account, type Settings, type UAPreset, type EmbywatchConfig, type CustomConfig, type AutoregConfig, type CheckinConfig, type Proxy, type JobProxy } from '../api/client';
 import { t, locale } from '../i18n';
 import { regexValid } from '../utils/regexCheck';
 import { usePersistedRef } from '../composables/usePersistedRef';
@@ -1240,6 +1247,7 @@ import { useAvailableFilter } from '../composables/useAvailableFilter';
 import { formatAccountLabel, loadAccountDisplaySetting } from '../composables/accountDisplay';
 import { loadSchedulePageSetting, scheduleSeparatePage } from '../composables/schedulePage';
 import { loadTemplateEditButtonSetting, templateEditButton } from '../composables/templateEditButton';
+import { jobProxyColumn, loadJobProxyColumnSetting } from '../composables/jobProxyColumn';
 import TemplateFormModal from '../components/TemplateFormModal.vue';
 import ScheduleList from '../components/ScheduleList.vue';
 import { debounce } from '../composables/useDebounce';
@@ -1693,11 +1701,51 @@ onMounted(async () => {
   loadAccountDisplaySetting();
   loadSchedulePageSetting();
   loadTemplateEditButtonSetting();
+  loadJobProxyColumnSetting();
   // Custom icons are shared across every list that draws a job, and fetched once
   void loadJobIcons();
   await Promise.all([loadJobs(), loadAccounts(), loadStatus(), loadSettings(), loadTemplates()]);
   pollLiveRuns();
 });
+
+// ── Effective proxy column ────────────────────────────────────────────────────
+// The server works the exit out from the job, its template and its account, and names it in
+// whichever way identifies it: a pinned exit by name, a whole-supplier pool by the supplier.
+// A draw over anything else is counted rather than listed, since the exit is only settled
+// when the run starts.
+
+function proxyText(p?: JobProxy): string {
+  if (!p) return t('jobs.proxy.direct');
+  if (p.kind === 'direct') return t('jobs.proxy.direct');
+  if (p.kind === 'proxy') return p.label;
+  const size = p.poolSize ? ` (${p.poolSize})` : '';
+  return (p.kind === 'provider' ? p.label : t('jobs.proxy.random')) + size;
+}
+
+function proxyIcon(p?: JobProxy): string {
+  switch (p?.kind) {
+    case 'proxy':
+      return 'fa-plug';
+    case 'provider':
+    case 'random':
+      return 'fa-shuffle';
+    default:
+      return 'fa-arrow-right';
+  }
+}
+
+/** Why this is the effective exit, and the Telegram side when the job overrides the account. */
+function proxyTitle(p?: JobProxy): string {
+  if (!p) return '';
+  const lines = [t(`jobs.proxy.source.${p.source}`)];
+  if (p.kind === 'provider' || p.kind === 'random') lines.push(t('jobs.proxy.drawnPerRun'));
+  if (p.tgLabel !== undefined) {
+    lines.push(
+      t('jobs.proxy.tgNote').replace('{exit}', p.tgLabel || t('jobs.proxy.direct')),
+    );
+  }
+  return lines.join('\n');
+}
 
 // Label for a job's account, honouring the "{Bemby name} - {TG name}" display setting.
 function jobAccountLabel(j: Job): string {
@@ -2929,6 +2977,31 @@ tbody tr:nth-child(even):not(.row-selected) td {
 }
 .last-success-never {
   font-size: 13px;
+  color: var(--text-faint);
+}
+
+.job-proxy {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--text-body);
+  max-width: 200px;
+}
+
+.job-proxy > i {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* The name is what identifies the exit, so it is the part that keeps its room */
+.job-proxy-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-proxy-direct {
   color: var(--text-faint);
 }
 

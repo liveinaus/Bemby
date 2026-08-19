@@ -548,6 +548,26 @@ export type ProxyChoice = { proxyId?: string; pool?: string[] };
  */
 export const POOL_PROVIDER_PREFIX = "provider:";
 
+/**
+ * The exit pick stored in one job's or template's config, with no fallback of its own. The
+ * config is JSON, and on some rows JSON of a JSON string, which is why this is a parse rather
+ * than a field read.
+ */
+export function parseProxyChoice(raw: string | null | undefined): ProxyChoice {
+  if (!raw) return {};
+  try {
+    let c = JSON.parse(raw);
+    if (typeof c === "string") c = JSON.parse(c);
+    if (!c?.proxyId) return {};
+    return {
+      proxyId: c.proxyId as string,
+      pool: Array.isArray(c.proxyPool) ? (c.proxyPool as string[]) : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
 /** The supplier a proxy belongs to: the provider that imported it, or "" when none did. */
 export function providerIdForProxy(proxyId: string, providerIds: Iterable<string>): string {
   for (const id of providerIds) {
@@ -601,6 +621,14 @@ export function randomProxyPool(poolIds?: string[]): BembyProxy[] {
  */
 export function randomProxyOrder(poolIds?: string[]): BembyProxy[] {
   return shuffled(randomProxyPool(poolIds));
+}
+
+/**
+ * Every configured exit, as stored. For a caller that resolves many at once and would
+ * otherwise re-read and re-parse the setting per lookup.
+ */
+export function listProxies(): BembyProxy[] {
+  return readProxies();
 }
 
 /** One entry by id, whatever its status: a pin is honoured even when the exit is out. */

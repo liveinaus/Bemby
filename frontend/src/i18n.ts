@@ -541,7 +541,7 @@ const zh = {
       searchLabel: "关键词（可选）",
       searchHint: "交给 Telegram 自身的搜索，先在服务端缩小范围，再用正则提取。",
       patternLabel: "提取正则（可选）",
-      patternPlaceholder: "例如 /邀请码[:：]\\s*(\\w+)/i",
+      patternPlaceholder: "例如 /用户名[:：]\\s*(\\w+)/i",
       patternHint:
         "支持 /pattern/flags 或裸写法。有第一个捕获组时取该组，否则取整个匹配。留空则取整条消息文本。",
       patternInvalid: "正则无法编译",
@@ -664,6 +664,18 @@ const zh = {
     toggleLastSuccessHint: "显示/隐藏上次成功运行时间",
     editTemplateBtn: "编辑模版",
     neverSucceeded: "从未成功",
+    colProxy: "代理",
+    proxy: {
+      direct: "直连",
+      random: "随机",
+      drawnPerRun: "每次运行从池中随机抽取一个出口",
+      tgNote: "Telegram 连接仍走账户自己的代理：{exit}",
+      source: {
+        job: "来自任务自身的代理设置",
+        template: "来自模版的代理设置",
+        account: "来自账户的代理设置",
+      },
+    },
     since: {
       justNow: "刚刚",
       ago: "{v}前",
@@ -1763,6 +1775,10 @@ const zh = {
     jobsTemplateEditSection: "模版快捷编辑",
     jobsTemplateEditToggle: "在任务列表中直接编辑模版",
     jobsTemplateEditHint: "开启后，使用模版的任务会多出一个模版编辑按钮，无需切换到模版页面。注意：修改会影响所有使用该模版的任务",
+    jobsProxyColumnSection: "任务代理列",
+    jobsProxyColumnToggle: "在任务列表中显示实际使用的代理",
+    jobsProxyColumnHint:
+      "开启后，任务列表多出一列显示该任务实际走的出口：优先任务自身的代理，其次模版的，最后账户的。固定某个代理时显示该代理名称；整个供应商的代理池只显示供应商名称，不逐条列出；随机池显示可用出口数量",
     secretsSection: "密钥",
     secretsHint:
       "供任务配置引用的键值对。在配置中写 {名称} 即可引用，例如网页步骤“从邮箱获取验证码”里的应用专用密码",
@@ -2829,7 +2845,7 @@ const en: typeof zh = {
       searchHint:
         "Handed to Telegram's own search, so the history is narrowed before the regex runs.",
       patternLabel: "Extraction regex (optional)",
-      patternPlaceholder: "e.g. /invite code[:：]\\s*(\\w+)/i",
+      patternPlaceholder: "e.g. /username[:：]\\s*(\\w+)/i",
       patternHint:
         "`/pattern/flags` or a bare pattern. Capture group 1 where there is one, else the whole match. Blank takes the message text as it is.",
       patternInvalid: "That regex does not compile",
@@ -2955,6 +2971,18 @@ const en: typeof zh = {
     toggleLastSuccessHint: "Show or hide the last successful run",
     editTemplateBtn: "Edit template",
     neverSucceeded: "Never",
+    colProxy: "Proxy",
+    proxy: {
+      direct: "Direct",
+      random: "Random",
+      drawnPerRun: "One exit is drawn from the pool per run",
+      tgNote: "The Telegram connection still follows the account's proxy: {exit}",
+      source: {
+        job: "From the job's own proxy setting",
+        template: "From the template's proxy setting",
+        account: "From the account's proxy setting",
+      },
+    },
     since: {
       justNow: "just now",
       ago: "{v} ago",
@@ -4091,6 +4119,10 @@ const en: typeof zh = {
     jobsTemplateEditSection: "Template quick edit",
     jobsTemplateEditToggle: "Edit templates straight from the jobs list",
     jobsTemplateEditHint: "Adds a template-edit button to jobs that use a template, so there is no need to switch to the templates page. Note that an edit affects every job on that template",
+    jobsProxyColumnSection: "Job proxy column",
+    jobsProxyColumnToggle: "Show the proxy each job actually uses in the jobs list",
+    jobsProxyColumnHint:
+      "Adds a column naming the exit a job leaves by: its own proxy, else its template's, else its account's. A pinned exit is named; a pool covering a whole supplier shows just that supplier rather than listing it out; any other draw shows how many exits it covers",
     secretsSection: "Secrets",
     secretsHint:
       "Named values a job config can refer to as {name} -- the app password the \"Get a verification code from email\" page step needs, for one",

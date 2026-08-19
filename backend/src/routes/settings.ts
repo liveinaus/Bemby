@@ -126,6 +126,7 @@ export const ALLOWED_KEYS = [
   "account_display_with_tg_name",
   "schedule_separate_page",
   "jobs_template_edit_button",
+  "jobs_show_effective_proxy",
   "data_store_enabled",
   "log_retention_days",
   "schedule_min_gap_minutes",

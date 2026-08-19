@@ -995,6 +995,24 @@
             </p>
           </div>
 
+          <!-- Effective proxy column on the jobs page -->
+          <div class="settings-subsection" style="margin-top: 28px">
+            {{ t("settings.jobsProxyColumnSection") }}
+          </div>
+          <div class="form-group">
+            <label class="form-check">
+              <input
+                type="checkbox"
+                v-model="jobsProxyColumnSetting"
+                @change="saveJobsProxyColumn"
+              />
+              <span>{{ t("settings.jobsProxyColumnToggle") }}</span>
+            </label>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
+              {{ t("settings.jobsProxyColumnHint") }}
+            </p>
+          </div>
+
           <!-- The data store: its menu entry and its job steps. The whole section is absent
                unless the server offers the feature (DATA_MANAGEMENT), so a panel that has no
                use for it never asks the question -->
@@ -2746,6 +2764,7 @@ import {
 } from "../composables/dataStore";
 import { applyMsApiSetting, msApiAvailable } from "../composables/msApi";
 import { setTemplateEditButton } from "../composables/templateEditButton";
+import { setJobProxyColumn } from "../composables/jobProxyColumn";
 import { setTheme, themeMode, type ThemeMode } from "../composables/useTheme";
 
 const THEME_MODES: ThemeMode[] = ["light", "dark", "auto"];
@@ -3838,6 +3857,7 @@ const defaultTgApiError = ref("");
 const accountDisplayWithTgName = ref(false);
 const scheduleSeparatePageSetting = ref(false);
 const jobsTemplateEditButtonSetting = ref(false);
+const jobsProxyColumnSetting = ref(false);
 const dataStoreSetting = ref(false);
 
 async function saveDefaultTgApi() {
@@ -4033,6 +4053,7 @@ onMounted(async () => {
     accountDisplayWithTgName.value = s.account_display_with_tg_name === "true";
     scheduleSeparatePageSetting.value = s.schedule_separate_page === "true";
     jobsTemplateEditButtonSetting.value = s.jobs_template_edit_button === "true";
+    jobsProxyColumnSetting.value = s.jobs_show_effective_proxy === "true";
     // Unset means on: only an explicit "false" turns it off
     proxySyncMatchByName.value = s.proxy_sync_match_by_name !== "false";
     applyDataStoreSetting(s);
@@ -4605,6 +4626,18 @@ async function saveJobsTemplateEditButton() {
     setTemplateEditButton(jobsTemplateEditButtonSetting.value);
   } catch {
     jobsTemplateEditButtonSetting.value = !jobsTemplateEditButtonSetting.value;
+  }
+}
+
+async function saveJobsProxyColumn() {
+  try {
+    await settingsApi.update({
+      jobs_show_effective_proxy: String(jobsProxyColumnSetting.value),
+    });
+    // Show or hide the column on the jobs page at once
+    setJobProxyColumn(jobsProxyColumnSetting.value);
+  } catch {
+    jobsProxyColumnSetting.value = !jobsProxyColumnSetting.value;
   }
 }
 

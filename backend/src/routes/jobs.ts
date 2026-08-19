@@ -6,6 +6,7 @@ import { rowToJob, type JobRow } from "../jobs/jobRows";
 import { testEmbyConnection } from "../jobs/embywatch";
 import { parsePaging, parseSort, textParam, escapeLike } from "./list-query";
 import { mergeIconIntoConfig } from "../jobs/configIcon";
+import { makeJobProxyResolver } from "../jobs/jobProxy";
 
 const router = Router();
 
@@ -86,11 +87,18 @@ router.get("/", (req, res) => {
     ${where}
   `;
 
+  // One resolver per request, so the proxy and provider lists are read once for the page
+  const jobProxy = makeJobProxyResolver();
+  const toJob = (row: JobRow) => ({ ...rowToJob(row), effectiveProxy: jobProxy(row) });
+
   if (!paging) {
     const rows = db
-      .prepare(`SELECT j.*, a.name AS account_name ${baseSql} ORDER BY ${orderClause}`)
+      .prepare(
+        `SELECT j.*, a.name AS account_name, a.proxy_id AS account_proxy_id
+         ${baseSql} ORDER BY ${orderClause}`,
+      )
       .all(...params) as JobRow[];
-    res.json(rows.map(rowToJob));
+    res.json(rows.map(toJob));
     return;
   }
 
@@ -100,7 +108,7 @@ router.get("/", (req, res) => {
 
   const rows = db
     .prepare(`
-      SELECT j.*, a.name AS account_name
+      SELECT j.*, a.name AS account_name, a.proxy_id AS account_proxy_id
       ${baseSql}
       ORDER BY ${orderClause}
       LIMIT ? OFFSET ?
@@ -125,7 +133,7 @@ router.get("/", (req, res) => {
     .all() as Array<{ id: number; name: string }>;
 
   res.json({
-    items: rows.map(rowToJob),
+    items: rows.map(toJob),
     total: totalRow.total,
     page: paging.page,
     pageSize: paging.pageSize,

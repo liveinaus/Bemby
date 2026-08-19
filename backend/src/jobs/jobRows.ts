@@ -27,6 +27,8 @@ export type JobRow = {
   retired: string | null;
   last_success_at: string | null;
   account_name?: string;
+  /** Joined in by the list query, for working out the job's effective exit. */
+  account_proxy_id?: string | null;
 };
 
 export type JobAccountRow = {

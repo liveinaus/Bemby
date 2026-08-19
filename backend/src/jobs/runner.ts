@@ -16,7 +16,7 @@ import { runCustom, CustomJobError, type CustomJobLog } from "./custom";
 import { runAutoreg, AutoregJobError, type AutoregJobLog } from "./autoreg";
 import { db } from "../db/database";
 import { resolveAppClientParams } from "../tg/appClient";
-import { proxyUrlFor, type ProxyChoice } from "../tg/proxyProviders";
+import { parseProxyChoice, proxyUrlFor, type ProxyChoice } from "../tg/proxyProviders";
 import { checkedProxyUrl } from "../tg/proxyHealth";
 
 /**
@@ -29,27 +29,12 @@ export function configProxyChoice(
   jobConfig: string | null,
   templateId: number | null | undefined,
 ): ProxyChoice {
-  const readChoice = (raw: string | null | undefined): ProxyChoice => {
-    if (!raw) return {};
-    try {
-      let c = JSON.parse(raw);
-      if (typeof c === "string") c = JSON.parse(c);
-      if (!c?.proxyId) return {};
-      return {
-        proxyId: c.proxyId as string,
-        pool: Array.isArray(c.proxyPool) ? (c.proxyPool as string[]) : undefined,
-      };
-    } catch {
-      return {};
-    }
-  };
-
-  const fromJob = readChoice(jobConfig);
+  const fromJob = parseProxyChoice(jobConfig);
   if (fromJob.proxyId || !templateId) return fromJob;
   const row = db
     .prepare("SELECT config FROM job_templates WHERE id = ?")
     .get(templateId) as { config: string | null } | undefined;
-  return readChoice(row?.config);
+  return parseProxyChoice(row?.config);
 }
 
 /**

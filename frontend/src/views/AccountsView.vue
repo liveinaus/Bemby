@@ -55,10 +55,6 @@
               <i class="fa-solid fa-arrows-rotate"></i>
               {{ t("accounts.bulkFetch.btn") }}
             </button>
-            <button class="bulk-menu-item" @click="runBulk(openBulkExtract)">
-              <i class="fa-solid fa-filter"></i>
-              {{ t("accounts.bulkExtract.btn") }}
-            </button>
             <button class="bulk-menu-item" @click="runBulk(openBulkRename)">
               <i class="fa-solid fa-i-cursor"></i>
               {{ t("accounts.bulkRename.btn") }}
@@ -84,6 +80,10 @@
               <button class="bulk-menu-item" @click="runBulk(openBulkEmail)">
                 <i class="fa-solid fa-envelope"></i>
                 {{ t("accounts.bulkEmail.btn") }}
+              </button>
+              <button class="bulk-menu-item" @click="runBulk(openBulkExtract)">
+                <i class="fa-solid fa-filter"></i>
+                {{ t("accounts.bulkExtract.btn") }}
               </button>
               <button class="bulk-menu-item" @click="runBulk(openBulkPasskey)">
                 <i class="fa-solid fa-key"></i>

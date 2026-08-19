@@ -110,7 +110,7 @@ router.delete("/:id", (req, res) => {
  * accounts would be megabytes on a list the panel polls every second or two. `format=text`
  * hands back the rendered lines as a file to download.
  */
-router.get("/:id/extract", (req, res) => {
+router.get("/:id/extract", bulkMgmtGuard, (req, res) => {
   const run = getExtractResults(req.params.id);
   if (!run) {
     res.status(404).json({ error: "No extraction results for that task" });
@@ -256,10 +256,10 @@ router.post("/clean", bulkMgmtGuard, (req, res) => {
 /**
  * POST /extract-messages -- read one chat's history on each selected account.
  *
- * Read-only, so it is not behind the bulk-management guard; writing what it finds into the
- * data store is refused by the starter when that feature is switched off.
+ * Behind the bulk-management guard with the rest of the multi-account actions. Writing what
+ * it finds into the data store is separately refused by the starter when that feature is off.
  */
-router.post("/extract-messages", (req, res) => {
+router.post("/extract-messages", bulkMgmtGuard, (req, res) => {
   const { ids, gapSeconds, ...input } = req.body as BulkExtractInput & {
     ids?: number[];
     gapSeconds?: number;
