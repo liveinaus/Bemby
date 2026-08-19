@@ -55,6 +55,10 @@
               <i class="fa-solid fa-arrows-rotate"></i>
               {{ t("accounts.bulkFetch.btn") }}
             </button>
+            <button class="bulk-menu-item" @click="runBulk(openBulkExtract)">
+              <i class="fa-solid fa-filter"></i>
+              {{ t("accounts.bulkExtract.btn") }}
+            </button>
             <button class="bulk-menu-item" @click="runBulk(openBulkRename)">
               <i class="fa-solid fa-i-cursor"></i>
               {{ t("accounts.bulkRename.btn") }}
@@ -2745,6 +2749,275 @@
       </div>
     </div>
 
+    <!-- Bulk extract messages modal: one chat, read separately on every selected account -->
+    <div v-if="showBulkExtract" class="modal-backdrop">
+      <div class="modal modal-lg">
+        <h3 class="modal-title">
+          <i class="fa-solid fa-filter" style="margin-right: 8px"></i>
+          {{ t("accounts.bulkExtract.title") }}
+        </h3>
+
+        <template v-if="!bulkExtractTask">
+          <div v-if="!bulkExtractTargets.length" class="warn-box">
+            {{ t("accounts.bulkExtract.noTargets") }}
+          </div>
+          <template v-else>
+            <p class="bulk-add-hint">
+              {{
+                t("accounts.bulkExtract.intro").replace(
+                  "{n}",
+                  String(bulkExtractTargets.length),
+                )
+              }}
+            </p>
+
+            <div class="form-group">
+              <label class="form-label">
+                {{ t("accounts.bulkExtract.targetLabel") }}
+              </label>
+              <input
+                v-model="bulkExtract.target"
+                type="text"
+                class="form-input"
+                :placeholder="t('accounts.bulkExtract.targetPlaceholder')"
+              />
+              <div class="form-hint">
+                {{ t("accounts.bulkExtract.targetHint") }}
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">
+                  {{ t("accounts.bulkExtract.afterLabel") }}
+                </label>
+                <input
+                  v-model="bulkExtract.after"
+                  type="date"
+                  class="form-input"
+                />
+                <div class="form-hint">
+                  {{ t("accounts.bulkExtract.afterHint") }}
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">
+                  {{ t("accounts.bulkExtract.maxLabel") }}
+                </label>
+                <input
+                  v-model.number="bulkExtract.maxMessages"
+                  type="number"
+                  min="1"
+                  :max="EXTRACT_MAX_CEILING"
+                  class="form-input"
+                />
+                <div class="form-hint">
+                  {{
+                    t("accounts.bulkExtract.maxHint").replace(
+                      "{max}",
+                      String(EXTRACT_MAX_CEILING),
+                    )
+                  }}
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">
+                {{ t("accounts.bulkExtract.searchLabel") }}
+              </label>
+              <input
+                v-model="bulkExtract.search"
+                type="text"
+                class="form-input"
+              />
+              <div class="form-hint">
+                {{ t("accounts.bulkExtract.searchHint") }}
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">
+                {{ t("accounts.bulkExtract.patternLabel") }}
+              </label>
+              <input
+                v-model="bulkExtract.pattern"
+                type="text"
+                class="form-input"
+                :placeholder="t('accounts.bulkExtract.patternPlaceholder')"
+              />
+              <div v-if="bulkExtractRegexBad" class="form-hint form-hint-error">
+                {{ t("accounts.bulkExtract.patternInvalid") }}
+              </div>
+              <div v-else class="form-hint">
+                {{ t("accounts.bulkExtract.patternHint") }}
+              </div>
+            </div>
+
+            <label v-if="bulkExtract.pattern.trim()" class="form-check">
+              <input type="checkbox" v-model="bulkExtract.keepUnmatched" />
+              <span>{{ t("accounts.bulkExtract.keepUnmatched") }}</span>
+            </label>
+
+            <div class="form-group">
+              <label class="form-label">
+                {{ t("accounts.bulkExtract.lineFormatLabel") }}
+              </label>
+              <input
+                v-model="bulkExtract.lineFormat"
+                type="text"
+                class="form-input"
+              />
+              <div class="form-hint">{{ extractFormatHint }}</div>
+            </div>
+
+            <!-- Writing into the data store is only offered where the feature is switched on -->
+            <template v-if="dataStoreEnabled">
+              <label class="form-check">
+                <input type="checkbox" v-model="bulkExtractStoreOn" />
+                <span>{{ t("accounts.bulkExtract.storeToggle") }}</span>
+              </label>
+              <template v-if="bulkExtractStoreOn">
+                <div class="form-group">
+                  <label class="form-label">
+                    {{ t("accounts.bulkExtract.storeFolder") }}
+                  </label>
+                  <input
+                    v-model="bulkExtract.storeFolder"
+                    type="text"
+                    class="form-input"
+                    list="bulk-extract-folders"
+                  />
+                  <datalist id="bulk-extract-folders">
+                    <option v-for="f in dataFolderNames" :key="f" :value="f" />
+                  </datalist>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label class="form-label">
+                      {{ t("accounts.bulkExtract.storeKeyFormat") }}
+                    </label>
+                    <input
+                      v-model="bulkExtract.storeKeyFormat"
+                      type="text"
+                      class="form-input"
+                    />
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">
+                      {{ t("accounts.bulkExtract.storeValueFormat") }}
+                    </label>
+                    <input
+                      v-model="bulkExtract.storeValueFormat"
+                      type="text"
+                      class="form-input"
+                    />
+                  </div>
+                </div>
+                <div class="form-hint">
+                  {{ t("accounts.bulkExtract.storeHint") }}
+                </div>
+              </template>
+            </template>
+
+            <div class="form-group">
+              <label class="form-label">{{ t("accounts.bulkGap.label") }}</label>
+              <input
+                v-model.number="bulkExtractGapSeconds"
+                type="number"
+                min="0"
+                class="form-input"
+              />
+              <div class="form-hint">{{ t("accounts.bulkGap.hint") }}</div>
+            </div>
+
+            <div class="bulk-clean-accounts">
+              <div
+                v-for="a in bulkExtractTargets"
+                :key="a.id"
+                class="bulk-clean-account"
+              >
+                <strong>{{ a.name }}</strong>
+                <span class="bulk-add-phone">{{ a.phoneNumber }}</span>
+              </div>
+            </div>
+          </template>
+          <div class="modal-footer">
+            <button class="btn btn-ghost" @click="closeBulkExtract">
+              <i class="fa-solid fa-xmark"></i> {{ t("common.cancel") }}
+            </button>
+            <button
+              v-if="bulkExtractTargets.length"
+              class="btn btn-primary"
+              :disabled="!bulkExtractReady"
+              @click="startBulkExtract"
+            >
+              <i class="fa-solid fa-filter"></i>
+              {{ t("accounts.bulkExtract.start") }}
+            </button>
+          </div>
+        </template>
+
+        <template v-else>
+          <BulkTaskProgress
+            :task="bulkExtractTask"
+            @close="closeBulkExtract"
+          />
+          <div class="extract-results">
+            <div class="extract-results-head">
+              <strong>{{ t("accounts.bulkExtract.resultsTitle") }}</strong>
+              <span class="form-hint">
+                {{
+                  t("accounts.bulkExtract.resultsCount").replace(
+                    "{n}",
+                    String(extractLines.length),
+                  )
+                }}
+              </span>
+              <span style="flex: 1"></span>
+              <button
+                class="btn btn-sm btn-secondary"
+                :disabled="extractLoading"
+                @click="loadExtractResults"
+              >
+                <i class="fa-solid fa-arrows-rotate"></i>
+                {{ t("common.refresh") }}
+              </button>
+              <button
+                class="btn btn-sm btn-secondary"
+                :disabled="!extractLines.length"
+                @click="copyExtractLines"
+              >
+                <i class="fa-solid fa-copy"></i>
+                {{
+                  extractCopied
+                    ? t("accounts.bulkExtract.copied")
+                    : t("accounts.bulkExtract.copyAll")
+                }}
+              </button>
+              <button
+                class="btn btn-sm btn-secondary"
+                :disabled="!extractLines.length"
+                @click="downloadExtractLines"
+              >
+                <i class="fa-solid fa-download"></i>
+                {{ t("accounts.bulkExtract.download") }}
+              </button>
+            </div>
+            <div v-if="extractError" class="form-hint form-hint-error">
+              {{ extractError }}
+            </div>
+            <pre v-if="extractLines.length" class="extract-results-body">{{
+              extractPreviewText
+            }}</pre>
+            <p v-else class="form-hint">
+              {{ t("accounts.bulkExtract.resultsEmpty") }}
+            </p>
+          </div>
+        </template>
+      </div>
+    </div>
+
     <!-- Bulk fetch attributes modal -->
     <div v-if="showBulkFetch" class="modal-backdrop">
       <div class="modal modal-lg">
@@ -3047,6 +3320,7 @@ import {
   type AvatarSourceMode,
   type AvatarPoolStatus,
   type PrivacyLevel,
+  type ExtractLine,
 } from "../api/client";
 import { t, locale } from "../i18n";
 import { usePersistedRef } from "../composables/usePersistedRef";
@@ -3061,6 +3335,14 @@ import {
   taskById,
   trackStartedTask,
 } from "../composables/bulkTasks";
+import {
+  applyDataStoreSetting,
+  dataFolderNames,
+  dataStoreEnabled,
+  loadDataFolderNames,
+} from "../composables/dataStore";
+import { copyText } from "../utils/clipboard";
+import { regexValid } from "../utils/regexCheck";
 import PaginationBar from "../components/PaginationBar.vue";
 import BulkTaskProgress from "../components/BulkTaskProgress.vue";
 
@@ -4746,6 +5028,170 @@ async function startBulkPrivacy() {
   }
 }
 
+
+// ── Bulk extract messages state ───────────────────────────────────────────────
+// One chat, read separately on every selected account. The lines themselves are not
+// carried on the polled task -- a long history across a dozen accounts would make that
+// list enormous -- so they are fetched from the task's own results endpoint.
+
+/** Mirrors MAX_MESSAGES_CEILING on the server, so the field cannot ask for more. */
+const EXTRACT_MAX_CEILING = 20000;
+/** How much of the collected output the modal renders inline; the rest downloads. */
+const EXTRACT_PREVIEW_LINES = 500;
+
+const showBulkExtract = ref(false);
+const bulkExtractTargets = ref<Account[]>([]);
+const bulkExtractGapSeconds = ref(10);
+const bulkExtractStoreOn = ref(false);
+const bulkExtractTaskId = ref<string | null>(null);
+const bulkExtractTask = computed(() => taskById(bulkExtractTaskId.value));
+
+const bulkExtract = reactive({
+  target: "",
+  after: "",
+  maxMessages: 1000,
+  search: "",
+  pattern: "",
+  keepUnmatched: false,
+  lineFormat: "{value}",
+  storeFolder: "",
+  storeKeyFormat: "{account}-{id}",
+  storeValueFormat: "{value}",
+});
+
+const EXTRACT_PLACEHOLDERS = [
+  "value",
+  "text",
+  "account",
+  "accountId",
+  "chat",
+  "id",
+  "date",
+  "sender",
+  "senderName",
+];
+
+const extractFormatHint = computed(() =>
+  t("accounts.bulkExtract.lineFormatHint").replace(
+    "{ph}",
+    EXTRACT_PLACEHOLDERS.map((p) => `{${p}}`).join(" "),
+  ),
+);
+
+const bulkExtractRegexBad = computed(
+  () => Boolean(bulkExtract.pattern.trim()) && !regexValid(bulkExtract.pattern),
+);
+
+const bulkExtractReady = computed(
+  () =>
+    Boolean(bulkExtract.target.trim()) &&
+    !bulkExtractRegexBad.value &&
+    (!bulkExtractStoreOn.value || Boolean(bulkExtract.storeFolder.trim())),
+);
+
+const extractLines = ref<ExtractLine[]>([]);
+const extractLoading = ref(false);
+const extractError = ref("");
+const extractCopied = ref(false);
+
+const extractPreviewText = computed(() =>
+  extractLines.value
+    .slice(0, EXTRACT_PREVIEW_LINES)
+    .map((l) => l.line)
+    .join("\n"),
+);
+
+function openBulkExtract() {
+  bulkExtractTargets.value = accounts.value.filter(
+    (a) => selectedIds.value.has(a.id) && a.authStatus === "authenticated",
+  );
+  // A read still running from an earlier visit keeps showing its progress
+  bulkExtractTaskId.value = runningTaskOfKind("extract-messages")?.id ?? null;
+  extractLines.value = [];
+  extractError.value = "";
+  if (dataStoreEnabled.value) void loadDataFolderNames();
+  else bulkExtractStoreOn.value = false;
+  showBulkExtract.value = true;
+  if (bulkExtractTaskId.value) void loadExtractResults();
+}
+
+function closeBulkExtract() {
+  showBulkExtract.value = false;
+  bulkExtractTaskId.value = null;
+  extractLines.value = [];
+}
+
+async function startBulkExtract() {
+  const ids = bulkExtractTargets.value.map((a) => a.id);
+  if (!ids.length || !bulkExtractReady.value) return;
+  try {
+    const task = await bulkTasksApi.extractMessages(
+      ids,
+      {
+        target: bulkExtract.target.trim(),
+        after: bulkExtract.after,
+        maxMessages: bulkExtract.maxMessages,
+        search: bulkExtract.search,
+        pattern: bulkExtract.pattern,
+        keepUnmatched: bulkExtract.keepUnmatched,
+        lineFormat: bulkExtract.lineFormat,
+        store:
+          dataStoreEnabled.value && bulkExtractStoreOn.value
+            ? {
+                folder: bulkExtract.storeFolder.trim(),
+                keyFormat: bulkExtract.storeKeyFormat,
+                valueFormat: bulkExtract.storeValueFormat,
+              }
+            : null,
+      },
+      bulkExtractGapSeconds.value,
+    );
+    trackStartedTask(task);
+    bulkExtractTaskId.value = task.id;
+    extractLines.value = [];
+  } catch (e: any) {
+    alert(e.response?.data?.error ?? t("bulkTasks.startFailed"));
+  }
+}
+
+async function loadExtractResults() {
+  const id = bulkExtractTaskId.value;
+  if (!id) return;
+  extractLoading.value = true;
+  extractError.value = "";
+  try {
+    extractLines.value = (await bulkTasksApi.extractResults(id)).lines;
+  } catch (e: any) {
+    extractError.value =
+      e.response?.data?.error ?? t("accounts.bulkExtract.resultsLoadFailed");
+  } finally {
+    extractLoading.value = false;
+  }
+}
+
+async function copyExtractLines() {
+  const ok = await copyText(extractLines.value.map((l) => l.line).join("\n"));
+  if (!ok) {
+    alert(t("common.copyFailed"));
+    return;
+  }
+  extractCopied.value = true;
+  setTimeout(() => (extractCopied.value = false), 1500);
+}
+
+function downloadExtractLines() {
+  const text = extractLines.value.map((l) => l.line).join("\n");
+  const blob = new Blob([text ? `${text}\n` : ""], {
+    type: "text/plain;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `bemby-extract-${new Date().toISOString().slice(0, 10)}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ── Bulk clean state ──────────────────────────────────────────────────────────
 const showBulkClean = ref(false);
 const bulkCleanConfirmChecked = ref(false);
@@ -4842,6 +5288,10 @@ onMounted(async () => {
 startBulkTaskPolling();
 const stopTaskFinishWatch = onBulkTaskFinished((task) => {
   if (task.kind !== "run-jobs") void load();
+  // Pull the collected lines in as soon as the read is over, so the modal is not empty
+  if (task.kind === "extract-messages" && task.id === bulkExtractTaskId.value) {
+    void loadExtractResults();
+  }
 });
 onUnmounted(() => stopTaskFinishWatch());
 
@@ -4858,6 +5308,7 @@ async function load() {
     settingsApi.get(),
   ]);
   settings.value = s;
+  applyDataStoreSetting(s);
   if (!res.items.length && page.value > 1) {
     // Page emptied out (e.g. after deletes); step back once
     skipPageWatch = true;
@@ -6537,5 +6988,36 @@ tr.drag-over td {
 
 .bulk-add-item-error {
   color: var(--danger);
+}
+
+.form-hint-error {
+  color: var(--danger);
+}
+
+.extract-results {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.extract-results-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.extract-results-body {
+  max-height: 240px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

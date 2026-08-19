@@ -15,6 +15,7 @@ export type BulkTaskKind =
   | "passkey"
   | "privacy"
   | "clean"
+  | "extract-messages"
   | "run-jobs"
   // Run by their own older batch runners and surfaced through jobs/bulkTaskBridge
   | "add"
@@ -65,6 +66,8 @@ export type BulkTask = {
 export type BulkTaskEntry = { refId: number; refName: string };
 
 export type BulkTaskContext = {
+  /** The task this item belongs to, for a handler that keeps results of its own alongside. */
+  taskId: string;
   /** True once termination was requested; slow handlers should bail out. */
   cancelled: () => boolean;
   /** Sleep that returns early when the task is terminated. */
@@ -132,6 +135,7 @@ const KIND_LABELS: Record<BulkTaskKind, string> = {
   passkey: "passkey",
   privacy: "privacy settings",
   clean: "clean",
+  "extract-messages": "message extraction",
   "run-jobs": "job run",
   add: "bulk add",
   profile: "profile update",
@@ -321,6 +325,7 @@ async function runTask(
       try {
         const result = await raceItem(
           handler(item, {
+            taskId: task.id,
             cancelled: () => task.cancelRequested,
             sleep: (ms) => sleep(ms, task),
             progress: (message) => {

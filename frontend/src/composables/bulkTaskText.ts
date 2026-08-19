@@ -77,6 +77,23 @@ function privacyText(data: Record<string, any>): string {
   return parts.join(", ");
 }
 
+/** What one account's read found, and where it went. */
+function extractText(data: Record<string, any>): string {
+  const parts = [
+    t("accounts.bulkExtract.resultSummary")
+      .replace("{matched}", String(data.matched ?? 0))
+      .replace("{scanned}", String(data.scanned ?? 0))
+      .replace("{lines}", String(data.lines ?? 0)),
+  ];
+  if (data.stored) {
+    parts.push(
+      t("accounts.bulkExtract.resultStored").replace("{n}", String(data.stored)),
+    );
+  }
+  if (data.truncated) parts.push(t("accounts.bulkExtract.resultTruncated"));
+  return parts.join(", ");
+}
+
 /** Localised outcome for a finished item; falls back to the server's own message. */
 export function bulkTaskItemText(task: BulkTask, item: BulkTaskItem): string {
   if (item.status !== "done" || !item.data) return item.message;
@@ -109,6 +126,8 @@ export function bulkTaskItemText(task: BulkTask, item: BulkTaskItem): string {
       return privacyText(data);
     case "clean":
       return cleanText(data);
+    case "extract-messages":
+      return extractText(data);
     default:
       return item.message;
   }

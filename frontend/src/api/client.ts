@@ -3036,6 +3036,7 @@ export type BulkTaskKind =
   | "passkey"
   | "privacy"
   | "clean"
+  | "extract-messages"
   | "run-jobs"
   /** Bulk add and bulk profile update: their own runners, surfaced in the same list. */
   | "add"
@@ -3080,6 +3081,46 @@ export type BulkTask = {
   gapSeconds: number;
   total: number;
   items: BulkTaskItem[];
+};
+
+/** Where an extraction writes what it finds, alongside the lines it collects. */
+export type BulkExtractStore = {
+  folder: string;
+  keyFormat?: string;
+  valueFormat?: string;
+};
+
+export type BulkExtractOptions = {
+  /** @username, t.me link, invite link or chat ID. */
+  target: string;
+  /** ISO date or datetime; blank reads the whole history. */
+  after?: string;
+  maxMessages?: number;
+  search?: string;
+  pattern?: string;
+  keepUnmatched?: boolean;
+  lineFormat?: string;
+  store?: BulkExtractStore | null;
+};
+
+export type ExtractLine = {
+  accountId: number;
+  accountName: string;
+  chat: string;
+  messageId: number;
+  date: string;
+  sender: string;
+  senderName: string;
+  text: string;
+  value: string;
+  line: string;
+};
+
+export type ExtractResults = {
+  lines: ExtractLine[];
+  total: number;
+  truncated: boolean;
+  placeholders: string[];
 };
 
 export const bulkTasksApi = {
@@ -3138,6 +3179,28 @@ export const bulkTasksApi = {
       .then((r) => r.data),
   clean: (ids: number[], gapSeconds?: number) =>
     api.post<BulkTask>("/bulk-tasks/clean", { ids, gapSeconds }).then((r) => r.data),
+  extractMessages: (
+    ids: number[],
+    opts: BulkExtractOptions,
+    gapSeconds?: number,
+  ) =>
+    api
+      .post<BulkTask>("/bulk-tasks/extract-messages", { ids, ...opts, gapSeconds })
+      .then((r) => r.data),
+  /** The lines an extraction task collected; kept off the polled task list for size. */
+  extractResults: (id: string) =>
+    api
+      .get<ExtractResults>(`/bulk-tasks/${id}/extract`)
+      .then((r) => r.data),
+  extractText: (id: string) =>
+    api
+      .get<string>(`/bulk-tasks/${id}/extract`, {
+        params: { format: "text" },
+        // Axios would try to JSON-parse a plain-text body and hand back an object
+        responseType: "text",
+        transformResponse: [(d) => d],
+      })
+      .then((r) => r.data),
   runJobs: (ids: number[], gapSeconds?: number, maxRunSeconds?: number) =>
     api
       .post<BulkTask>("/bulk-tasks/run-jobs", { ids, gapSeconds, maxRunSeconds })

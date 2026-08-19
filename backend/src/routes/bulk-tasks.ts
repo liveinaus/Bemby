@@ -15,13 +15,21 @@ import {
 import {
   startBulkClean,
   startBulkCredentials,
+  startBulkExtractMessages,
   startBulkFetchAttributes,
   startBulkJobRuns,
   startBulkLoginEmail,
   startBulkPasskey,
   startBulkPrivacy,
   startBulkSpamCheck,
+  type BulkExtractInput,
 } from "../jobs/bulkOps";
+import {
+  dropExtractResults,
+  getExtractResults,
+  pruneExtractResults,
+  EXTRACT_PLACEHOLDERS,
+} from "../jobs/bulkExtract";
 import { msApiConfigured, msApiOffReason } from "../jobs/msOauth2api";
 import {
   allNarrowest,
@@ -59,7 +67,10 @@ function respond(res: import("express").Response, result: StartBulkTaskResult): 
 
 // GET / -- every running task plus recently finished ones, newest first
 router.get("/", (_req, res) => {
-  const tasks = [...listBulkTasks(), ...legacyBulkTasks()].sort((a, b) =>
+  const own = listBulkTasks();
+  // Extraction lines outlive nothing: a task the list has pruned takes its results with it
+  pruneExtractResults(new Set(own.map((t) => t.id)));
+  const tasks = [...own, ...legacyBulkTasks()].sort((a, b) =>
     b.createdAt.localeCompare(a.createdAt),
   );
   res.json({ tasks });
@@ -88,7 +99,35 @@ router.post("/:id/cancel", (req, res) => {
 router.delete("/:id", (req, res) => {
   const dismissed =
     dismissBulkTask(req.params.id) || dismissLegacyBulkTask(req.params.id);
+  if (dismissed) dropExtractResults(req.params.id);
   res.json({ dismissed });
+});
+
+/**
+ * GET /:id/extract -- the lines an extraction task has collected so far.
+ *
+ * They are fetched rather than carried on the task itself: a long history across a dozen
+ * accounts would be megabytes on a list the panel polls every second or two. `format=text`
+ * hands back the rendered lines as a file to download.
+ */
+router.get("/:id/extract", (req, res) => {
+  const run = getExtractResults(req.params.id);
+  if (!run) {
+    res.status(404).json({ error: "No extraction results for that task" });
+    return;
+  }
+  if (req.query.format === "text") {
+    const text = run.lines.map((l) => l.line).join("\n");
+    res.type("text/plain; charset=utf-8");
+    res.send(text ? `${text}\n` : "");
+    return;
+  }
+  res.json({
+    lines: run.lines,
+    total: run.lines.length,
+    truncated: run.truncated,
+    placeholders: EXTRACT_PLACEHOLDERS,
+  });
 });
 
 router.post("/spam-check", (req, res) => {
@@ -212,6 +251,23 @@ router.post("/privacy", bulkMgmtGuard, (req, res) => {
 router.post("/clean", bulkMgmtGuard, (req, res) => {
   const { ids, gapSeconds } = req.body as { ids?: number[]; gapSeconds?: number };
   respond(res, startBulkClean(numberList(ids), optionalSeconds(gapSeconds)));
+});
+
+/**
+ * POST /extract-messages -- read one chat's history on each selected account.
+ *
+ * Read-only, so it is not behind the bulk-management guard; writing what it finds into the
+ * data store is refused by the starter when that feature is switched off.
+ */
+router.post("/extract-messages", (req, res) => {
+  const { ids, gapSeconds, ...input } = req.body as BulkExtractInput & {
+    ids?: number[];
+    gapSeconds?: number;
+  };
+  respond(
+    res,
+    startBulkExtractMessages(numberList(ids), input, optionalSeconds(gapSeconds)),
+  );
 });
 
 // POST /run-jobs -- trigger the selected jobs one after another

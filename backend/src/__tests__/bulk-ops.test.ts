@@ -77,6 +77,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import {
   startBulkClean,
   startBulkCredentials,
+  startBulkExtractMessages,
   startBulkFetchAttributes,
   startBulkJobRuns,
   startBulkLoginEmail,
@@ -91,6 +92,7 @@ import {
 } from "../jobs/accountOps";
 import { parseTgProxy } from "../jobs/runner";
 import {
+  cancelBulkTask,
   getBulkTask,
   resetBulkTasks,
   type BulkTask,
@@ -696,6 +698,71 @@ describe("bulk clean", () => {
 });
 
 // ── Job runs ─────────────────────────────────────────────────────────────────
+
+
+// ── Message extraction ───────────────────────────────────────────────────────
+
+describe("bulk extract messages", () => {
+  const target = "@codes";
+
+  function dataStore(on: boolean): void {
+    testDb
+      .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
+      .run("data_store_enabled", on ? "true" : "false");
+  }
+
+  it("refuses a reference that names no chat, before any account is touched", () => {
+    addAccount("A_1");
+    expect(startBulkExtractMessages([1], { target: "9lives" }, 0)).toEqual({
+      ok: false,
+      error:
+        '"9lives" does not name a chat -- use @username, a t.me link, or a chat ID',
+    });
+  });
+
+  it("refuses a date it cannot read, and takes a blank one as the whole history", async () => {
+    const a = addAccount("A_1");
+    expect(startBulkExtractMessages([a], { target, after: "whenever" }, 0)).toEqual({
+      ok: false,
+      error: '"whenever" is not a date this can read',
+    });
+    await settle(task(startBulkExtractMessages([a], { target, after: "" }, 0)));
+  });
+
+  it("refuses a regex that does not compile", () => {
+    const a = addAccount("A_1");
+    const result = startBulkExtractMessages([a], { target, pattern: "code: (" }, 0);
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toMatch(/does not compile/);
+  });
+
+  it("refuses a store write while the data store is switched off", () => {
+    const a = addAccount("A_1");
+    dataStore(false);
+    const result = startBulkExtractMessages(
+      [a],
+      { target, store: { folder: "codes" } },
+      0,
+    );
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error).toMatch(/not enabled|turned off/);
+  });
+
+  it("gives each chat its own queue, so two reads may run side by side", async () => {
+    const a = addAccount("A_1");
+    // A long gap keeps the first queue open while the other two starts are screened
+    const first = task(startBulkExtractMessages([a, addAccount("A_2")], { target }, 60));
+    // Same chat again is refused while the first is still going, and names the queue
+    const same = startBulkExtractMessages([a], { target: "@Codes" }, 0);
+    expect(same.ok).toBe(false);
+    expect(!same.ok && same.conflictTaskId).toBe(first.id);
+    // A different chat is not
+    const other = task(startBulkExtractMessages([a], { target: "@other" }, 0));
+    await settle(other);
+    cancelBulkTask(first.id);
+    await settle(first);
+  });
+});
 
 describe("bulk job runs", () => {
   it("runs each job to completion and reports the log outcome", async () => {

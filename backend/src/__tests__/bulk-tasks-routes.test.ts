@@ -19,6 +19,8 @@ vi.mock("../db/database", () => ({
 
 const checkSpamStatus = vi.fn();
 const cleanAccount = vi.fn();
+/** History the fake Telegram client hands back, newest first, for the extraction tests. */
+let history: Array<{ id: number; message: string; date: number }> = [];
 
 vi.mock("../jobs/checkin", () => ({
   checkSpamStatus,
@@ -26,7 +28,14 @@ vi.mock("../jobs/checkin", () => ({
 }));
 vi.mock("../tg/liveClient", () => ({
   cleanAccount,
-  getLiveClient: vi.fn(async () => ({})),
+  getLiveClient: vi.fn(async () => ({
+    client: {
+      getEntity: async () => ({ title: "Codes Group" }),
+      iterMessages: async function* () {
+        for (const msg of history) yield msg;
+      },
+    },
+  })),
   isAuthError: () => false,
   markSessionExpired: vi.fn(),
   syncDialogsInBackground: vi.fn(async () => undefined),
@@ -132,8 +141,14 @@ afterAll(() => server?.close());
 beforeEach(() => {
   vi.clearAllMocks();
   resetBulkTasks();
+  history = [];
   testDb.exec("DELETE FROM tg_accounts");
 });
+
+async function getText(path: string) {
+  const res = await fetch(`${baseUrl}${path}`);
+  return { status: res.status, body: await res.text() };
+}
 
 describe("bulk task endpoints", () => {
   it("runs a spam check across the selection and reports each result", async () => {
@@ -235,5 +250,74 @@ describe("bulk task endpoints", () => {
     await waitForState(started.body.id, "completed");
     const serialised = JSON.stringify((await getJson("/bulk-tasks")).body);
     expect(serialised).not.toContain("s3cret-pw");
+  });
+});
+
+describe("message extraction endpoints", () => {
+  const NOW = 1_770_000_000;
+
+  it("collects the lines off the task and serves them as JSON and as a file", async () => {
+    const a = insertAccount("A_1");
+    history = [
+      { id: 2, message: "code: BBB", date: NOW },
+      { id: 1, message: "code: AAA", date: NOW - 60 },
+    ];
+
+    const started = await postJson("/bulk-tasks/extract-messages", {
+      ids: [a],
+      target: "@codes",
+      pattern: "code: (\\w+)",
+      lineFormat: "{account}----{value}",
+      gapSeconds: 0,
+    });
+    expect(started.status).toBe(201);
+    const finished = await waitForState(started.body.id, "completed");
+    expect(finished.items[0].status).toBe("done");
+    expect(finished.items[0].data).toMatchObject({
+      chat: "Codes Group",
+      scanned: 2,
+      matched: 2,
+      lines: 2,
+      stored: 0,
+    });
+    // The lines themselves stay off the polled task, which only carries a short preview
+    expect(finished.items[0].data.preview).toEqual(["A_1----AAA", "A_1----BBB"]);
+
+    const results = await getJson(`/bulk-tasks/${started.body.id}/extract`);
+    expect(results.body.total).toBe(2);
+    expect(results.body.lines.map((l: any) => l.line)).toEqual([
+      "A_1----AAA",
+      "A_1----BBB",
+    ]);
+
+    const file = await getText(`/bulk-tasks/${started.body.id}/extract?format=text`);
+    expect(file.body).toBe("A_1----AAA\nA_1----BBB\n");
+  });
+
+  it("refuses a chat reference that names nothing, and 404s results it never kept", async () => {
+    const a = insertAccount("A_1");
+    const bad = await postJson("/bulk-tasks/extract-messages", {
+      ids: [a],
+      target: "9lives",
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toMatch(/does not name a chat/);
+    expect((await getJson("/bulk-tasks/no-such-task/extract")).status).toBe(404);
+  });
+
+  it("drops the collected lines when the task is dismissed", async () => {
+    const a = insertAccount("A_1");
+    history = [{ id: 1, message: "hello", date: NOW }];
+
+    const started = await postJson("/bulk-tasks/extract-messages", {
+      ids: [a],
+      target: "@codes",
+      gapSeconds: 0,
+    });
+    await waitForState(started.body.id, "completed");
+    expect((await getJson(`/bulk-tasks/${started.body.id}/extract`)).body.total).toBe(1);
+
+    expect((await del(`/bulk-tasks/${started.body.id}`)).body.dismissed).toBe(true);
+    expect((await getJson(`/bulk-tasks/${started.body.id}/extract`)).status).toBe(404);
   });
 });

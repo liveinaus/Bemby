@@ -184,7 +184,7 @@
                 <tr>
                   <td>批量操作</td>
                   <td>
-                    勾选多个账户后，操作收纳于<strong>批量操作</strong>菜单，各顺序操作共用"每个账户之间的间隔（秒）"以避免限流：<strong>批量重命名</strong>（按 <code>{index}</code> 递增序号，可补零、实时预览）、<strong>获取属性</strong>、<strong>批量修改登录邮箱</strong>（Gmail 别名地址（<code>+</code> 标签模板 + 变量），经 IMAP 读取确认码，应用专用密码仅用于本次运行且不存储，开始前需"测试登录"<span v-if="msApiAvailable">；也可从已配置的 msOauth2api 邮箱池为每个账户领取独立邮箱，失败时自动归还</span>。注意 Telegram 只能替换已有的登录邮箱、无法新增，未绑定邮箱的账户会失败）、<strong>批量修改凭据</strong>（设置/轮换 2FA 密码，可选移除其他设备/其他通行密钥）、<strong>批量添加通行密钥</strong>、<strong>批量设置隐私</strong>（逐项选择可见范围：无人 / 我的联系人 / 所有人，覆盖电话号码、最后上线、头像、简介、生日、转发署名、来电、礼物展示等，默认全部为“无人”；改成“所有人”即可恢复公开，之前隐藏的头像可以从同一界面放回来。Telegram 不允许“无人”的两项（“谁能通过号码找到我”“谁能把我加入群组”）最紧只能到“我的联系人”，Premium 专属项（如语音消息）不在此列）、<strong>批量修改资料</strong>（批量设置 Telegram 名字/姓氏/简介，每行对应一个账户、字段用制表符 Tab 分隔，可从表格直接粘贴，点击"生成随机名字"自动填充，或点击"AI 生成资料"按要求生成（例如"中国用户，简介用中文"，一次请求覆盖全部账户，可勾选"不生成简介"只生成名字；结果自动清理为单行、不含制表符并符合 Telegram 的长度上限）；作为后台批量任务运行，页面刷新不中断，失败账户自动重试）。设置环境变量 <code>BULK_ACCOUNT_MANAGEMENT=1</code> 后还提供<strong>批量添加账户</strong>（每行 <code>手机号----API网址</code>，自动创建并从各 API 网页读取验证码/2FA 完成认证）与<strong>批量清理</strong>。所有批量操作都在服务器上按顺序执行，开始后可以关闭弹窗甚至整个页面；进度在右下角的<strong>后台任务</strong>面板中查看（也可重新打开对应弹窗查看），并可随时<strong>终止</strong>——当前账户处理完即停止，其余标记为已终止。
+                    勾选多个账户后，操作收纳于<strong>批量操作</strong>菜单，各顺序操作共用"每个账户之间的间隔（秒）"以避免限流：<strong>批量重命名</strong>（按 <code>{index}</code> 递增序号，可补零、实时预览）、<strong>获取属性</strong>、<strong>批量提取消息</strong>（在所选账户上分别读取同一个会话（@用户名、t.me 链接、邀请链接或会话 ID，逐账户各自解析，私有群组只有已加入的账户能解析）的历史消息：可只取某个日期之后的（留空读取全部），先用关键词交给 Telegram 自身搜索缩小范围，再用正则提取（有捕获组时取第 1 组，也支持 <code>/pattern/flags</code>）；输出行按自定义格式渲染（<code>{value}</code>、<code>{text}</code>、<code>{account}</code>、<code>{chat}</code>、<code>{id}</code>、<code>{date}</code>、<code>{sender}</code> 以及 <code>{1}</code>、<code>{2}</code> 等捕获组），可整体复制或下载为 .txt<span v-if="dataStoreEnabled">；也可按指定的记录键/值格式直接写入数据存储</span>）、<strong>批量修改登录邮箱</strong>（Gmail 别名地址（<code>+</code> 标签模板 + 变量），经 IMAP 读取确认码，应用专用密码仅用于本次运行且不存储，开始前需"测试登录"<span v-if="msApiAvailable">；也可从已配置的 msOauth2api 邮箱池为每个账户领取独立邮箱，失败时自动归还</span>。注意 Telegram 只能替换已有的登录邮箱、无法新增，未绑定邮箱的账户会失败）、<strong>批量修改凭据</strong>（设置/轮换 2FA 密码，可选移除其他设备/其他通行密钥）、<strong>批量添加通行密钥</strong>、<strong>批量设置隐私</strong>（逐项选择可见范围：无人 / 我的联系人 / 所有人，覆盖电话号码、最后上线、头像、简介、生日、转发署名、来电、礼物展示等，默认全部为“无人”；改成“所有人”即可恢复公开，之前隐藏的头像可以从同一界面放回来。Telegram 不允许“无人”的两项（“谁能通过号码找到我”“谁能把我加入群组”）最紧只能到“我的联系人”，Premium 专属项（如语音消息）不在此列）、<strong>批量修改资料</strong>（批量设置 Telegram 名字/姓氏/简介，每行对应一个账户、字段用制表符 Tab 分隔，可从表格直接粘贴，点击"生成随机名字"自动填充，或点击"AI 生成资料"按要求生成（例如"中国用户，简介用中文"，一次请求覆盖全部账户，可勾选"不生成简介"只生成名字；结果自动清理为单行、不含制表符并符合 Telegram 的长度上限）；作为后台批量任务运行，页面刷新不中断，失败账户自动重试）。设置环境变量 <code>BULK_ACCOUNT_MANAGEMENT=1</code> 后还提供<strong>批量添加账户</strong>（每行 <code>手机号----API网址</code>，自动创建并从各 API 网页读取验证码/2FA 完成认证）与<strong>批量清理</strong>。所有批量操作都在服务器上按顺序执行，开始后可以关闭弹窗甚至整个页面；进度在右下角的<strong>后台任务</strong>面板中查看（也可重新打开对应弹窗查看），并可随时<strong>终止</strong>——当前账户处理完即停止，其余标记为已终止。
                   </td>
                 </tr>
                 <tr>
@@ -367,6 +367,23 @@
                     <strong>Bulk Rename</strong> (<code>{index}</code> running
                     number, zero-padding, live preview),
                     <strong>Fetch Attributes</strong>,
+                    <strong>Bulk Extract Messages</strong> (read one chat --
+                    an @username, a t.me link, an invite link or a chat ID,
+                    resolved separately on every account, so a private group
+                    only resolves for accounts that have joined it -- across
+                    the selection: optionally only messages after a date (blank
+                    reads the whole history), narrowed first by a keyword handed
+                    to Telegram's own search and then pulled apart with a regex
+                    (capture group 1 where there is one,
+                    <code>/pattern/flags</code> accepted). Lines are rendered in
+                    a format you choose (<code>{value}</code>,
+                    <code>{text}</code>, <code>{account}</code>,
+                    <code>{chat}</code>, <code>{id}</code>, <code>{date}</code>,
+                    <code>{sender}</code>, and <code>{1}</code>,
+                    <code>{2}</code>... for capture groups) and can be copied or
+                    downloaded as a .txt<span v-if="dataStoreEnabled">, or
+                    written straight into the data store under a record key and
+                    value format of your choosing</span>),
                     <strong>Bulk Change Login Email</strong> (a
                     <code>+</code>-tag template on one Gmail inbox, codes read
                     over IMAP with an app password used only for the run and

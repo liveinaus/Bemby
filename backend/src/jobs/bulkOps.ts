@@ -17,6 +17,15 @@ import {
   verifyStoredPasskeyForAccount,
 } from "./accountOps";
 import { describePrivacyResult, type PrivacySelection } from "../tg/privacy";
+import {
+  compileExtractRegex,
+  extractMessagesForAccount,
+  invalidTargetReason,
+  validateStoreOptions,
+  DEFAULT_MAX_MESSAGES,
+  MAX_MESSAGES_CEILING,
+  type ExtractMessagesOptions,
+} from "./bulkExtract";
 import { startManualJobRun } from "./manualRun";
 import { cancelJob } from "./cancellation";
 import {
@@ -37,6 +46,8 @@ import { acquireBulkRunSlot } from "./runSlots";
 
 const DEFAULT_TG_GAP_SECONDS = 30;
 const DEFAULT_FETCH_GAP_SECONDS = 5;
+/** Reading a history is several calls per account, so it is paced wider than a settings write. */
+const DEFAULT_EXTRACT_GAP_SECONDS = 10;
 const DEFAULT_JOB_GAP_SECONDS = 70;
 /**
  * Ceiling on one run inside a batch. A run that stalls -- a dead proxy, a site that never
@@ -51,6 +62,8 @@ const DEFAULT_JOB_MAX_RUN_SECONDS = 1800;
  * the actual load is the run slots the items take.
  */
 const MAX_RUN_JOB_QUEUES = 5;
+/** How many chats may be read at once, one queue each. */
+const MAX_EXTRACT_QUEUES = 3;
 /** Grace given to a cancelled run to unwind before the batch gives up on it entirely. */
 const CANCEL_GRACE_MS = 30_000;
 
@@ -394,6 +407,109 @@ export function startBulkClean(
     gapSeconds: gapSeconds ?? DEFAULT_TG_GAP_SECONDS,
     handler: async (item) => {
       const result = await cleanTelegramAccount(item.refId);
+      return { data: { ...result } };
+    },
+  });
+}
+
+export type BulkExtractInput = {
+  target: string;
+  /** ISO date or datetime; only messages at or after it are taken. Blank reads everything. */
+  after?: string;
+  maxMessages?: number;
+  search?: string;
+  pattern?: string;
+  keepUnmatched?: boolean;
+  lineFormat?: string;
+  store?: {
+    folder: string;
+    keyFormat?: string;
+    valueFormat?: string;
+  } | null;
+};
+
+/** Midnight local time for a bare date, so "after 2026-08-01" means the whole of that day. */
+function afterEpochOf(after: string | undefined): number | null {
+  const text = (after ?? "").trim();
+  if (!text) return 0;
+  const parsed = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T00:00:00` : text);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.floor(parsed / 1000);
+}
+
+/**
+ * Reads one chat across the selected accounts, collecting either the message text or what the
+ * operator's regex captures. Everything that can be refused is refused here, before the first
+ * account is touched: a chat reference that names nothing, an unreadable date, and a data store
+ * that is switched off or would not take the record key.
+ */
+export function startBulkExtractMessages(
+  ids: number[],
+  input: BulkExtractInput,
+  gapSeconds?: number,
+): StartBulkTaskResult {
+  const badTarget = invalidTargetReason(input.target ?? "");
+  if (badTarget) return { ok: false, error: badTarget };
+
+  const afterEpoch = afterEpochOf(input.after);
+  if (afterEpoch === null) {
+    return { ok: false, error: `"${input.after}" is not a date this can read` };
+  }
+
+  const pattern = (input.pattern ?? "").trim();
+  if (pattern) {
+    try {
+      compileExtractRegex(pattern);
+    } catch (err: any) {
+      return { ok: false, error: `That regex does not compile: ${err?.message ?? err}` };
+    }
+  }
+
+  const store = input.store?.folder?.trim()
+    ? {
+        folder: input.store.folder.trim(),
+        keyFormat: (input.store.keyFormat ?? "").trim() || "{account}-{id}",
+        valueFormat: (input.store.valueFormat ?? "").trim() || "{value}",
+      }
+    : null;
+  if (store) {
+    const bad = validateStoreOptions(store);
+    if (bad) return { ok: false, error: bad };
+  }
+
+  const entries = accountTargets(ids);
+  if (!entries) return NO_ACCOUNTS;
+
+  const requested = Number(input.maxMessages);
+  const options: ExtractMessagesOptions = {
+    target: input.target.trim(),
+    afterEpoch,
+    maxMessages:
+      Number.isFinite(requested) && requested > 0
+        ? Math.min(requested, MAX_MESSAGES_CEILING)
+        : DEFAULT_MAX_MESSAGES,
+    search: (input.search ?? "").trim(),
+    pattern,
+    keepUnmatched: Boolean(input.keepUnmatched),
+    lineFormat: (input.lineFormat ?? "").trim() || "{value}",
+    store,
+  };
+
+  return startBulkTask({
+    kind: "extract-messages",
+    entries,
+    // One chat per queue, so two operators may read two different chats at once
+    scope: options.target.toLowerCase(),
+    label: options.target,
+    maxRunning: MAX_EXTRACT_QUEUES,
+    gapSeconds: gapSeconds ?? DEFAULT_EXTRACT_GAP_SECONDS,
+    handler: async (item, ctx) => {
+      const result = await extractMessagesForAccount(
+        item.refId,
+        item.refName,
+        options,
+        ctx,
+      );
       return { data: { ...result } };
     },
   });
