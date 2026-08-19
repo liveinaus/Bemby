@@ -2596,6 +2596,85 @@
         </div>
       </div>
 
+      <!-- What is running, and whether a newer build is out. Reporting only: taking the
+           update is a pull and a recreate on whatever runs the container -->
+      <div class="card">
+        <div class="card-body">
+          <div class="card-section-title">{{ t("settings.update.title") }}</div>
+          <div class="update-row">
+            <span class="form-label" style="margin: 0">
+              {{ t("settings.update.current") }}
+            </span>
+            <code class="update-version">{{
+              upd?.current || t("settings.update.unknownVersion")
+            }}</code>
+            <span v-if="upd && upd.channel !== 'latest'" class="badge badge-orange">
+              {{ upd.channel }}
+            </span>
+          </div>
+
+          <div v-if="upd?.updateAvailable" class="success-msg" style="margin: 10px 0">
+            <i class="fa-solid fa-circle-arrow-up"></i>
+            {{ t("settings.update.available").replace("{version}", upd.latest) }}
+            <a :href="upd.url" target="_blank" rel="noopener noreferrer">
+              {{ t("settings.update.releaseNotes") }}
+            </a>
+          </div>
+          <p v-else-if="upd?.reason === 'unstamped'" class="form-hint" style="margin: 10px 0">
+            {{ t("settings.update.unstamped") }}
+          </p>
+          <p v-else-if="upd?.reason === 'disabled'" class="form-hint" style="margin: 10px 0">
+            {{ t("settings.update.disabled") }}
+          </p>
+          <p v-else-if="upd?.reason === 'error'" class="error-msg" style="margin: 10px 0">
+            {{ t("settings.update.checkFailed") }}{{ upd.error ? `: ${upd.error}` : "" }}
+          </p>
+          <p v-else-if="upd?.latest" class="form-hint" style="margin: 10px 0">
+            {{ t("settings.update.upToDate") }}
+          </p>
+
+          <!-- The command is the deliverable here: nothing in the container can run it -->
+          <template v-if="upd?.updateAvailable">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px">
+              {{ t("settings.update.howTo") }}
+            </p>
+            <div class="update-cmd">
+              <code>{{ UPGRADE_COMMAND }}</code>
+              <button class="btn btn-sm btn-secondary" @click="copyUpgradeCommand">
+                <i class="fa-solid fa-copy"></i>
+                {{ upgradeCopied ? t("settings.update.copied") : t("settings.update.copyCmd") }}
+              </button>
+            </div>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 6px 0 0">
+              {{ t("settings.update.dataSafe") }}
+            </p>
+          </template>
+
+          <div class="form-group" style="margin-top: 14px">
+            <label class="form-check">
+              <input
+                type="checkbox"
+                v-model="updateCheckSetting"
+                @change="saveUpdateCheck"
+              />
+              <span>{{ t("settings.update.toggle") }}</span>
+            </label>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
+              {{ t("settings.update.toggleHint") }}
+            </p>
+          </div>
+
+          <button
+            class="btn btn-sm btn-secondary"
+            :disabled="updateChecking || !updateCheckSetting"
+            @click="checkForUpdate"
+          >
+            <i class="fa-solid fa-rotate"></i>
+            {{ updateChecking ? t("settings.update.checking") : t("settings.update.checkNow") }}
+          </button>
+        </div>
+      </div>
+
       <!-- Restarting the backend: the way out when the process itself is what is stuck -->
       <div class="card">
         <div class="card-body">
@@ -2765,7 +2844,14 @@ import {
 import { applyMsApiSetting, msApiAvailable } from "../composables/msApi";
 import { setTemplateEditButton } from "../composables/templateEditButton";
 import { setJobProxyColumn } from "../composables/jobProxyColumn";
+import {
+  invalidateUpdateStatus,
+  loadUpdateStatus,
+  refreshUpdateStatus,
+  updateStatus as upd,
+} from "../composables/updateStatus";
 import { setTheme, themeMode, type ThemeMode } from "../composables/useTheme";
+import { copyText } from "../utils/clipboard";
 
 const THEME_MODES: ThemeMode[] = ["light", "dark", "auto"];
 const THEME_ICONS: Record<ThemeMode, string> = {
@@ -3955,6 +4041,44 @@ async function loadMemory() {
 // interesting part is afterwards: wait for the new one to answer, then reload onto it.
 const confirmRestart = ref(false);
 /** Which of the two the confirmation is standing in front of. */
+// ── Update check ──────────────────────────────────────────────────────────────
+// The pull and the recreate belong to whoever runs the container, so what the panel offers
+// is the command rather than a button that cannot do the job.
+const UPGRADE_COMMAND = "docker compose pull && docker compose up -d";
+const updateCheckSetting = ref(true);
+const updateChecking = ref(false);
+const upgradeCopied = ref(false);
+
+async function checkForUpdate() {
+  updateChecking.value = true;
+  try {
+    await refreshUpdateStatus();
+  } catch {
+    // The card reports whatever the last answer was; a failed look is not worth a dialog
+  } finally {
+    updateChecking.value = false;
+  }
+}
+
+async function saveUpdateCheck() {
+  try {
+    await settingsApi.update({ update_check_enabled: String(updateCheckSetting.value) });
+    invalidateUpdateStatus();
+    await loadUpdateStatus();
+  } catch {
+    updateCheckSetting.value = !updateCheckSetting.value;
+  }
+}
+
+async function copyUpgradeCommand() {
+  if (!(await copyText(UPGRADE_COMMAND))) {
+    alert(t("common.copyFailed"));
+    return;
+  }
+  upgradeCopied.value = true;
+  setTimeout(() => (upgradeCopied.value = false), 1500);
+}
+
 const restartForce = ref(false);
 const restarting = ref(false);
 const restartSupervised = ref(true);
@@ -4012,6 +4136,7 @@ async function restartSystem() {
 
 onMounted(async () => {
   loadMemory();
+  void loadUpdateStatus();
   void loadSecrets();
   await loadProviders();
   try {
@@ -4054,6 +4179,8 @@ onMounted(async () => {
     scheduleSeparatePageSetting.value = s.schedule_separate_page === "true";
     jobsTemplateEditButtonSetting.value = s.jobs_template_edit_button === "true";
     jobsProxyColumnSetting.value = s.jobs_show_effective_proxy === "true";
+    // Unset means on: only an explicit "false" turns the check off
+    updateCheckSetting.value = s.update_check_enabled !== "false";
     // Unset means on: only an explicit "false" turns it off
     proxySyncMatchByName.value = s.proxy_sync_match_by_name !== "false";
     applyDataStoreSetting(s);
@@ -5495,5 +5622,36 @@ async function signOutEverywhere() {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.update-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.update-version {
+  font-size: 13px;
+}
+
+/* The command has to be readable and copyable, which is the whole point of the card */
+.update-cmd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.update-cmd > code {
+  flex: 1;
+  min-width: 220px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 </style>

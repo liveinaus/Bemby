@@ -105,6 +105,11 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/bemby:${{ needs.meta.outputs.semver }}-${{ matrix.suffix }}
             ${{ needs.meta.outputs.ghcr_image }}:${{ needs.meta.outputs.semver }}-${{ matrix.suffix }}
+          # Stamped into the image so the running app knows its own build, which is what
+          # the panel's update check compares against the releases on the same channel
+          build-args: |
+            BEMBY_VERSION=${{ needs.meta.outputs.semver }}
+            BEMBY_CHANNEL=${{ needs.meta.outputs.channel }}
           cache-from: type=gha,scope=${{ matrix.suffix }}
           cache-to:   type=gha,scope=${{ matrix.suffix }},mode=max
           labels: |

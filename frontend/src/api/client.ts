@@ -2009,6 +2009,13 @@ export const settingsApi = {
         forced: boolean;
       }>("/settings/system/restart", { force })
       .then((r) => r.data),
+  /** What is running, and whether a newer build is out on the same release line. */
+  updateStatus: (refresh = false) =>
+    api
+      .get<UpdateStatus>("/settings/system/update", {
+        params: refresh ? { refresh: 1 } : undefined,
+      })
+      .then((r) => r.data),
   /** Forgets where each exit comes out, so the next launch looks it up again. */
   clearCfExitGeo: () =>
     api
@@ -3143,6 +3150,23 @@ export type ExtractResults = {
   total: number;
   truncated: boolean;
   placeholders: string[];
+};
+
+/** The three release lines the publish workflow builds, each with its own image alias. */
+export type ReleaseChannel = "latest" | "beta" | "dev";
+
+export type UpdateStatus = {
+  /** What is running; empty when this is not a published image. */
+  current: string;
+  channel: ReleaseChannel;
+  /** Newest published build on this channel, or empty when it could not be worked out. */
+  latest: string;
+  updateAvailable: boolean;
+  url: string;
+  checkedAt: number;
+  /** Why there is no answer: the check is off, the build is unstamped, or the fetch failed. */
+  reason?: "disabled" | "unstamped" | "error";
+  error?: string;
 };
 
 export const bulkTasksApi = {

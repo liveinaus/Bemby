@@ -49,6 +49,7 @@ import {
   stopAllCfBrowsers,
 } from "../jobs/cfBrowser";
 import { restartBemby, restartSupervised } from "../system/restart";
+import { updateStatus, UPDATE_CHECK_KEY } from "../system/updateCheck";
 import { exportCfProfiles, importCfProfiles } from "../jobs/cfProfileArchive";
 import { installVnc, removeVnc, vncInstallLog, vncStatus } from "../jobs/vncInstall";
 import {
@@ -127,6 +128,7 @@ export const ALLOWED_KEYS = [
   "schedule_separate_page",
   "jobs_template_edit_button",
   "jobs_show_effective_proxy",
+  UPDATE_CHECK_KEY,
   "data_store_enabled",
   "log_retention_days",
   "schedule_min_gap_minutes",
@@ -584,6 +586,16 @@ router.post("/system/restart", async (req, res) => {
   const force = (req.body as { force?: boolean } | undefined)?.force === true;
   const result = await restartBemby({ force });
   res.json({ ok: true, ...result });
+});
+
+// GET /system/update -- what is running, and whether a newer build has been published on
+// the same release line. `?refresh=1` goes past the cache, for the panel's "check now".
+//
+// Reporting only: nothing here pulls or replaces anything. A process cannot recreate the
+// container it runs in, and the way it could -- the Docker socket -- is host root handed to
+// the component that drives a browser against hostile pages.
+router.get("/system/update", async (req, res) => {
+  res.json(await updateStatus(req.query.refresh === "1"));
 });
 
 // POST /cf-solver/clear-profiles -- delete the per-exit browser profiles (cookies, cache,

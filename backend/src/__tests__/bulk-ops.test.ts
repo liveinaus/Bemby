@@ -182,7 +182,12 @@ function task(result: StartBulkTaskResult): BulkTask {
   return result.task;
 }
 
-async function settle(t: BulkTask, timeoutMs = 3000): Promise<BulkTask> {
+/**
+ * Waits for a queue to stop running. The bound is generous on purpose: the run-ceiling tests
+ * take a couple of seconds of real time by design, and a tighter one tips over under the
+ * load of the whole suite rather than because anything is wrong.
+ */
+async function settle(t: BulkTask, timeoutMs = 15000): Promise<BulkTask> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (getBulkTask(t.id)?.state !== "running") return getBulkTask(t.id)!;

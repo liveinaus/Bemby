@@ -14,6 +14,8 @@ const zh = {
     help: "帮助",
     messenger: "消息",
     community: "交流群",
+    updateAvailable: "有新版本",
+    updateHint: "前往设置查看版本与升级方式",
     logout: "退出登录",
   },
   theme: {
@@ -1643,6 +1645,29 @@ const zh = {
       "上次进程未正常退出。终止前占用 {rss} MB（外部 {external} MB），时间 {at}。若接近上限，说明是被系统因内存不足终止。",
     memoryCrashJobs: "当时正在运行：",
     memoryUnavailable: "无法读取内存信息。",
+    update: {
+      title: "版本与更新",
+      current: "当前版本",
+      unknownVersion: "未知",
+      available: "有新版本可用：{version}",
+      releaseNotes: "查看更新说明",
+      upToDate: "已是该发布通道的最新版本。",
+      checkNow: "立即检查",
+      checking: "检查中…",
+      checkFailed: "检查更新失败",
+      disabled: "更新检查已关闭。",
+      unstamped:
+        "当前运行的不是正式发布的镜像（源码运行或自行构建），无法与发布版本比较，因此不检查更新。",
+      howTo:
+        "升级需要拉取新镜像并重建容器，这只能在宿主机上完成：容器内的进程无法替换自己所在的容器。在 docker-compose.yml 所在目录执行：",
+      copyCmd: "复制命令",
+      copied: "已复制",
+      dataSafe:
+        "数据目录是挂载卷，升级后保留；数据库结构迁移在新版本启动时自动完成，已下载的浏览器与字体也在数据目录中一并保留。",
+      toggle: "检查新版本",
+      toggleHint:
+        "定期向 GitHub 查询本发布通道（正式 / beta / dev）的最新版本，只做提示，不会自动升级。关闭后 Bemby 不会为此发起任何外部请求。",
+    },
     system: {
       title: "系统",
       hint: "重启后端：关闭全部浏览器，清理上一个后端遗留的浏览器进程，并重置授权席位、配置文件占用与调度器。当“强制停止全部浏览器”不足以恢复时使用，例如浏览器总在任务执行中途退出。",
@@ -2297,6 +2322,8 @@ const en: typeof zh = {
     help: "Help",
     messenger: "Messenger",
     community: "Community",
+    updateAvailable: "Update available",
+    updateHint: "Open Settings for the version and how to upgrade",
     logout: "Logout",
   },
   theme: {
@@ -3980,6 +4007,29 @@ const en: typeof zh = {
       "The previous process did not exit cleanly. It was holding {rss} MB ({external} MB external) at {at}. A figure near the limit means the system killed it for running out of memory.",
     memoryCrashJobs: "Running at the time:",
     memoryUnavailable: "Memory information is unavailable.",
+    update: {
+      title: "Version and updates",
+      current: "Running",
+      unknownVersion: "unknown",
+      available: "A newer build is out: {version}",
+      releaseNotes: "Release notes",
+      upToDate: "This is the newest build on its release channel.",
+      checkNow: "Check now",
+      checking: "Checking…",
+      checkFailed: "Could not check for updates",
+      disabled: "The update check is switched off.",
+      unstamped:
+        "This is not a published image (a source checkout or a local build), so there is nothing to compare against and the check stays off.",
+      howTo:
+        "Taking the update means pulling the new image and recreating the container, which only the host can do: a process cannot replace the container it is running in. Run this where your docker-compose.yml lives:",
+      copyCmd: "Copy command",
+      copied: "Copied",
+      dataSafe:
+        "The data directory is a volume and survives the upgrade; schema migrations run when the new build starts, and the downloaded browser and fonts live in the data directory too.",
+      toggle: "Check for new versions",
+      toggleHint:
+        "Asks GitHub for the newest build on this install's channel (stable / beta / dev). It only reports; nothing is upgraded. Switched off, Bemby makes no outbound request for this at all.",
+    },
     system: {
       title: "System",
       hint: "Restarts the backend: every browser is closed, any left behind by an earlier backend is killed, and the licence seats, profiles and scheduler start over. Use it when stopping the browsers is not enough, e.g. when browsers keep dying part-way through a run.",

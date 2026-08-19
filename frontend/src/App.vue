@@ -72,6 +72,16 @@
           </svg>
           GitHub
         </a>
+        <a
+          v-if="updateAvailable"
+          class="github-link update-link"
+          href="#"
+          :title="t('nav.updateHint')"
+          @click.prevent="setView('settings')"
+        >
+          <i class="fa-solid fa-circle-arrow-up" style="font-size:16px" aria-hidden="true"></i>
+          {{ t('nav.updateAvailable') }}
+        </a>
         <button class="logout-btn" @click="logout"><i class="fa-solid fa-right-from-bracket"></i> {{ t('nav.logout') }}</button>
       </div>
     </nav>
@@ -127,6 +137,7 @@ import {
   scheduleSeparatePage,
 } from './composables/schedulePage';
 import { dataStoreEnabled, loadDataStoreSetting } from './composables/dataStore';
+import { loadUpdateStatus, updateAvailable } from './composables/updateStatus';
 import { requestedView } from './composables/viewNav';
 import { cycleTheme, setTheme, themeMode, type ThemeMode } from './composables/useTheme';
 
@@ -164,6 +175,7 @@ const currentComponent = computed(() => {
 });
 loadSchedulePageSetting();
 loadDataStoreSetting();
+void loadUpdateStatus();
 
 function setView(view: ViewName) {
   currentView.value = view;
@@ -263,5 +275,14 @@ async function submitForcePwdChange() {
   color: var(--text-secondary, var(--text-faint));
   margin: 0 0 1.5rem;
   font-size: 0.9rem;
+}
+
+/* The one entry in the footer worth noticing, so it does not read as another quiet link */
+.update-link {
+  color: var(--success);
+}
+
+.update-link:hover {
+  color: var(--success);
 }
 </style>

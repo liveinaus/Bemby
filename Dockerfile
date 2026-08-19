@@ -121,6 +121,14 @@ COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN mkdir -p /app/data && chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# Stamp the build so the running process knows what it is. Without these the panel treats
+# the image as unpublished and leaves the update check off, rather than comparing a local
+# build against a release. Filled by the publish workflow; a hand-built image has neither.
+ARG BEMBY_VERSION=""
+ARG BEMBY_CHANNEL=""
+ENV BEMBY_VERSION=${BEMBY_VERSION}
+ENV BEMBY_CHANNEL=${BEMBY_CHANNEL}
+
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
