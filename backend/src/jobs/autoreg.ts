@@ -8,6 +8,7 @@ import type { TgDeviceParams } from "../auth/tgAuth";
 import { expandCommand, parseMessages, callAI } from "./checkin";
 import { escapeHtml } from "../tg/htmlEscape";
 import { resolvePeerTarget } from "../tg/peerTarget";
+import { connectWithTimeout, destroyQuietly } from "../tg/clientTimeout";
 import { parseBotStartLink, webButtonOf, type BotStartLink } from "../tg/miniApp";
 
 // Reuses the custom-job step log shape so LogsView renders the same timeline.
@@ -909,7 +910,9 @@ export async function runAutoreg(
   };
 
   try {
-    await client.connect();
+    // Bounded: an unreachable proxy otherwise leaves this pending with nothing to cancel it,
+    // which stalls the account and everything queued behind it.
+    await connectWithTimeout(client, "autoreg");
     checkCancelled();
 
     // 1. Resolve the group and make sure we are a member
@@ -1428,11 +1431,8 @@ export async function runAutoreg(
     if (err instanceof AutoregJobError) throw err;
     throw new AutoregJobError(err?.message ?? String(err), log);
   } finally {
-    // destroy, not disconnect -- only destroy stops the GramJS ping loop (issue #14)
-    try {
-      await client.destroy();
-    } catch {
-      /* ignore */
-    }
+    // destroy, not disconnect -- only destroy stops the GramJS ping loop (issue #14).
+    // Bounded: teardown runs over the same connection, so a dead proxy would hang it too.
+    await destroyQuietly(client, "autoreg");
   }
 }

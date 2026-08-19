@@ -4,6 +4,12 @@ import { StringSession } from "telegram/sessions";
 import { fetch as undiciFetch } from "undici";
 import type { TgAccount } from "../types";
 import { db } from "../db/database";
+import {
+  OP_TIMEOUT_MS,
+  connectWithTimeout,
+  destroyQuietly,
+  withTimeout,
+} from "../tg/clientTimeout";
 
 export type NotifyEvent = "success" | "failed";
 
@@ -284,15 +290,16 @@ export async function sendTgNotify(
   );
 
   try {
-    await client.connect();
-    await client.sendMessage(target, { message });
+    await connectWithTimeout(client, "notify");
+    await withTimeout(
+      client.sendMessage(target, { message }),
+      OP_TIMEOUT_MS,
+      "notify send",
+    );
   } finally {
-    // destroy, not disconnect -- only destroy stops the GramJS ping loop (issue #14)
-    try {
-      await client.destroy();
-    } catch {
-      /* ignore */
-    }
+    // destroy, not disconnect -- only destroy stops the GramJS ping loop (issue #14).
+    // Bounded: teardown runs over the same connection, so a dead proxy would hang it too.
+    await destroyQuietly(client, "notify");
   }
 }
 

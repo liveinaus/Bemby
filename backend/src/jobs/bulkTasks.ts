@@ -99,6 +99,8 @@ export type StartBulkTaskInput = {
   maxRunning?: number;
   /** Pause between items, in seconds; spaces out Telegram calls. */
   gapSeconds?: number;
+  /** Ceiling on a single item, in ms. Defaults to ITEM_TIMEOUT_MS. */
+  itemTimeoutMs?: number;
   handler: BulkTaskHandler;
 };
 
@@ -109,6 +111,16 @@ export type StartBulkTaskResult =
 /** Finished tasks are kept this long so the panel can still show the outcome. */
 const FINISHED_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_FINISHED = 20;
+
+/**
+ * Backstop on a single item, so no handler can hold the queue for ever.
+ *
+ * The handlers bound their own network calls, and `run-jobs` carries a tighter ceiling of its
+ * own; this catches whatever slips past both. Generous on purpose -- it is here to break a
+ * wedge, not to pace the work.
+ */
+const ITEM_TIMEOUT_MS =
+  Number(process.env.BULK_ITEM_TIMEOUT_MINUTES ?? 45) * 60 * 1000;
 
 const tasks = new Map<string, BulkTask>();
 
@@ -142,6 +154,44 @@ function sleep(ms: number, task: BulkTask): Promise<void> {
       setTimeout(tick, Math.min(1000, ms));
     };
     tick();
+  });
+}
+
+/**
+ * Awaits one item under two bounds it cannot talk its way out of: the task being terminated,
+ * and a wall-clock ceiling.
+ *
+ * Winning the race does not stop the handler -- nothing can, once it sits inside a pending
+ * await -- but it frees the queue, which is what matters: one unreachable account used to
+ * hold up every account behind it, and Terminate did nothing because the loop never got back
+ * round to look at it.
+ */
+function raceItem<T>(
+  work: Promise<T>,
+  task: BulkTask,
+  timeoutMs: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  let poll: ReturnType<typeof setInterval>;
+  const guard = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `No result after ${Math.round(timeoutMs / 60000)} min -- gave up on this one and moved on`,
+          ),
+        ),
+      timeoutMs,
+    );
+    poll = setInterval(() => {
+      if (task.cancelRequested) reject(new Error(TERMINATED));
+    }, 250);
+  });
+  // Promise.race subscribes to both, so whichever loses cannot surface as an unhandled
+  // rejection later.
+  return Promise.race([work, guard]).finally(() => {
+    clearTimeout(timer!);
+    clearInterval(poll!);
   });
 }
 
@@ -246,7 +296,11 @@ export function resetBulkTasks(): void {
   tasks.clear();
 }
 
-async function runTask(task: BulkTask, handler: BulkTaskHandler): Promise<void> {
+async function runTask(
+  task: BulkTask,
+  handler: BulkTaskHandler,
+  itemTimeoutMs: number,
+): Promise<void> {
   const gapMs = task.gapSeconds * 1000;
   try {
     let processedAny = false;
@@ -265,13 +319,17 @@ async function runTask(task: BulkTask, handler: BulkTaskHandler): Promise<void> 
       item.status = "working";
       item.message = "";
       try {
-        const result = await handler(item, {
-          cancelled: () => task.cancelRequested,
-          sleep: (ms) => sleep(ms, task),
-          progress: (message) => {
-            if (item.status === "working") item.message = message;
-          },
-        });
+        const result = await raceItem(
+          handler(item, {
+            cancelled: () => task.cancelRequested,
+            sleep: (ms) => sleep(ms, task),
+            progress: (message) => {
+              if (item.status === "working") item.message = message;
+            },
+          }),
+          task,
+          itemTimeoutMs,
+        );
         const normalised =
           typeof result === "string" ? { message: result } : (result ?? {});
         item.status = "done";
@@ -344,6 +402,12 @@ export function startBulkTask(input: StartBulkTaskInput): StartBulkTaskResult {
   };
   tasks.set(task.id, task);
   pruneFinished();
-  void runTask(task, input.handler);
+  void runTask(
+    task,
+    input.handler,
+    input.itemTimeoutMs && input.itemTimeoutMs > 0
+      ? input.itemTimeoutMs
+      : ITEM_TIMEOUT_MS,
+  );
   return { ok: true, task };
 }

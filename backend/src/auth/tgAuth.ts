@@ -14,6 +14,11 @@ import {
   type PasskeyLoginVerification,
 } from "../tg/passkeys";
 import type { PasskeySecret } from "../tg/passkeyStore";
+import {
+  OP_TIMEOUT_MS,
+  withTgClient,
+  withTimeout,
+} from "../tg/clientTimeout";
 
 export type TgDeviceParams = {
   deviceModel?: string;
@@ -68,61 +73,9 @@ export function sweepPendingAuth(now = Date.now()): number {
 // unref() so the sweep never keeps the process (or test runner) alive
 setInterval(() => sweepPendingAuth(), PENDING_SWEEP_INTERVAL_MS).unref();
 
-// Bound on the connect+sendCode round trip. GramJS's connectionRetries limits
-// reconnect attempts but not total wall-clock time, so a dead/slow proxy or an
-// unresponsive DC can leave the await pending forever -- which stalls the
-// sequential bulk-add loop on that account. Turning the stall into a rejection
-// lets callers fail the account and move on.
+// Bound on the connect+sendCode round trip, longer than the shared one: a code has to
+// travel before this settles. The rest of the reasoning lives in tg/clientTimeout.
 const REQUEST_CODE_TIMEOUT_MS = 180_000;
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () => reject(new Error(`${label} timed out after ${ms}ms`)),
-      ms,
-    );
-  });
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    clearTimeout(timer!);
-  }
-}
-
-// Same bound, for the one-shot operations below (2FA change, session/passkey/profile
-// calls). Each is a connect + a handful of RPCs on a throwaway client, so a slow but
-// working proxy still fits comfortably.
-const OP_TIMEOUT_MS = Number(process.env.TG_OP_TIMEOUT_SECONDS ?? 120) * 1000;
-// destroy() talks over the same connection, so it can hang on the same dead proxy.
-const DESTROY_TIMEOUT_MS = 10_000;
-
-/**
- * Runs a one-shot operation on a throwaway client: connect, act, always disconnect.
- * Connect, operation and teardown are each bounded, so a dead proxy fails the caller
- * rather than leaving it awaiting forever -- which used to wedge the sequential bulk
- * runners on one account and stall every account behind it.
- */
-async function withTgClient<T>(
-  client: TelegramClient,
-  label: string,
-  fn: (client: TelegramClient) => Promise<T>,
-): Promise<T> {
-  try {
-    await withTimeout(client.connect(), OP_TIMEOUT_MS, `${label} connect`);
-    return await withTimeout(fn(client), OP_TIMEOUT_MS, label);
-  } finally {
-    await withTimeout(
-      client.destroy(),
-      DESTROY_TIMEOUT_MS,
-      `${label} disconnect`,
-    ).catch(() => undefined);
-  }
-}
 
 export type SendCodeResult = {
   isCodeViaApp: boolean; // true = sent to Telegram app; false = SMS/call

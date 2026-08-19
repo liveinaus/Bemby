@@ -65,6 +65,7 @@ import {
 } from "./msOauth2";
 import { saveAccountApiCredentials, waitForTgLoginCode } from "./tgApiCredentials";
 import { fillSecrets, missingSecretRefs } from "../db/secrets";
+import { connectWithTimeout, destroyQuietly } from "../tg/clientTimeout";
 import { displayForRun } from "./runDisplays";
 
 import type { CustomAction, CustomConfig, CustomStepLog } from "../types";
@@ -1090,7 +1091,9 @@ export async function runCustom(
   );
 
   try {
-    await client.connect();
+    // Bounded: an unreachable proxy otherwise leaves this pending with nothing to cancel it,
+    // which stalls the account and everything queued behind it.
+    await connectWithTimeout(client, "custom job");
 
     let lastJobError: unknown = null;
 
@@ -3412,12 +3415,9 @@ export async function runCustom(
     if (err?.message === "Job cancelled") throw err;
     throw new CustomJobError(err?.message ?? String(err), log);
   } finally {
-    // destroy, not disconnect -- only destroy stops the GramJS ping loop (issue #14)
-    try {
-      await client.destroy();
-    } catch {
-      /* ignore */
-    }
+    // destroy, not disconnect -- only destroy stops the GramJS ping loop (issue #14).
+    // Bounded: teardown runs over the same connection, so a dead proxy would hang it too.
+    await destroyQuietly(client, "custom job");
   }
 
   return log;

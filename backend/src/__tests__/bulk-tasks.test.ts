@@ -240,6 +240,51 @@ describe("bulk task registry", () => {
     expect(listBulkTasks()).toHaveLength(0);
   });
 
+  // What an unreachable proxy used to do: the handler never settles, so the queue stopped on
+  // that account and Terminate had no effect either.
+  it("fails a wedged item and carries on with the rest", async () => {
+    const reached: number[] = [];
+    const started = startBulkTask({
+      kind: "spam-check",
+      entries,
+      itemTimeoutMs: 60,
+      handler: async (item) => {
+        reached.push(item.refId);
+        // Account 1 hangs for good; account 2 answers straight away
+        if (item.refId === 1) await new Promise(() => {});
+        return "ok";
+      },
+    });
+    if (!started.ok) throw new Error(started.error);
+
+    await waitForFinish(started.task.id);
+    expect(reached).toEqual([1, 2]);
+    expect(started.task.items.map((i) => i.status)).toEqual(["failed", "done"]);
+    expect(started.task.items[0].error).toMatch(/gave up on this one/);
+    expect(started.task.items[1].message).toBe("ok");
+    expect(started.task.state).toBe("completed");
+  });
+
+  it("terminates a wedged item instead of waiting it out", async () => {
+    const started = startBulkTask({
+      kind: "spam-check",
+      entries,
+      itemTimeoutMs: 60_000,
+      handler: async () => {
+        await new Promise(() => {});
+        return "never";
+      },
+    });
+    if (!started.ok) throw new Error(started.error);
+
+    await flush();
+    cancelBulkTask(started.task.id);
+    await waitForFinish(started.task.id);
+    expect(started.task.state).toBe("cancelled");
+    expect(started.task.items[0].status).toBe("cancelled");
+    expect(started.task.items[0].error).toBeNull();
+  });
+
   it("rejects an empty selection", () => {
     const result = startBulkTask({
       kind: "spam-check",

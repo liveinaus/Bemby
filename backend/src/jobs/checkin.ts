@@ -8,6 +8,7 @@ import { NewMessage, NewMessageEvent, Raw } from 'telegram/events';
 import { webButtonOf, type WebButton } from '../tg/miniApp';
 import { matchesAnyLabel, textSaysFail, textSaysSuccess } from './placeholders';
 import { escapeHtml, safeHref } from '../tg/htmlEscape';
+import { connectWithTimeout, destroyQuietly, withTgClient } from '../tg/clientTimeout';
 
 export type CheckinAttemptLog = {
   attempt: number;
@@ -906,9 +907,9 @@ export async function checkSpamStatus(
     ...(deviceParams ?? {}),
   });
 
-  await client.connect();
-
-  try {
+  // Connect, ask and tear down under one bound: an unreachable proxy otherwise leaves the
+  // connect pending forever, which stalls the account and every one queued behind it.
+  const { rawMessage, buttons } = await withTgClient(client, "spam check", async (c) => {
     // Set up listener BEFORE sending to avoid missing a fast reply
     const replyPromise = new Promise<{ text: string; id: number; buttons: string[] }>((resolve, reject) => {
       let done = false;
@@ -917,7 +918,7 @@ export async function checkSpamStatus(
         if (done) return;
         done = true;
         clearTimeout(timer);
-        client.removeEventHandler(handler, new NewMessage({}));
+        c.removeEventHandler(handler, new NewMessage({}));
         if (result instanceof Error) reject(result);
         else resolve(result);
       };
@@ -930,25 +931,25 @@ export async function checkSpamStatus(
         if (text) finish({ text, id: msg.id, buttons: replyKeyboardButtons(msg) });
       };
 
-      client.addEventHandler(handler, new NewMessage({ fromUsers: [SPAM_BOT] }));
+      c.addEventHandler(handler, new NewMessage({ fromUsers: [SPAM_BOT] }));
     });
 
-    await client.sendMessage(SPAM_BOT, { message: "/start" });
-    const { text: rawMessage, id: replyId, buttons } = await replyPromise;
+    await c.sendMessage(SPAM_BOT, { message: "/start" });
+    const { text, id: replyId, buttons: keyboard } = await replyPromise;
 
     // Mark SpamBot conversation as read so it doesn't show as unread in the chat list
     try {
-      const spamBotEntity = await client.getEntity(SPAM_BOT);
-      await client.invoke(new Api.messages.ReadHistory({ peer: spamBotEntity, maxId: replyId }));
+      const spamBotEntity = await c.getEntity(SPAM_BOT);
+      await c.invoke(new Api.messages.ReadHistory({ peer: spamBotEntity, maxId: replyId }));
     } catch { /* non-critical, ignore */ }
 
-    const { status, source, aiError } = await resolveSpamStatus({ text: rawMessage, buttons });
-    return { spamStatus: status, rawMessage, buttons, source, ...(aiError ? { aiError } : {}) };
-  } finally {
-    // destroy, not disconnect -- disconnect leaves the GramJS ping loop running,
-    // which pins the client and grows its send queue forever (issue #14)
-    try { await client.destroy(); } catch { /* ignore */ }
-  }
+    return { rawMessage: text, buttons: keyboard };
+  });
+
+  // Classified after the connection is closed: this may call out to an AI provider, and
+  // holding a Telegram connection open for it buys nothing.
+  const { status, source, aiError } = await resolveSpamStatus({ text: rawMessage, buttons });
+  return { spamStatus: status, rawMessage, buttons, source, ...(aiError ? { aiError } : {}) };
 }
 
 export async function runCheckin(
@@ -984,7 +985,7 @@ export async function runCheckin(
   });
 
   const t_connect = Date.now();
-  await client.connect();
+  await connectWithTimeout(client, 'checkin');
   log.connectMs = Date.now() - t_connect;
 
   const assertOutcome = (...texts: string[]): void => {
@@ -1218,7 +1219,8 @@ export async function runCheckin(
     throw new CheckinError(log.error!, log);
   } finally {
     // GramJS throws TIMEOUT when the update loop stops; always swallow here.
-    // destroy, not disconnect -- only destroy stops the ping loop (issue #14)
-    try { await client.destroy(); } catch { /* ignore */ }
+    // destroy, not disconnect -- only destroy stops the ping loop (issue #14).
+    // Bounded: teardown runs over the same connection, so a dead proxy would hang it too.
+    await destroyQuietly(client, 'checkin');
   }
 }
