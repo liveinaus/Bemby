@@ -710,10 +710,12 @@ const zh = {
     noAccount: "无（不发通知）",
     labelSuccessContains: "成功包含文字（可选）",
     labelFailContains: "失败包含文字（可选）",
-    successContainsPlaceholder: "例：签到成功",
+    successContainsPlaceholder: "例：签到成功|已签到",
     failContainsPlaceholder: "例：签到失败",
-    successContainsHint: "收到含该文字的回复时标记成功，留空则不按文字判断",
-    failContainsHint: "收到含该文字的回复时标记失败，留空则不按文字判断",
+    successContainsHint:
+      "收到含该文字的回复时标记成功，留空则不按文字判断；多个写法用 | 分隔，命中任一即可（例：签到成功|签到中）",
+    failContainsHint:
+      "收到含该文字的回复时标记失败，留空则不按文字判断；多个写法用 | 分隔，命中任一即可",
     labelReplyTimeout: "回复超时（毫秒）",
     labelWindowStart: "开始时间（HHMM）",
     labelWindowEnd: "结束时间（HHMM）",
@@ -842,11 +844,12 @@ const zh = {
       labelCaptchaLength: "验证码长度（可选）",
       labelSuccessContains: "成功包含文字（可选）",
       labelFailContains: "失败包含文字（可选）",
-      successContainsPlaceholder: "例：签到成功",
+      successContainsPlaceholder: "例：签到成功|已签到",
       failContainsPlaceholder: "例：签到失败",
       successContainsHint:
-        "收到含该文字的回复时标记成功，留空则任意回复均视为成功",
-      failContainsHint: "收到含该文字的回复时标记失败，留空则不按文字判断",
+        "收到含该文字的回复时标记成功，留空则任意回复均视为成功；多个写法用 | 分隔，命中任一即可（例：签到成功|签到中）",
+      failContainsHint:
+        "收到含该文字的回复时标记失败，留空则不按文字判断；多个写法用 | 分隔，命中任一即可",
       labelJobMaxRetries: "任务最大重试次数",
       jobMaxRetriesHint: "整个动作链失败后的重试次数，1 表示不重试",
       labelContact: "联系人（机器人 / 群组 / 用户）",
@@ -2953,12 +2956,12 @@ const en: typeof zh = {
     noAccount: "None (no notifications)",
     labelSuccessContains: "Success contains (optional)",
     labelFailContains: "Fail contains (optional)",
-    successContainsPlaceholder: "e.g. check-in successful",
+    successContainsPlaceholder: "e.g. checked in|already checked in",
     failContainsPlaceholder: "e.g. check-in failed",
     successContainsHint:
-      "Mark as success when response contains this text; leave blank to skip text matching",
+      "Mark as success when the response contains this text; leave blank to skip text matching. Separate alternative wordings with | and any one of them counts (e.g. checked in|checking in)",
     failContainsHint:
-      "Mark as failed when response contains this text; leave blank to skip text matching",
+      "Mark as failed when the response contains this text; leave blank to skip text matching. Separate alternative wordings with | and any one of them counts",
     labelReplyTimeout: "Reply Timeout (ms)",
     labelWindowStart: "Window Start (HHMM)",
     labelWindowEnd: "Window End (HHMM)",
@@ -3089,12 +3092,12 @@ const en: typeof zh = {
       labelCaptchaLength: "Captcha length (optional)",
       labelSuccessContains: "Success contains (optional)",
       labelFailContains: "Fail contains (optional)",
-      successContainsPlaceholder: "e.g. check-in successful",
+      successContainsPlaceholder: "e.g. checked in|already checked in",
       failContainsPlaceholder: "e.g. check-in failed",
       successContainsHint:
-        "Marks action success when reply contains this text; leave empty to treat any reply as success",
+        "Marks the action successful when the reply contains this text; leave empty to treat any reply as success. Separate alternative wordings with | and any one of them counts (e.g. checked in|checking in)",
       failContainsHint:
-        "Marks action failed when reply contains this text; leave empty for no text-based failure",
+        "Marks the action failed when the reply contains this text; leave empty for no text-based failure. Separate alternative wordings with | and any one of them counts",
       labelJobMaxRetries: "Job max retries",
       jobMaxRetriesHint:
         "How many times to retry the whole action chain on failure; 1 means no retry",

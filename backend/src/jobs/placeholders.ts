@@ -155,3 +155,20 @@ export function matchesAnyLabel(text: string, wanted?: string): boolean {
   const alternatives = parseLabelAlternatives(wanted ?? "");
   return !alternatives.length || alternatives.some((a) => text.includes(a));
 }
+
+/**
+ * The two outcome matchers a job judges a reply by, in one place so every action asks the
+ * question the same way -- and so both accept `|` alternatives, which is what a bot with more
+ * than one wording for the same outcome needs ("签到成功|已签到") and what the button matchers
+ * above have always done.
+ */
+
+/** Does the reply say this run failed? No matcher set means nothing says so. */
+export function textSaysFail(text: string, failContains?: string): boolean {
+  return !!failContains?.trim() && matchesAnyLabel(text, failContains);
+}
+
+/** Does the reply carry the success wording? No matcher set means there is nothing to prove. */
+export function textSaysSuccess(text: string, successContains?: string): boolean {
+  return !successContains?.trim() || matchesAnyLabel(text, successContains);
+}

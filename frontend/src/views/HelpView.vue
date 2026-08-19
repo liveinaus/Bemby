@@ -1169,7 +1169,7 @@
                 <tr>
                   <td>等待回复</td>
                   <td>
-                    等待机器人回复（可设置超时时长），支持独立的<strong>最大重试次数</strong>。可选配<strong>成功包含文字</strong>和<strong>失败包含文字</strong>：收到含成功文字的回复则立即标记成功；收到含失败文字的回复则标记失败（并按配置重试）；两者均留空时，任意回复均视为成功。
+                    等待机器人回复（可设置超时时长），支持独立的<strong>最大重试次数</strong>。可选配<strong>成功包含文字</strong>和<strong>失败包含文字</strong>：收到含成功文字的回复则立即标记成功；收到含失败文字的回复则标记失败（并按配置重试）；两者均留空时，任意回复均视为成功。两者都支持用 <code>|</code> 分隔多个写法，命中任一即可（例：<code>签到成功|签到中</code>），机器人对同一结果有多种措辞时用它。
                   </td>
                 </tr>
                 <tr>
@@ -1622,7 +1622,10 @@
                     reply by text: if the reply contains the success text the
                     action succeeds immediately; if it contains the fail text
                     the action fails (and retries if configured). Leave both
-                    empty and any reply counts as success.
+                    empty and any reply counts as success. Both accept
+                    alternative wordings separated by <code>|</code>, any one of
+                    which counts (e.g. <code>checked in|checking in</code>) --
+                    for a bot with more than one wording for the same outcome.
                   </td>
                 </tr>
                 <tr>

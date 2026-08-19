@@ -320,3 +320,48 @@ describe("command, buttons, click, check the text", () => {
     await expect(run).rejects.toThrow(/Button "签到" not found in bot reply/);
   });
 });
+
+// A bot with more than one wording for the same outcome: `|` lists them, and any one counts.
+describe("a success matcher listing alternatives", () => {
+  it("matches the wording that actually turned up", async () => {
+    const { run, client } = await checkinAnswering(botMessage("菜单", ["签到"]), {
+      successContains: "签到成功|签到中",
+    });
+    client.callbackAnswer = "签到中...";
+    sendTo(client, botMessage("菜单", ["签到"]));
+    await vi.advanceTimersByTimeAsync(6_000);
+
+    const log = await run;
+    expect(log.error).toBeUndefined();
+    expect(log.callbackAnswer).toBe("签到中...");
+  });
+
+  it("matches the other wording just as well", async () => {
+    const { run, client } = await checkinAnswering(botMessage("菜单", ["签到"]), {
+      successContains: "签到成功|签到中",
+    });
+    client.callbackAnswer = "🎉 签到成功！获得 145 积分";
+    sendTo(client, botMessage("菜单", ["签到"]));
+    await vi.advanceTimersByTimeAsync(6_000);
+
+    expect((await run).error).toBeUndefined();
+  });
+
+  it("fails when neither wording turns up", async () => {
+    const { run, client } = await checkinAnswering(botMessage("菜单", ["签到"]), {
+      successContains: "签到成功|签到中",
+    });
+    client.callbackAnswer = "请稍后再试";
+    sendTo(client, botMessage("菜单", ["签到"]));
+    await vi.advanceTimersByTimeAsync(6_000);
+
+    await expect(run).rejects.toThrow(/Expected success indicator/);
+  });
+
+  it("settles a text-only reply by any of the wordings too", async () => {
+    const { run } = await checkinTimingOutAfter(botMessage("签到中，请稍候"), {
+      successContains: "签到成功|签到中",
+    });
+    expect((await run).error).toBeUndefined();
+  });
+});

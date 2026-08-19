@@ -2,7 +2,11 @@
 // so one step names every wording it might carry: `Join giveaway|参与抽奖|加入抽奖`.
 
 import { describe, it, expect } from "vitest";
-import { parseLabelAlternatives } from "../jobs/placeholders";
+import {
+  parseLabelAlternatives,
+  textSaysFail,
+  textSaysSuccess,
+} from "../jobs/placeholders";
 
 /** How clickInAppControl turns the alternatives into the matcher it searches with. */
 function matcher(step: string): RegExp {
@@ -60,5 +64,41 @@ describe("the matcher built from them", () => {
     expect(special.test("领取 [限时]")).toBe(true);
     // The parentheses are the label's own, not a group around anything
     expect(special.test("Claim 11")).toBe(false);
+  });
+});
+
+// The outcome matchers read a `|` list the same way, which is what a bot with more than one
+// wording for the same result needs: "签到成功|签到中" takes whichever of them turns up.
+describe("textSaysSuccess", () => {
+  it("takes any one of the wordings", () => {
+    expect(textSaysSuccess("🎉 签到成功！获得 145 积分", "签到成功|签到中")).toBe(true);
+    expect(textSaysSuccess("签到中...", "签到成功|签到中")).toBe(true);
+  });
+
+  it("says no when none of them is there", () => {
+    expect(textSaysSuccess("请稍后再试", "签到成功|签到中")).toBe(false);
+  });
+
+  it("still matches a plain single wording", () => {
+    expect(textSaysSuccess("签到成功", "签到成功")).toBe(true);
+    expect(textSaysSuccess("签到失败", "签到成功")).toBe(false);
+  });
+
+  it("has nothing to prove when no matcher is set", () => {
+    expect(textSaysSuccess("anything", undefined)).toBe(true);
+    expect(textSaysSuccess("anything", "   ")).toBe(true);
+  });
+});
+
+describe("textSaysFail", () => {
+  it("takes any one of the wordings", () => {
+    expect(textSaysFail("您今天已经签到过了", "已经签到|重复签到")).toBe(true);
+    expect(textSaysFail("重复签到", "已经签到|重复签到")).toBe(true);
+  });
+
+  it("says nothing failed without a matcher, or when none of them is there", () => {
+    expect(textSaysFail("签到成功", "已经签到|重复签到")).toBe(false);
+    expect(textSaysFail("anything", undefined)).toBe(false);
+    expect(textSaysFail("anything", "  ")).toBe(false);
   });
 });

@@ -6,7 +6,7 @@ import type { TgProxy } from '../types';
 import type { TgDeviceParams } from '../auth/tgAuth';
 import { NewMessage, NewMessageEvent, Raw } from 'telegram/events';
 import { webButtonOf, type WebButton } from '../tg/miniApp';
-import { matchesAnyLabel } from './placeholders';
+import { matchesAnyLabel, textSaysFail, textSaysSuccess } from './placeholders';
 import { escapeHtml, safeHref } from '../tg/htmlEscape';
 
 export type CheckinAttemptLog = {
@@ -990,10 +990,10 @@ export async function runCheckin(
   const assertOutcome = (...texts: string[]): void => {
     if (!successContains && !failContains) return;
     const joined = texts.filter(Boolean).join('\n');
-    if (failContains && joined.includes(failContains)) {
+    if (textSaysFail(joined, failContains)) {
       throw new Error(`Reply indicates failure: "${failContains}" detected`);
     }
-    if (successContains && !joined.includes(successContains)) {
+    if (!textSaysSuccess(joined, successContains)) {
       throw new Error(`Expected success indicator "${successContains}" not found in response`);
     }
   };
@@ -1004,8 +1004,8 @@ export async function runCheckin(
    * with text alone, and that text is the result the job was told to look for.
    */
   const outcomeDecided = (text: string): boolean =>
-    (!!failContains && text.includes(failContains)) ||
-    (!!successContains && text.includes(successContains));
+    textSaysFail(text, failContains) ||
+    (!!successContains && textSaysSuccess(text, successContains));
 
   try {
     if (signal?.aborted) throw new Error('Job cancelled');

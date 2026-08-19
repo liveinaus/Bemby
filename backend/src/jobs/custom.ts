@@ -31,7 +31,12 @@ import {
   newCfRunState,
   type CfRunState,
 } from "./cloudflare";
-import { matchesAnyLabel, parseLabelAlternatives } from "./placeholders";
+import {
+  matchesAnyLabel,
+  parseLabelAlternatives,
+  textSaysFail,
+  textSaysSuccess,
+} from "./placeholders";
 import {
   openableBotMenuApp,
   openableButtonUrl,
@@ -821,7 +826,7 @@ async function waitForReply(
       upsert(msg);
       const text = msg.message ?? "";
 
-      if (failContains && text.includes(failContains)) {
+      if (textSaysFail(text, failContains)) {
         cleanup();
         reject(
           new Error(`Reply indicates failure: "${failContains}" detected`),
@@ -830,7 +835,7 @@ async function waitForReply(
       }
 
       if (successContains) {
-        if (text.includes(successContains)) {
+        if (matchesAnyLabel(text, successContains)) {
           cleanup();
           resolve(collected);
         }
@@ -1559,10 +1564,10 @@ export async function runCustom(
                         step.clickedButton = btnText;
                         // A deep-link button records its own result inside openWebButton
                         if (!step.result) step.result = `Opened "${btnText}"`;
-                        if (action.failContains && cfText.includes(action.failContains)) {
+                        if (textSaysFail(cfText, action.failContains)) {
                           throw new Error(`Reply indicates failure: "${action.failContains}" detected`);
                         }
-                        if (action.successContains && !cfText.includes(action.successContains)) {
+                        if (!textSaysSuccess(cfText, action.successContains)) {
                           throw new Error(`Expected success indicator "${action.successContains}" not found in response`);
                         }
                         break;
@@ -1719,10 +1724,10 @@ export async function runCustom(
                       // Check success/fail text in callback answer, response, or CF page
                       if (action.successContains || action.failContains) {
                         const texts = [answer?.message ?? '', ...responses.map((r) => r.msg.message ?? ''), cfText].filter(Boolean).join('\n');
-                        if (action.failContains && texts.includes(action.failContains)) {
+                        if (textSaysFail(texts, action.failContains)) {
                           throw new Error(`Reply indicates failure: "${action.failContains}" detected`);
                         }
-                        if (action.successContains && !texts.includes(action.successContains)) {
+                        if (!textSaysSuccess(texts, action.successContains)) {
                           throw new Error(`Expected success indicator "${action.successContains}" not found in response`);
                         }
                       }
@@ -1933,10 +1938,10 @@ export async function runCustom(
                         step.clickedButton = btnText;
                         // A deep-link button records its own result inside openWebButton
                         if (!step.result) step.result = `Opened "${btnText}"`;
-                        if (action.failContains && cfText.includes(action.failContains)) {
+                        if (textSaysFail(cfText, action.failContains)) {
                           throw new Error(`Reply indicates failure: "${action.failContains}" detected`);
                         }
-                        if (action.successContains && !cfText.includes(action.successContains)) {
+                        if (!textSaysSuccess(cfText, action.successContains)) {
                           throw new Error(`Expected success indicator "${action.successContains}" not found in response`);
                         }
                         break;
@@ -2084,10 +2089,10 @@ export async function runCustom(
 
                       if (action.successContains || action.failContains) {
                         const texts = [answer?.message ?? '', ...responses.map((r) => r.msg.message ?? ''), cfText].filter(Boolean).join('\n');
-                        if (action.failContains && texts.includes(action.failContains)) {
+                        if (textSaysFail(texts, action.failContains)) {
                           throw new Error(`Reply indicates failure: "${action.failContains}" detected`);
                         }
-                        if (action.successContains && !texts.includes(action.successContains)) {
+                        if (!textSaysSuccess(texts, action.successContains)) {
                           throw new Error(`Expected success indicator "${action.successContains}" not found in response`);
                         }
                       }
@@ -2524,20 +2529,13 @@ export async function runCustom(
                   // failContains aborts as soon as any reply signals failure; successContains
                   // is only required on the final reply, since bots usually confirm success
                   // once the whole sequence is done.
-                  if (
-                    action.failContains &&
-                    responseText.includes(action.failContains)
-                  ) {
+                  if (textSaysFail(responseText, action.failContains)) {
                     throw new Error(
                       `Reply indicates failure: "${action.failContains}" detected`,
                     );
                   }
                   const isLast = k === aiResult.buttons.length - 1;
-                  if (
-                    isLast &&
-                    action.successContains &&
-                    !responseText.includes(action.successContains)
-                  ) {
+                  if (isLast && !textSaysSuccess(responseText, action.successContains)) {
                     throw new Error(
                       `Expected success indicator "${action.successContains}" not found in response`,
                     );
@@ -2882,10 +2880,10 @@ export async function runCustom(
                   ? `Opened "${hit.web.text}", pressed "${cf.inAppAction}"`
                   : `Opened "${hit.web.text}" (nothing pressed inside the app)`;
 
-                if (action.failContains && cf.text.includes(action.failContains)) {
+                if (textSaysFail(cf.text, action.failContains)) {
                   throw new Error(`Page indicates failure: "${action.failContains}" detected`);
                 }
-                if (action.successContains && !cf.text.includes(action.successContains)) {
+                if (!textSaysSuccess(cf.text, action.successContains)) {
                   throw new Error(
                     `Expected success indicator "${action.successContains}" not found in the Mini App page`,
                   );
@@ -3060,10 +3058,10 @@ export async function runCustom(
                   ? `Opened the Mini App, pressed "${cf.inAppAction}"${how}`
                   : `Opened the Mini App (nothing pressed inside it)${how}`;
 
-                if (action.failContains && cf.text.includes(action.failContains)) {
+                if (textSaysFail(cf.text, action.failContains)) {
                   throw new Error(`Page indicates failure: "${action.failContains}" detected`);
                 }
-                if (action.successContains && !cf.text.includes(action.successContains)) {
+                if (!textSaysSuccess(cf.text, action.successContains)) {
                   throw new Error(
                     `Expected success indicator "${action.successContains}" not found in the Mini App page`,
                   );
@@ -3364,10 +3362,10 @@ export async function runCustom(
                   ? `Opened ${cf.finalHost}, ran ${ran}/${webSteps.length} page step(s)`
                   : `Opened ${cf.finalHost}`;
 
-                if (action.failContains && cf.text.includes(action.failContains)) {
+                if (textSaysFail(cf.text, action.failContains)) {
                   throw new Error(`Page indicates failure: "${action.failContains}" detected`);
                 }
-                if (action.successContains && !cf.text.includes(action.successContains)) {
+                if (!textSaysSuccess(cf.text, action.successContains)) {
                   throw new Error(
                     `Expected success indicator "${action.successContains}" not found on the page`,
                   );
