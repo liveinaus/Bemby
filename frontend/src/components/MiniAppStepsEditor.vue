@@ -23,7 +23,7 @@
       <i class="fa-solid fa-plus"></i> {{ t("jobs.custom.addInAppStep") }}
     </button>
 
-    <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+    <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
       {{ t("jobs.custom.inAppButtonHint") }}
     </div>
 
@@ -95,8 +95,8 @@ function move(i: number, by: number) {
   min-width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #4a9eff;
-  color: #fff;
+  background: var(--info);
+  color: var(--text-on-accent);
   font-size: 11px;
   font-weight: 600;
   display: inline-flex;

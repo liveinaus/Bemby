@@ -165,7 +165,7 @@ defineExpose({ reload: load });
   text-align: left;
 }
 .sched-head:hover {
-  background: #f7f8fa;
+  background: var(--bg-inset);
 }
 .sched-title {
   display: inline-flex;
@@ -175,12 +175,12 @@ defineExpose({ reload: load });
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #888;
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 .sched-title .fa-solid {
   font-size: 11px;
-  color: #aaa;
+  color: var(--text-faint);
 }
 .sched-body {
   padding: 0 18px 14px;
@@ -194,21 +194,21 @@ defineExpose({ reload: load });
 .sched-count {
   font-size: 11px;
   font-weight: 600;
-  color: #555;
-  background: #eef0f4;
+  color: var(--text-body);
+  background: var(--bg-inset);
   border-radius: 10px;
   padding: 1px 8px;
   letter-spacing: 0;
 }
 .sched-summary {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
 }
 .sched-summary strong {
-  color: #333;
+  color: var(--text-primary);
 }
 </style>

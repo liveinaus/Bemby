@@ -96,23 +96,23 @@ async function terminate() {
 }
 
 .bulk-task-running {
-  color: #1296db;
+  color: var(--info);
 }
 
 .bulk-task-finished {
-  color: #52c41a;
+  color: var(--success);
 }
 
 .bulk-task-note {
   margin: 0 0 10px;
   font-size: 12px;
-  color: #8c8c8c;
+  color: var(--text-muted);
 }
 
 .bulk-task-list {
   max-height: 320px;
   overflow-y: auto;
-  border: 1px solid #eee;
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px;
 }
@@ -124,7 +124,7 @@ async function terminate() {
 }
 
 .bulk-task-item + .bulk-task-item {
-  border-top: 1px solid #f5f5f5;
+  border-top: 1px solid var(--border-faint);
 }
 
 .bulk-task-dot {
@@ -133,24 +133,24 @@ async function terminate() {
   height: 10px;
   margin-top: 5px;
   border-radius: 50%;
-  background: #d0d0d0;
+  background: var(--bg-track);
 }
 
 .bulk-task-dot.status-done {
-  background: #52c41a;
+  background: var(--success);
 }
 
 .bulk-task-dot.status-failed {
-  background: #ff4d4f;
+  background: var(--danger);
 }
 
 .bulk-task-dot.status-cancelled {
-  background: #bfbfbf;
+  background: var(--bg-track);
 }
 
 .bulk-task-dot.status-working,
 .bulk-task-dot.status-waiting {
-  background: #1296db;
+  background: var(--info);
   animation: bulk-task-pulse 1s ease-in-out infinite;
 }
 
@@ -177,17 +177,17 @@ async function terminate() {
 }
 
 .bulk-task-item-status {
-  color: #8c8c8c;
+  color: var(--text-muted);
   font-size: 11px;
 }
 
 .bulk-task-item-msg {
   font-size: 12px;
-  color: #666;
+  color: var(--text-tertiary);
   word-break: break-word;
 }
 
 .bulk-task-item-error {
-  color: #ff4d4f;
+  color: var(--danger);
 }
 </style>

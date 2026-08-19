@@ -12,14 +12,14 @@
       </div>
     </div>
 
-    <div v-if="!dataStoreEnabled" class="card" style="padding: 16px; color: #888">
+    <div v-if="!dataStoreEnabled" class="card" style="padding: 16px; color: var(--text-muted)">
       {{ t("data.disabled") }}
     </div>
 
     <template v-else>
       <div v-if="error" class="error-msg" style="margin-bottom: 12px">{{ error }}</div>
 
-      <p style="color: #888; font-size: 13px; margin: 0 0 12px">{{ t("data.intro") }}</p>
+      <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 12px">{{ t("data.intro") }}</p>
 
       <div class="data-layout">
         <!-- Folders -->
@@ -35,7 +35,7 @@
             :class="{ 'is-active': f.id === selectedFolderId }"
             @click="selectFolder(f.id)"
           >
-            <i class="fa-solid fa-folder" style="color: #d9a13b"></i>
+            <i class="fa-solid fa-folder" style="color: var(--warning)"></i>
             <span class="data-folder-name">{{ f.name }}</span>
             <span class="badge badge-grey">{{ f.recordCount }}</span>
             <span class="data-folder-actions" @click.stop>
@@ -158,7 +158,7 @@
       <!-- How a job reaches all this; the reference syntax is the part worth spelling out -->
       <div class="card" style="margin-top: 12px; padding: 12px">
         <div class="data-panel-title">{{ t("data.usageTitle") }}</div>
-        <div style="font-size: 12px; color: #888; line-height: 1.7">
+        <div style="font-size: 12px; color: var(--text-muted); line-height: 1.7">
           <div>{{ t("data.usageRead") }}</div>
           <div>{{ t("data.usageWrite") }}</div>
         </div>
@@ -181,7 +181,7 @@
               placeholder="example"
               @keyup.enter="saveFolder"
             />
-            <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
               {{ t("data.nameHint") }}
             </div>
           </div>
@@ -209,7 +209,7 @@
           <div class="form-group">
             <label class="form-label">{{ t("data.labelKey") }}</label>
             <input v-model.trim="recordKey" class="form-input" placeholder="email" />
-            <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
               {{ t("data.nameHint") }}
             </div>
           </div>
@@ -266,14 +266,14 @@
               </div>
               <div
                 v-if="!valueFields.length"
-                style="font-size: 12px; color: #aaa; padding: 4px 0"
+                style="font-size: 12px; color: var(--text-faint); padding: 4px 0"
               >
                 {{ t("data.noFields") }}
               </div>
               <button class="btn btn-ghost btn-sm" @click="addValueField">
                 <i class="fa-solid fa-plus"></i> {{ t("data.addField") }}
               </button>
-              <div style="font-size: 11px; color: #aaa; margin-top: 6px">
+              <div style="font-size: 11px; color: var(--text-faint); margin-top: 6px">
                 {{ t("data.fieldsHint") }}
               </div>
             </template>
@@ -286,12 +286,12 @@
                 style="font-family: monospace; font-size: 12px; resize: vertical"
                 :placeholder="t('data.valuePlaceholder')"
               />
-              <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+              <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
                 {{ t("data.valueHint") }}
               </div>
             </template>
           </div>
-          <div v-if="recordKey && selectedFolder" style="font-size: 11px; color: #aaa">
+          <div v-if="recordKey && selectedFolder" style="font-size: 11px; color: var(--text-faint)">
             {{ t("data.refHint") }}
             <code>{{ dataRefText(selectedFolder.name, recordKey) }}</code>
           </div>
@@ -328,14 +328,14 @@
               :placeholder="DEFAULT_EXPORT_FORMAT"
               @input="queueTextPreview"
             />
-            <div style="font-size: 11px; color: #aaa; margin-top: 4px; line-height: 1.6">
+            <div style="font-size: 11px; color: var(--text-faint); margin-top: 4px; line-height: 1.6">
               {{ t("data.exportTextHint") }}
             </div>
           </div>
           <div class="form-group" style="margin-bottom: 0">
             <label class="form-label">
               {{ t("data.exportTextPreview") }}
-              <span v-if="textExportCount" style="color: #888; font-weight: 400">
+              <span v-if="textExportCount" style="color: var(--text-muted); font-weight: 400">
                 ({{ t("data.exportTextLines").replace("{n}", String(textExportCount)) }})
               </span>
             </label>
@@ -838,21 +838,21 @@ async function exportStore(folderId?: number) {
 }
 
 .th-sort:hover {
-  background: #f0f4ff;
+  background: var(--primary-soft);
 }
 
 .th-sort.sort-active {
-  color: #3730a3;
+  color: var(--primary-soft-text);
 }
 
 .sort-icon {
   font-size: 10px;
-  color: #ccc;
+  color: var(--text-disabled);
   margin-left: 2px;
 }
 
 .th-sort.sort-active .sort-icon {
-  color: #6366f1;
+  color: var(--primary);
 }
 
 .data-layout {
@@ -880,7 +880,7 @@ async function exportStore(folderId?: number) {
 .data-panel-title {
   font-size: 12px;
   font-weight: 600;
-  color: #888;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 4px 6px 8px;
@@ -941,7 +941,7 @@ async function exportStore(folderId?: number) {
 
 .data-mode-switch {
   display: flex;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -952,15 +952,15 @@ async function exportStore(folderId?: number) {
   gap: 5px;
   padding: 4px 10px;
   border: none;
-  background: #fff;
-  color: #666;
+  background: var(--bg-card);
+  color: var(--text-tertiary);
   font-size: 12px;
   cursor: pointer;
 }
 
 .data-mode-btn.is-on {
-  background: #4361ee;
-  color: #fff;
+  background: var(--primary);
+  color: var(--text-on-accent);
 }
 
 .data-field-row {
@@ -986,13 +986,13 @@ async function exportStore(folderId?: number) {
 .data-text-preview {
   margin: 0;
   padding: 8px 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fafafa;
+  background: var(--bg-subtle);
   font-family: monospace;
   font-size: 12px;
   line-height: 1.6;
-  color: #333;
+  color: var(--text-primary);
   max-height: 200px;
   overflow: auto;
   white-space: pre;

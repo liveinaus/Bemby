@@ -505,12 +505,12 @@
         <h3 class="modal-title">
           <i
             class="fa-solid fa-triangle-exclamation"
-            style="color: #f59e0b; margin-right: 8px"
+            style="color: var(--warning); margin-right: 8px"
           ></i
           >{{ t("accounts.exportWarnTitle") }}
         </h3>
         <div class="warn-box">{{ t("accounts.exportWarnBody") }}</div>
-        <p style="font-size: 13px; color: #555; margin-top: 12px">
+        <p style="font-size: 13px; color: var(--text-body); margin-top: 12px">
           {{
             selectedIds.size > 0
               ? locale === "zh"
@@ -545,7 +545,7 @@
               ></i>
             </button>
           </div>
-          <p style="font-size: 11px; color: #888; margin: 4px 0 0">
+          <p style="font-size: 11px; color: var(--text-muted); margin: 4px 0 0">
             {{ t("accounts.exportSecretHint") }}
           </p>
         </div>
@@ -732,7 +732,7 @@
             v-if="hasGlobalTgCreds"
             style="
               font-size: 12px;
-              color: #2ec4b6;
+              color: var(--success);
               margin-top: -8px;
               margin-bottom: 14px;
             "
@@ -744,7 +744,7 @@
             v-else
             style="
               font-size: 12px;
-              color: #888;
+              color: var(--text-muted);
               margin-top: -8px;
               margin-bottom: 14px;
             "
@@ -854,7 +854,7 @@
 
           <div
             v-if="profileLoading"
-            style="color: #888; font-size: 13px; margin-bottom: 12px"
+            style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px"
           >
             <i class="fa-solid fa-spinner fa-spin"></i> {{ t("common.loading") }}
           </div>
@@ -1133,7 +1133,7 @@
             {{ t("accounts.loginEmailSection") }}
           </div>
 
-          <div v-if="pwdInfoLoading" style="color: #888; font-size: 13px; margin-bottom: 12px">
+          <div v-if="pwdInfoLoading" style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px">
             <i class="fa-solid fa-spinner fa-spin"></i> {{ t("common.loading") }}
           </div>
 
@@ -1234,7 +1234,7 @@
             {{ t("accounts.passkeySection") }}
           </div>
 
-          <div v-if="passkeysLoading" style="color: #888; font-size: 13px">
+          <div v-if="passkeysLoading" style="color: var(--text-muted); font-size: 13px">
             <i class="fa-solid fa-spinner fa-spin"></i> {{ t("common.loading") }}
           </div>
           <div v-else-if="passkeysError" class="error-msg">
@@ -1346,7 +1346,7 @@
         <div class="modal-body">
           <div
             v-if="statusChecking"
-            style="text-align: center; padding: 24px 0; color: #888"
+            style="text-align: center; padding: 24px 0; color: var(--text-muted)"
           >
             <i class="fa-solid fa-spinner fa-spin"></i>
             {{ t("accounts.checking") }}
@@ -1405,7 +1405,7 @@
                 <span class="badge badge-orange" style="margin-right: 6px">{{
                   r.platform
                 }}</span>
-                <span style="font-size: 12px; color: #555">{{
+                <span style="font-size: 12px; color: var(--text-body)">{{
                   r.text || r.reason
                 }}</span>
               </div>
@@ -2672,7 +2672,7 @@
         <h3 class="modal-title">
           <i
             class="fa-solid fa-broom"
-            style="margin-right: 8px; color: #ff4d4f"
+            style="margin-right: 8px; color: var(--danger)"
           ></i>
           {{ t("accounts.bulkClean.title") }}
         </h3>
@@ -2822,7 +2822,7 @@
           <template v-if="authTarget?.hasBembyPasskey">
             <p
               v-if="authBusy"
-              style="color: #666; margin-bottom: 16px; font-size: 13px"
+              style="color: var(--text-tertiary); margin-bottom: 16px; font-size: 13px"
             >
               <i class="fa-solid fa-spinner fa-spin" style="margin-right: 6px"></i>
               {{ t("accounts.authPasskeyProgress") }}
@@ -2837,7 +2837,7 @@
             </button>
           </template>
           <template v-else>
-            <p style="color: #666; margin-bottom: 16px; font-size: 13px">
+            <p style="color: var(--text-tertiary); margin-bottom: 16px; font-size: 13px">
               {{ t("accounts.authHint") }}
               <strong>{{ authTarget?.phoneNumber }}</strong
               >.
@@ -5637,7 +5637,7 @@ async function verify2fa() {
 
 .account-search-count {
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 /* What the lockdown is about to set, listed rather than summarised */
@@ -5654,7 +5654,7 @@ async function verify2fa() {
   padding: 0;
   list-style: none;
   font-size: 12px;
-  color: #555;
+  color: var(--text-body);
 }
 
 .bulk-privacy-list li {
@@ -5664,7 +5664,7 @@ async function verify2fa() {
   gap: 10px;
   flex-wrap: wrap;
   padding: 5px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-faint);
 }
 
 .bulk-privacy-key {
@@ -5693,14 +5693,14 @@ async function verify2fa() {
 .device-model-preview {
   margin-top: 3px;
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted);
   font-family: var(--font-mono, monospace);
 }
 
 .phone-country {
   margin-top: 3px;
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted);
   white-space: nowrap;
 }
 
@@ -5717,7 +5717,7 @@ async function verify2fa() {
 .device-model-preview-form {
   margin-top: 6px;
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
   display: flex;
   align-items: center;
   gap: 5px;
@@ -5725,7 +5725,7 @@ async function verify2fa() {
 
 .device-model-preview-form .dmp-value {
   font-family: var(--font-mono, monospace);
-  color: #555;
+  color: var(--text-body);
 }
 
 .tg-name-cell {
@@ -5741,7 +5741,7 @@ async function verify2fa() {
 
 .tg-name-username {
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .tg-name-loading {
@@ -5777,8 +5777,8 @@ tr:hover .tg-name-refresh {
   display: inline-block;
   width: 12px;
   height: 12px;
-  border: 2px solid #e5e7eb;
-  border-top-color: #6366f1;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -5798,18 +5798,18 @@ tr:hover .tg-name-refresh {
 
 .code-hint-note {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--text-faint);
   margin: 6px 0 12px;
   line-height: 1.5;
 }
 
 .warn-box {
-  background: #fff7ed;
-  border: 1px solid #fed7aa;
+  background: var(--warning-soft);
+  border: 1px solid var(--warning-border);
   border-radius: 6px;
   padding: 10px 14px;
   font-size: 13px;
-  color: #92400e;
+  color: var(--warning-soft-text);
   line-height: 1.5;
 }
 
@@ -5817,7 +5817,7 @@ tr:hover .tg-name-refresh {
   display: flex;
   flex-wrap: wrap;
   gap: 2px;
-  border-bottom: 2px solid #e5e7eb;
+  border-bottom: 2px solid var(--border);
   margin-bottom: 16px;
 }
 
@@ -5825,7 +5825,7 @@ tr:hover .tg-name-refresh {
   padding: 6px 12px;
   font-size: 13px;
   font-weight: 500;
-  color: #6b7280;
+  color: var(--text-tertiary);
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
@@ -5837,12 +5837,12 @@ tr:hover .tg-name-refresh {
 }
 
 .edit-tab:hover {
-  color: #374151;
+  color: var(--text-secondary);
 }
 
 .edit-tab.active {
-  color: #4f46e5;
-  border-bottom-color: #4f46e5;
+  color: var(--primary);
+  border-bottom-color: var(--primary);
 }
 
 .btn-inline {
@@ -5863,7 +5863,7 @@ tr:hover .tg-name-refresh {
 
 .sessions-empty {
   font-size: 13px;
-  color: #9ca3af;
+  color: var(--text-faint);
   padding: 12px 0;
 }
 
@@ -5879,14 +5879,14 @@ tr:hover .tg-name-refresh {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fafafa;
+  background: var(--bg-subtle);
 }
 
 .session-current {
-  background: #f0fdf4;
-  border-color: #bbf7d0;
+  background: var(--success-soft);
+  border-color: var(--success-border);
 }
 
 .session-info {
@@ -5897,7 +5897,7 @@ tr:hover .tg-name-refresh {
 .session-device {
   font-size: 13px;
   font-weight: 500;
-  color: #111827;
+  color: var(--text-heading);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -5905,7 +5905,7 @@ tr:hover .tg-name-refresh {
 
 .session-meta {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--text-tertiary);
   margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
@@ -5914,7 +5914,7 @@ tr:hover .tg-name-refresh {
 
 .section-divider {
   border: none;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border);
   margin: 16px 0 12px;
 }
 
@@ -5923,13 +5923,13 @@ tr:hover .tg-name-refresh {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #888;
+  color: var(--text-muted);
   margin-bottom: 12px;
 }
 
 .form-hint {
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--text-faint);
   margin: 0 0 4px;
 }
 
@@ -5945,7 +5945,7 @@ tr:hover .tg-name-refresh {
 }
 
 .username-at {
-  color: #9ca3af;
+  color: var(--text-faint);
   font-size: 15px;
 }
 
@@ -5962,12 +5962,12 @@ tr:hover .tg-name-refresh {
   flex: none;
   border-radius: 50%;
   overflow: hidden;
-  background: #f1f3f5;
-  border: 1px solid #e3e7eb;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #adb5bd;
+  color: var(--text-faint);
 }
 
 .avatar-frame img {
@@ -6005,13 +6005,13 @@ tr:hover .tg-name-refresh {
   background: none;
   border: none;
   cursor: pointer;
-  color: #888;
+  color: var(--text-muted);
   padding: 4px;
   line-height: 1;
 }
 
 .toggle-secret-btn:hover {
-  color: #444;
+  color: var(--text-secondary);
 }
 
 .row-disabled td {
@@ -6019,11 +6019,11 @@ tr:hover .tg-name-refresh {
 }
 
 tbody tr:nth-child(even):not(.row-selected) td {
-  background: #f0f2f5;
+  background: var(--bg-muted);
 }
 
 .row-selected td {
-  background: #bfdbfe;
+  background: var(--primary-soft-strong);
 }
 
 .status-row {
@@ -6031,14 +6031,14 @@ tbody tr:nth-child(even):not(.row-selected) td {
   align-items: center;
   gap: 10px;
   padding: 5px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-faint);
   font-size: 13px;
 }
 
 .status-label {
   min-width: 110px;
   font-weight: 500;
-  color: #666;
+  color: var(--text-tertiary);
   flex-shrink: 0;
 }
 
@@ -6047,7 +6047,7 @@ tbody tr:nth-child(even):not(.row-selected) td {
   align-items: flex-start;
   gap: 6px;
   padding: 6px 0;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid var(--border-faint);
 }
 
 th.sortable {
@@ -6071,14 +6071,14 @@ th.sortable:hover .sort-ind-dim {
 
 .drag-handle {
   cursor: grab;
-  color: #ccc;
+  color: var(--text-disabled);
   padding: 0 4px;
   user-select: none;
   width: 20px;
 }
 
 .drag-handle:hover {
-  color: #888;
+  color: var(--text-muted);
 }
 
 tr[draggable] {
@@ -6086,7 +6086,7 @@ tr[draggable] {
 }
 
 tr.drag-over td {
-  background: #eef2ff;
+  background: var(--primary-soft);
 }
 
 .action-sheet-backdrop {
@@ -6099,7 +6099,7 @@ tr.drag-over td {
 }
 
 .action-sheet {
-  background: #fff;
+  background: var(--bg-card);
   border-radius: 16px 16px 0 0;
   width: 100%;
   padding-bottom: max(16px, env(safe-area-inset-bottom));
@@ -6112,8 +6112,8 @@ tr.drag-over td {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #888;
-  border-bottom: 1px solid #f0f0f0;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-faint);
 }
 
 .action-sheet-btn {
@@ -6125,18 +6125,18 @@ tr.drag-over td {
   background: none;
   border: none;
   font-size: 15px;
-  color: #1a1a2e;
+  color: var(--text-primary);
   cursor: pointer;
   text-align: left;
   transition: background 0.1s;
 }
 
 .action-sheet-btn:not(:disabled):active {
-  background: #f5f5f5;
+  background: var(--bg-inset);
 }
 
 .action-sheet-btn.danger {
-  color: #e63946;
+  color: var(--danger);
 }
 
 .action-sheet-btn:disabled {
@@ -6146,7 +6146,7 @@ tr.drag-over td {
 
 .action-sheet-divider {
   height: 1px;
-  background: #f0f0f0;
+  background: var(--bg-active);
   margin: 4px 0;
 }
 
@@ -6156,7 +6156,7 @@ tr.drag-over td {
 }
 
 .bulk-add-hint {
-  color: #666;
+  color: var(--text-tertiary);
   font-size: 13px;
   margin-bottom: 12px;
 }
@@ -6181,12 +6181,12 @@ tr.drag-over td {
 }
 
 .bulk-add-running {
-  color: #1296db;
+  color: var(--info);
   font-weight: 500;
 }
 
 .bulk-add-finished {
-  color: #52c41a;
+  color: var(--success);
   font-weight: 500;
 }
 
@@ -6204,7 +6204,7 @@ tr.drag-over td {
   display: flex;
   gap: 10px;
   padding: 8px 10px;
-  border: 1px solid #eee;
+  border: 1px solid var(--border);
   border-radius: 8px;
 }
 
@@ -6221,12 +6221,12 @@ tr.drag-over td {
 }
 
 .bulk-email-test-ok {
-  color: #52c41a;
+  color: var(--success);
   font-size: 13px;
 }
 
 .bulk-email-test-fail {
-  color: #ff4d4f;
+  color: var(--danger);
   font-size: 13px;
   word-break: break-word;
 }
@@ -6234,12 +6234,12 @@ tr.drag-over td {
 .bulk-email-preview {
   margin-top: 6px;
   font-size: 12px;
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 .bulk-email-preview span {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #1296db;
+  color: var(--info);
   word-break: break-all;
 }
 
@@ -6247,7 +6247,7 @@ tr.drag-over td {
   margin-top: 12px;
   max-height: 180px;
   overflow-y: auto;
-  border: 1px solid #eee;
+  border: 1px solid var(--border);
   border-radius: 8px;
 }
 
@@ -6257,7 +6257,7 @@ tr.drag-over td {
   gap: 8px;
   padding: 6px 10px;
   font-size: 13px;
-  border-bottom: 1px solid #f2f2f2;
+  border-bottom: 1px solid var(--border-faint);
 }
 
 .bulk-clean-account:last-child {
@@ -6273,7 +6273,7 @@ tr.drag-over td {
 }
 
 .bulk-tgrename-arrow {
-  color: #1296db;
+  color: var(--info);
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
@@ -6288,8 +6288,8 @@ tr.drag-over td {
 .bulk-add-options {
   margin-top: 16px;
   padding: 16px 18px;
-  background: #f7f8fa;
-  border: 1px solid #ececf0;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
   border-radius: 10px;
 }
 
@@ -6299,7 +6299,7 @@ tr.drag-over td {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #8a8a94;
+  color: var(--text-muted);
 }
 
 .bulk-add-options .form-group {
@@ -6324,17 +6324,17 @@ tr.drag-over td {
 .bulk-add-options .form-check {
   margin: 16px 0 12px;
   padding-top: 14px;
-  border-top: 1px dashed #e0e0e6;
+  border-top: 1px dashed var(--border);
   font-size: 13px;
   font-weight: 500;
-  color: #444;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
 .bulk-add-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
-  background: #fbfbfd;
+  background: var(--bg-card);
 }
 
 /* The revealed login email: selectable, and spelled as stored rather than uppercased the
@@ -6342,7 +6342,7 @@ tr.drag-over td {
 .revealed-email {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
-  color: #475569;
+  color: var(--text-secondary);
   word-break: break-all;
   margin-bottom: 4px;
   user-select: text;
@@ -6376,10 +6376,10 @@ tr.drag-over td {
 }
 
 .bulk-rename-preview {
-  border: 1px solid #e0e0e6;
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;
-  background: #fbfbfd;
+  background: var(--bg-card);
   font-size: 13px;
 }
 
@@ -6391,7 +6391,7 @@ tr.drag-over td {
 }
 
 .bulk-rename-old {
-  color: #888;
+  color: var(--text-muted);
 }
 
 .bulk-rename-new {
@@ -6405,23 +6405,23 @@ tr.drag-over td {
   height: 10px;
   border-radius: 50%;
   margin-top: 5px;
-  background: #d0d0d0;
+  background: var(--bg-track);
 }
 .bulk-add-status-dot.status-done {
-  background: #52c41a;
+  background: var(--success);
 }
 .bulk-add-status-dot.status-created {
-  background: #1296db;
+  background: var(--info);
 }
 .bulk-add-status-dot.status-skipped {
-  background: #95de64;
+  background: var(--success);
 }
 .bulk-add-status-dot.status-failed {
-  background: #ff4d4f;
+  background: var(--danger);
 }
 .bulk-add-status-dot.status-pending,
 .bulk-add-status-dot.status-waiting {
-  background: #d0d0d0;
+  background: var(--bg-track);
 }
 .bulk-add-status-dot.status-requesting_code,
 .bulk-add-status-dot.status-fetching_code,
@@ -6431,11 +6431,11 @@ tr.drag-over td {
 .bulk-add-status-dot.status-fetching,
 .bulk-add-status-dot.status-updating,
 .bulk-add-status-dot.status-working {
-  background: #1296db;
+  background: var(--info);
   animation: bulk-pulse 1s ease-in-out infinite;
 }
 .bulk-add-status-dot.status-retrying {
-  background: #faad14;
+  background: var(--warning-solid);
   animation: bulk-pulse 1s ease-in-out infinite;
 }
 
@@ -6462,7 +6462,7 @@ tr.drag-over td {
 }
 
 .bulk-add-phone {
-  color: #666;
+  color: var(--text-tertiary);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
 }
@@ -6482,8 +6482,8 @@ tr.drag-over td {
   left: 0;
   z-index: 100;
   min-width: 220px;
-  background: #fff;
-  border: 1px solid #e5e5e5;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   padding: 6px;
@@ -6498,19 +6498,19 @@ tr.drag-over td {
   border: none;
   border-radius: 6px;
   font-size: 14px;
-  color: #1a1a2e;
+  color: var(--text-primary);
   cursor: pointer;
   text-align: left;
 }
 .bulk-menu-item:not(:disabled):hover {
-  background: #f5f5f7;
+  background: var(--bg-inset);
 }
 .bulk-menu-item:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 .bulk-menu-item.danger {
-  color: #e63946;
+  color: var(--danger);
 }
 .bulk-menu-item i {
   width: 16px;
@@ -6518,24 +6518,24 @@ tr.drag-over td {
 }
 .bulk-menu-divider {
   height: 1px;
-  background: #f0f0f0;
+  background: var(--bg-active);
   margin: 4px 0;
 }
 
 .bulk-add-item-status {
   margin-left: auto;
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .bulk-add-item-msg {
   font-size: 12px;
-  color: #999;
+  color: var(--text-faint);
   margin-top: 3px;
   word-break: break-word;
 }
 
 .bulk-add-item-error {
-  color: #ff4d4f;
+  color: var(--danger);
 }
 </style>

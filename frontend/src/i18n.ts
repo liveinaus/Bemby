@@ -16,6 +16,12 @@ const zh = {
     community: "交流群",
     logout: "退出登录",
   },
+  theme: {
+    label: "外观",
+    light: "浅色",
+    dark: "深色",
+    auto: "跟随系统",
+  },
   common: {
     save: "保存",
     saving: "保存中...",
@@ -2235,6 +2241,12 @@ const en: typeof zh = {
     messenger: "Messenger",
     community: "Community",
     logout: "Logout",
+  },
+  theme: {
+    label: "Appearance",
+    light: "Light",
+    dark: "Dark",
+    auto: "System",
   },
   common: {
     save: "Save",

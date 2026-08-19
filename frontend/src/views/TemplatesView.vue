@@ -154,7 +154,7 @@
               <input type="checkbox" v-model="createJobsDisabled" />
               {{ t('templates.createJobsDisabled') }}
             </label>
-            <div style="font-size:11px;color:#aaa;margin-top:3px">
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">
               {{ t('templates.createJobsDisabledHint') }}
             </div>
           </div>
@@ -168,10 +168,10 @@
                 <button type="button" class="btn btn-ghost btn-sm" @click="createJobsDeselectAll">{{ t('templates.createJobsDeselectAll') }}</button>
               </div>
             </div>
-            <div v-if="createJobsLoading" style="text-align:center;padding:16px;color:#888">
+            <div v-if="createJobsLoading" style="text-align:center;padding:16px;color:var(--text-muted)">
               <i class="fa-solid fa-spinner fa-spin"></i>
             </div>
-            <div v-else-if="createJobsRows.length === 0" style="padding:12px;color:#888;font-size:13px">
+            <div v-else-if="createJobsRows.length === 0" style="padding:12px;color:var(--text-muted);font-size:13px">
               {{ t('templates.createJobsNoAccounts') }}
             </div>
             <div v-else class="create-jobs-list">
@@ -184,7 +184,7 @@
                     @change="row.selected = ($event.target as HTMLInputElement).checked"
                   />
                   <span class="create-job-account-name">{{ formatAccountLabel(row.account) }}</span>
-                  <span style="font-size:11px;color:#aaa">{{ row.account.phoneNumber }}</span>
+                  <span style="font-size:11px;color:var(--text-faint)">{{ row.account.phoneNumber }}</span>
                   <span v-if="row.account.authStatus !== 'authenticated'" class="badge badge-grey" style="font-size:10px">
                     {{ t('templates.createJobsNotAuth') }}
                   </span>
@@ -197,11 +197,11 @@
                   <template v-if="createJobsTpl?.jobType === 'embywatch'">
                     <div class="form-row" style="margin-left:26px;margin-bottom:0">
                       <div class="form-group" style="margin-bottom:0">
-                        <label class="form-label" style="font-size:11px">{{ t('templates.createJobsEmbyUser') }} <span style="color:#e63946">*</span></label>
+                        <label class="form-label" style="font-size:11px">{{ t('templates.createJobsEmbyUser') }} <span style="color:var(--danger)">*</span></label>
                         <input v-model.trim="row.embyUsername" class="form-input" style="font-size:12px" autocomplete="off" />
                       </div>
                       <div class="form-group" style="margin-bottom:0">
-                        <label class="form-label" style="font-size:11px">{{ t('templates.createJobsEmbyPass') }} <span style="color:#e63946">*</span></label>
+                        <label class="form-label" style="font-size:11px">{{ t('templates.createJobsEmbyPass') }} <span style="color:var(--danger)">*</span></label>
                         <input v-model="row.embyPassword" class="form-input" type="password" style="font-size:12px" autocomplete="new-password" />
                       </div>
                     </div>
@@ -821,29 +821,29 @@ async function doImport() {
 }
 
 .th-sort:hover {
-  background: #f0f4ff;
+  background: var(--primary-soft);
 }
 
 .th-sort.sort-active {
-  color: #3730a3;
+  color: var(--primary-soft-text);
 }
 
 tbody tr:nth-child(even):not(.row-selected) td {
-  background: #f0f2f5;
+  background: var(--bg-muted);
 }
 
 .row-selected td {
-  background: #bfdbfe;
+  background: var(--primary-soft-strong);
 }
 
 .sort-icon {
   font-size: 10px;
-  color: #ccc;
+  color: var(--text-disabled);
   margin-left: 2px;
 }
 
 .th-sort.sort-active .sort-icon {
-  color: #6366f1;
+  color: var(--primary);
 }
 
 .action-sheet-backdrop {
@@ -856,7 +856,7 @@ tbody tr:nth-child(even):not(.row-selected) td {
 }
 
 .action-sheet {
-  background: #fff;
+  background: var(--bg-card);
   border-radius: 16px 16px 0 0;
   width: 100%;
   padding-bottom: max(16px, env(safe-area-inset-bottom));
@@ -869,8 +869,8 @@ tbody tr:nth-child(even):not(.row-selected) td {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #888;
-  border-bottom: 1px solid #f0f0f0;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-faint);
 }
 
 .action-sheet-btn {
@@ -882,18 +882,18 @@ tbody tr:nth-child(even):not(.row-selected) td {
   background: none;
   border: none;
   font-size: 15px;
-  color: #1a1a2e;
+  color: var(--text-primary);
   cursor: pointer;
   text-align: left;
   transition: background 0.1s;
 }
 
 .action-sheet-btn:not(:disabled):active {
-  background: #f5f5f5;
+  background: var(--bg-inset);
 }
 
 .action-sheet-btn.danger {
-  color: #e63946;
+  color: var(--danger);
 }
 
 .action-sheet-btn:disabled {
@@ -903,24 +903,24 @@ tbody tr:nth-child(even):not(.row-selected) td {
 
 .action-sheet-divider {
   height: 1px;
-  background: #f0f0f0;
+  background: var(--bg-active);
   margin: 4px 0;
 }
 
 .action-sheet-cancel {
-  color: #888;
+  color: var(--text-muted);
   font-weight: 500;
 }
 
 .create-jobs-list {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
 }
 
 .create-job-row {
   padding: 10px 12px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-faint);
 }
 
 .create-job-row:last-child {
@@ -945,7 +945,7 @@ tbody tr:nth-child(even):not(.row-selected) td {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(26, 26, 46, 0.88);
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 13px;
   padding: 8px 20px;
   border-radius: 20px;

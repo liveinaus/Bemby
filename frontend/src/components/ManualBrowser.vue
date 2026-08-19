@@ -346,7 +346,7 @@ onBeforeUnmount(() => {
 }
 
 .mb-panel {
-  background: #fff;
+  background: var(--bg-card);
   border-radius: 8px;
   width: min(1320px, 100%);
   height: min(900px, 100%);
@@ -360,7 +360,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border);
 }
 
 .mb-title {
@@ -372,7 +372,7 @@ onBeforeUnmount(() => {
 
 .mb-job {
   font-weight: 400;
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 .mb-address {
@@ -394,23 +394,23 @@ onBeforeUnmount(() => {
 .mb-profile {
   font-size: 11px;
   font-family: monospace;
-  background: #eef2ff;
-  color: #4338ca;
+  background: var(--primary-soft);
+  color: var(--primary-soft-text);
   padding: 2px 6px;
   border-radius: 8px;
 }
 
 .mb-state {
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .mb-live {
-  color: #2e9e5b;
+  color: var(--success);
 }
 
 .mb-warn {
-  color: #c47f17;
+  color: var(--warning);
 }
 
 /* A standing fact about the session, told once, in the colour of a note rather than a fault */
@@ -420,15 +420,15 @@ onBeforeUnmount(() => {
   gap: 6px;
   padding: 6px 12px;
   font-size: 12px;
-  color: #7a5b12;
-  background: #fdf6e3;
-  border-bottom: 1px solid #f0e3bc;
+  color: var(--warning-soft-text);
+  background: var(--warning-soft);
+  border-bottom: 1px solid var(--warning-border);
 }
 
 .mb-error {
   padding: 8px 12px;
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--danger-soft);
+  color: var(--danger-soft-text);
   font-size: 12px;
 }
 
@@ -439,8 +439,8 @@ onBeforeUnmount(() => {
   gap: 8px;
   flex-wrap: wrap;
   padding: 8px 12px;
-  background: #f7f8fc;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--bg-inset);
+  border-bottom: 1px solid var(--border);
 }
 
 .mb-clip-box {
@@ -461,7 +461,7 @@ onBeforeUnmount(() => {
 .mb-clip-hint {
   flex: 1 0 100%;
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 /* noVNC sizes its canvas to this box */
@@ -473,8 +473,8 @@ onBeforeUnmount(() => {
 
 .mb-foot {
   padding: 6px 12px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border);
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted);
 }
 </style>

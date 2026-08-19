@@ -1931,6 +1931,7 @@ import { displayPeerId } from "../utils/peerId";
 import { fuzzyScore } from "../utils/fuzzy";
 import { debounce } from "../composables/useDebounce";
 import { takeMessengerAccountId } from "../composables/viewNav";
+import { resolvedTheme } from "../composables/useTheme";
 import { checkPhoneNumber, expectedDigitsText } from "../utils/phoneCountry";
 
 // ── Messenger state persistence ───────────────────────────────────────────────
@@ -3229,6 +3230,29 @@ function onWebViewLoad(e: Event) {
   } catch {}
 }
 
+// Mini apps take literal colours, not CSS variables, so the palette is mirrored here
+function miniAppThemeParams() {
+  return resolvedTheme.value === "dark"
+    ? {
+        bg_color: "#1c1f26",
+        text_color: "#e6e9ef",
+        hint_color: "#8b93a1",
+        link_color: "#6b86ff",
+        button_color: "#6b86ff",
+        button_text_color: "#ffffff",
+        secondary_bg_color: "#14161b",
+      }
+    : {
+        bg_color: "#ffffff",
+        text_color: "#1a1a2e",
+        hint_color: "#999999",
+        link_color: "#4361ee",
+        button_color: "#4361ee",
+        button_text_color: "#ffffff",
+        secondary_bg_color: "#f7f8fc",
+      };
+}
+
 async function handleMiniAppMessage(e: MessageEvent) {
   if (!webViewPanel.value) return;
   let eventType: string | undefined;
@@ -3245,15 +3269,7 @@ async function handleMiniAppMessage(e: MessageEvent) {
       JSON.stringify({
         eventType: "theme_changed",
         eventData: {
-          theme_params: {
-            bg_color: "#ffffff",
-            text_color: "#1a1a2e",
-            hint_color: "#999999",
-            link_color: "#4361ee",
-            button_color: "#4361ee",
-            button_text_color: "#ffffff",
-            secondary_bg_color: "#f7f8fc",
-          },
+          theme_params: miniAppThemeParams(),
         },
       }),
       "*",
@@ -5295,7 +5311,7 @@ async function saveContactEdit() {
 }
 
 .tgc-popup {
-  background: #fff;
+  background: var(--bg-card);
   border-radius: 10px;
   width: 100%;
   max-width: none;
@@ -5314,10 +5330,10 @@ async function saveContactEdit() {
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  border-bottom: 1px solid #e8e9ed;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   gap: 10px;
-  background: #fff;
+  background: var(--bg-card);
 }
 
 .tgc-header-left {
@@ -5335,7 +5351,7 @@ async function saveContactEdit() {
 }
 
 .tgc-logo {
-  color: #4361ee;
+  color: var(--primary);
   flex-shrink: 0;
 }
 
@@ -5343,13 +5359,13 @@ async function saveContactEdit() {
   font-weight: 600;
   font-size: 15px;
   white-space: nowrap;
-  color: #1a1a2e;
+  color: var(--text-primary);
 }
 
 .tgc-account-select {
-  background: #f5f6fa;
-  border: 1px solid #e0e0e8;
-  color: #1a1a2e;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
   border-radius: 6px;
   padding: 3px 8px;
   font-size: 13px;
@@ -5361,7 +5377,7 @@ async function saveContactEdit() {
 .tgc-icon-btn {
   background: none;
   border: none;
-  color: #888;
+  color: var(--text-muted);
   cursor: pointer;
   padding: 6px 8px;
   border-radius: 6px;
@@ -5372,13 +5388,13 @@ async function saveContactEdit() {
 }
 
 .tgc-icon-btn:hover {
-  background: #f0f2f5;
-  color: #1a1a2e;
+  background: var(--bg-muted);
+  color: var(--text-primary);
 }
 
 .tgc-icon-btn--active {
-  color: #4361ee;
-  background: #eef0fd;
+  color: var(--primary);
+  background: var(--primary-soft);
 }
 
 /* ── Body ───────────────────────────────────────────────────────────────────── */
@@ -5386,25 +5402,25 @@ async function saveContactEdit() {
   display: flex;
   flex: 1;
   overflow: hidden;
-  background: #fff;
+  background: var(--bg-card);
 }
 
 /* ── Sidebar ────────────────────────────────────────────────────────────────── */
 .tgc-sidebar {
   width: 290px;
   flex-shrink: 0;
-  border-right: 1px solid #e8e9ed;
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #f8f9fb;
+  background: var(--bg-subtle);
 }
 
 .tgc-search-wrap {
   position: relative;
   padding: 10px 12px 8px;
   flex-shrink: 0;
-  background: #f8f9fb;
+  background: var(--bg-subtle);
 }
 
 .tgc-search-icon {
@@ -5412,26 +5428,26 @@ async function saveContactEdit() {
   left: 22px;
   top: 50%;
   transform: translateY(-50%);
-  color: #aaa;
+  color: var(--text-faint);
   font-size: 12px;
   pointer-events: none;
 }
 
 .tgc-search-input {
   width: 100%;
-  background: #fff;
-  border: 1px solid #dde0e8;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
   border-radius: 20px;
   padding: 6px 28px 6px 30px;
   font-size: 13px;
-  color: #1a1a2e;
+  color: var(--text-primary);
   outline: none;
   box-sizing: border-box;
   transition: border-color 0.15s;
 }
 
 .tgc-search-input:focus {
-  border-color: #4361ee;
+  border-color: var(--primary);
 }
 
 .tgc-search-clear {
@@ -5441,7 +5457,7 @@ async function saveContactEdit() {
   transform: translateY(-50%);
   background: none;
   border: none;
-  color: #aaa;
+  color: var(--text-faint);
   cursor: pointer;
   padding: 2px;
   font-size: 12px;
@@ -5461,7 +5477,7 @@ async function saveContactEdit() {
   right: 0;
   bottom: 8px;
   width: 24px;
-  background: linear-gradient(to right, transparent, #f8f9fb);
+  background: linear-gradient(to right, transparent, var(--bg-subtle));
   pointer-events: none;
 }
 
@@ -5471,7 +5487,7 @@ async function saveContactEdit() {
   padding: 0 12px 8px;
   overflow-x: auto;
   scrollbar-width: thin;
-  scrollbar-color: #dde0e8 transparent;
+  scrollbar-color: var(--border-strong) transparent;
   flex-shrink: 0;
 }
 
@@ -5480,17 +5496,17 @@ async function saveContactEdit() {
 }
 
 .tgc-folder-tabs::-webkit-scrollbar-thumb {
-  background: #dde0e8;
+  background: var(--bg-active);
   border-radius: 2px;
 }
 
 .tgc-folder-tab {
   background: none;
-  border: 1px solid #dde0e8;
+  border: 1px solid var(--border-strong);
   border-radius: 16px;
   padding: 3px 12px;
   font-size: 12px;
-  color: #666;
+  color: var(--text-tertiary);
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
@@ -5501,13 +5517,13 @@ async function saveContactEdit() {
 }
 
 .tgc-folder-tab:hover {
-  background: #eef0f6;
+  background: var(--bg-inset);
 }
 
 .tgc-folder-tab.active {
-  background: #4361ee;
-  border-color: #4361ee;
-  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--text-on-accent);
   font-weight: 500;
 }
 
@@ -5528,11 +5544,11 @@ async function saveContactEdit() {
 }
 
 .tgc-dialog-item:hover {
-  background: #eef0f6;
+  background: var(--bg-inset);
 }
 
 .tgc-dialog-item.active {
-  background: #dce3ff;
+  background: var(--primary-soft);
 }
 
 .tgc-dialog-info {
@@ -5553,20 +5569,20 @@ async function saveContactEdit() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: #1a1a2e;
+  color: var(--text-primary);
   flex: 1;
   min-width: 0;
 }
 
 .tgc-dialog-time {
   font-size: 11px;
-  color: #999;
+  color: var(--text-faint);
   flex-shrink: 0;
 }
 
 .tgc-dialog-preview {
   font-size: 12px;
-  color: #999;
+  color: var(--text-faint);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5575,12 +5591,12 @@ async function saveContactEdit() {
 }
 
 .tgc-dialog-username {
-  color: #4361ee;
+  color: var(--primary);
 }
 
 .tgc-unread-badge {
-  background: #4361ee;
-  color: #fff;
+  background: var(--primary);
+  color: var(--text-on-accent);
   font-size: 11px;
   font-weight: 600;
   border-radius: 10px;
@@ -5599,7 +5615,7 @@ async function saveContactEdit() {
   font-size: 17px;
   font-weight: 600;
   flex-shrink: 0;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .tgc-avatar-sm {
@@ -5609,16 +5625,16 @@ async function saveContactEdit() {
 }
 
 .tgc-avatar-user {
-  background: #4a90e2;
+  background: var(--info);
 }
 .tgc-avatar-bot {
-  background: #7c4dff;
+  background: var(--purple);
 }
 .tgc-avatar-group {
-  background: #26a69a;
+  background: var(--success-solid);
 }
 .tgc-avatar-channel {
-  background: #ef6c00;
+  background: var(--warning-solid);
 }
 
 /* ── Chat panel ─────────────────────────────────────────────────────────────── */
@@ -5628,7 +5644,7 @@ async function saveContactEdit() {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #fff;
+  background: var(--bg-card);
   position: relative;
 }
 
@@ -5637,9 +5653,9 @@ async function saveContactEdit() {
   align-items: center;
   gap: 10px;
   padding: 10px 16px;
-  border-bottom: 1px solid #e8e9ed;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  background: #fff;
+  background: var(--bg-card);
 }
 
 .tgc-chat-title-wrap {
@@ -5666,18 +5682,18 @@ async function saveContactEdit() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: #1a1a2e;
+  color: var(--text-primary);
 }
 
 .tgc-chat-sub {
   font-size: 12px;
-  color: #999;
+  color: var(--text-faint);
 }
 
 /* ── In-chat message search ─────────────────────────────────────────────────── */
 .tgc-msg-search {
-  background: #f0f4ff;
-  border-bottom: 1px solid #dce3f5;
+  background: var(--primary-soft);
+  border-bottom: 1px solid var(--primary-border);
   flex-shrink: 0;
 }
 .tgc-msg-search-bar {
@@ -5687,33 +5703,33 @@ async function saveContactEdit() {
   padding: 6px 12px;
 }
 .tgc-msg-search-icon {
-  color: #5c7cfa;
+  color: var(--primary);
   font-size: 13px;
   flex-shrink: 0;
 }
 .tgc-msg-search-input {
   flex: 1;
   min-width: 0;
-  border: 1px solid #dce3f5;
+  border: 1px solid var(--primary-border);
   border-radius: 8px;
   padding: 6px 10px;
   font-size: 13px;
-  background: #fff;
+  background: var(--bg-card);
   outline: none;
 }
 .tgc-msg-search-input:focus {
-  border-color: #5c7cfa;
+  border-color: var(--primary);
 }
 .tgc-msg-search-empty {
   padding: 10px 16px;
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted);
 }
 .tgc-msg-search-results {
   max-height: 240px;
   overflow-y: auto;
   scrollbar-width: thin;
-  border-top: 1px solid #dce3f5;
+  border-top: 1px solid var(--primary-border);
 }
 .tgc-msg-search-row {
   display: flex;
@@ -5724,12 +5740,12 @@ async function saveContactEdit() {
   transition: background 0.15s;
 }
 .tgc-msg-search-row:hover {
-  background: #e4ecff;
+  background: var(--primary-soft);
 }
 .tgc-msg-search-from {
   font-size: 12px;
   font-weight: 600;
-  color: #5c7cfa;
+  color: var(--primary);
   flex-shrink: 0;
   max-width: 130px;
   white-space: nowrap;
@@ -5740,14 +5756,14 @@ async function saveContactEdit() {
   flex: 1;
   min-width: 0;
   font-size: 13px;
-  color: #444;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .tgc-msg-search-date {
   font-size: 11px;
-  color: #999;
+  color: var(--text-faint);
   flex-shrink: 0;
 }
 
@@ -5756,17 +5772,17 @@ async function saveContactEdit() {
   align-items: center;
   gap: 10px;
   padding: 6px 16px;
-  background: #f0f4ff;
-  border-bottom: 1px solid #dce3f5;
+  background: var(--primary-soft);
+  border-bottom: 1px solid var(--primary-border);
   cursor: pointer;
   flex-shrink: 0;
   transition: background 0.15s;
 }
 .tgc-pinned-bar:hover {
-  background: #e4ecff;
+  background: var(--primary-soft);
 }
 .tgc-pinned-icon {
-  color: #5c7cfa;
+  color: var(--primary);
   font-size: 13px;
   flex-shrink: 0;
   transform: rotate(45deg);
@@ -5779,12 +5795,12 @@ async function saveContactEdit() {
 .tgc-pinned-label {
   font-size: 11px;
   font-weight: 600;
-  color: #5c7cfa;
+  color: var(--primary);
   line-height: 1.2;
 }
 .tgc-pinned-text {
   font-size: 13px;
-  color: #444;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5798,7 +5814,7 @@ async function saveContactEdit() {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  background: #f5f7fb;
+  background: var(--bg-inset);
 }
 
 /* ── Jump-to-latest floating button ─────────────────────────────────────────
@@ -5819,10 +5835,10 @@ async function saveContactEdit() {
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  background: #fff;
-  border: 1px solid #e8e9ed;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
-  color: #555;
+  color: var(--text-body);
   font-size: 15px;
   cursor: pointer;
   display: flex;
@@ -5834,8 +5850,8 @@ async function saveContactEdit() {
 }
 
 .tgc-jump-btn:hover {
-  background: #f0f2f5;
-  color: #1a1a2e;
+  background: var(--bg-muted);
+  color: var(--text-primary);
 }
 
 .tgc-jump-badge {
@@ -5843,8 +5859,8 @@ async function saveContactEdit() {
   top: -7px;
   left: 50%;
   transform: translateX(-50%);
-  background: #4361ee;
-  color: #fff;
+  background: var(--primary);
+  color: var(--text-on-accent);
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
@@ -5858,7 +5874,7 @@ async function saveContactEdit() {
 .tgc-date-sep {
   text-align: center;
   font-size: 12px;
-  color: #999;
+  color: var(--text-faint);
   margin: 12px 0 6px;
   position: relative;
 }
@@ -5870,7 +5886,7 @@ async function saveContactEdit() {
   top: 50%;
   width: calc(50% - 70px);
   height: 1px;
-  background: #dde0e8;
+  background: var(--bg-active);
 }
 
 .tgc-date-sep::before {
@@ -5892,7 +5908,7 @@ async function saveContactEdit() {
   padding: 3px 10px;
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.05);
-  color: #888;
+  color: var(--text-muted);
   font-size: 12px;
   line-height: 1.4;
   text-align: center;
@@ -5902,7 +5918,7 @@ async function saveContactEdit() {
 .tgc-unread-sep {
   text-align: center;
   font-size: 12px;
-  color: #4a9eff;
+  color: var(--info);
   margin: 12px 0 6px;
   position: relative;
 }
@@ -5913,7 +5929,8 @@ async function saveContactEdit() {
   top: 50%;
   width: calc(50% - 72px);
   height: 1px;
-  background: #4a9eff66;
+  background: var(--info);
+  opacity: 0.4;
 }
 .tgc-unread-sep::before {
   left: 0;
@@ -5948,7 +5965,7 @@ async function saveContactEdit() {
   justify-content: center;
   font-size: 13px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-on-accent);
   user-select: none;
   overflow: hidden;
 }
@@ -5975,22 +5992,22 @@ async function saveContactEdit() {
 }
 
 .tgc-msg-in .tgc-msg-bubble {
-  background: #fff;
-  border: 1px solid #e8e9ed;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-bottom-left-radius: 4px;
-  color: #1a1a2e;
+  color: var(--text-primary);
 }
 
 .tgc-msg-out .tgc-msg-bubble {
-  background: #4361ee;
+  background: var(--primary);
   border-bottom-right-radius: 4px;
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .tgc-msg-sender {
   font-size: 12px;
   font-weight: 600;
-  color: #4361ee;
+  color: var(--primary);
   margin-bottom: 2px;
 }
 
@@ -6003,7 +6020,7 @@ async function saveContactEdit() {
 }
 
 .tgc-link {
-  color: #4a9eff;
+  color: var(--info);
   text-decoration: underline;
   cursor: pointer;
   word-break: break-all;
@@ -6018,7 +6035,7 @@ async function saveContactEdit() {
   margin-bottom: 4px;
   background: rgba(67, 97, 238, 0.08);
   border-radius: 8px;
-  color: #4361ee;
+  color: var(--primary);
   font-size: 13px;
   text-decoration: none;
   cursor: pointer;
@@ -6031,7 +6048,7 @@ async function saveContactEdit() {
 /* Outgoing bubbles are solid blue -- use white so the file chip stays visible */
 .tgc-msg-out .tgc-msg-doc {
   background: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .tgc-msg-out .tgc-msg-doc:hover {
@@ -6076,7 +6093,7 @@ async function saveContactEdit() {
 
 .tgc-msg-time {
   font-size: 11px;
-  color: #bbb;
+  color: var(--text-disabled);
 }
 
 .tgc-msg-out .tgc-msg-time {
@@ -6129,13 +6146,13 @@ async function saveContactEdit() {
 }
 
 .tgc-msg-in .tgc-btn-chip {
-  background: #eef1fb;
-  border-color: #d0d4e8;
-  color: #4361ee;
+  background: var(--primary-soft);
+  border-color: var(--border-strong);
+  color: var(--primary);
 }
 
 .tgc-msg-in .tgc-btn-chip:hover:not(:disabled) {
-  background: #e0e4f7;
+  background: var(--primary-soft);
 }
 
 /* ── Message hover actions ──────────────────────────────────────────────────── */
@@ -6166,8 +6183,8 @@ async function saveContactEdit() {
 }
 
 .tgc-msg-action {
-  background: #fff;
-  border: 1px solid #e8e9ed;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 50%;
   width: 26px;
   height: 26px;
@@ -6175,7 +6192,7 @@ async function saveContactEdit() {
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted);
   cursor: pointer;
   transition:
     background 0.1s,
@@ -6184,8 +6201,8 @@ async function saveContactEdit() {
 }
 
 .tgc-msg-action:hover {
-  background: #f0f2f5;
-  color: #4361ee;
+  background: var(--bg-muted);
+  color: var(--primary);
 }
 
 /* ── Reply quote in bubble ──────────────────────────────────────────────────── */
@@ -6209,7 +6226,7 @@ async function saveContactEdit() {
 .tgc-reply-bar {
   width: 3px;
   border-radius: 2px;
-  background: #4361ee;
+  background: var(--primary);
   flex-shrink: 0;
 }
 
@@ -6224,7 +6241,7 @@ async function saveContactEdit() {
 .tgc-reply-name {
   font-size: 11px;
   font-weight: 600;
-  color: #4361ee;
+  color: var(--primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6236,7 +6253,7 @@ async function saveContactEdit() {
 
 .tgc-reply-text {
   font-size: 12px;
-  color: #666;
+  color: var(--text-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6258,8 +6275,8 @@ async function saveContactEdit() {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  background: #f0f2f5;
-  border: 1px solid #e0e3ea;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 2px 7px;
   font-size: 14px;
@@ -6271,19 +6288,19 @@ async function saveContactEdit() {
 }
 
 .tgc-reaction:hover {
-  background: #e4e8f5;
-  border-color: #c4cbdf;
+  background: var(--primary-soft);
+  border-color: var(--border-strong);
 }
 
 .tgc-reaction-mine {
-  background: #dce3ff;
-  border-color: #4361ee;
+  background: var(--primary-soft);
+  border-color: var(--primary);
 }
 
 .tgc-msg-out .tgc-reaction {
   background: rgba(255, 255, 255, 0.18);
   border-color: rgba(255, 255, 255, 0.35);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .tgc-msg-out .tgc-reaction-mine {
@@ -6299,7 +6316,7 @@ async function saveContactEdit() {
 .tgc-comment-btn {
   background: none;
   border: none;
-  color: #999;
+  color: var(--text-faint);
   font-size: 11px;
   cursor: pointer;
   padding: 0;
@@ -6311,7 +6328,7 @@ async function saveContactEdit() {
 }
 
 .tgc-comment-btn:hover {
-  color: #4361ee;
+  color: var(--primary);
 }
 
 .tgc-msg-out .tgc-comment-btn {
@@ -6338,8 +6355,8 @@ async function saveContactEdit() {
   position: fixed;
   display: flex;
   gap: 2px;
-  background: #fff;
-  border: 1px solid #e8e9ed;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 28px;
   padding: 6px 8px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
@@ -6360,16 +6377,16 @@ async function saveContactEdit() {
 }
 
 .tgc-emoji-btn:hover {
-  background: #f0f2f5;
+  background: var(--bg-muted);
   transform: scale(1.25);
 }
 
 /* ── Bot command suggestions ────────────────────────────────────────────────── */
 .tgc-cmd-suggestions {
-  border-top: 1px solid #e8e9ed;
+  border-top: 1px solid var(--border);
   max-height: 220px;
   overflow-y: auto;
-  background: #fff;
+  background: var(--bg-card);
   flex-shrink: 0;
   scrollbar-width: thin;
 }
@@ -6385,19 +6402,19 @@ async function saveContactEdit() {
 
 .tgc-cmd-item:hover,
 .tgc-cmd-selected {
-  background: #f0f3ff;
+  background: var(--primary-soft);
 }
 
 .tgc-cmd-name {
   font-size: 14px;
   font-weight: 600;
-  color: #4361ee;
+  color: var(--primary);
   flex-shrink: 0;
 }
 
 .tgc-cmd-desc {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6410,9 +6427,9 @@ async function saveContactEdit() {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: #f5f6fa;
-  border: 1px solid #dde0e8;
-  color: #4361ee;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-strong);
+  color: var(--primary);
   font-size: 16px;
   font-weight: 700;
   cursor: pointer;
@@ -6429,8 +6446,8 @@ async function saveContactEdit() {
 
 .tgc-slash-btn:hover,
 .tgc-slash-btn.active {
-  background: #eef1fb;
-  border-color: #4361ee;
+  background: var(--primary-soft);
+  border-color: var(--primary);
 }
 
 /* Attach (paperclip) button */
@@ -6450,8 +6467,8 @@ async function saveContactEdit() {
   padding: 0 12px;
   border: none;
   border-radius: 17px;
-  background: #4a9eff;
-  color: #fff;
+  background: var(--info);
+  color: var(--text-on-accent);
   font-size: 13px;
   font-weight: 500;
   line-height: 1;
@@ -6460,7 +6477,7 @@ async function saveContactEdit() {
 }
 
 .tgc-menu-app-btn:hover {
-  background: #3d8ae0;
+  background: var(--info);
 }
 
 .tgc-menu-app-text {
@@ -6473,9 +6490,9 @@ async function saveContactEdit() {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: #f5f6fa;
-  border: 1px solid #dde0e8;
-  color: #4361ee;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-strong);
+  color: var(--primary);
   font-size: 15px;
   cursor: pointer;
   flex-shrink: 0;
@@ -6488,8 +6505,8 @@ async function saveContactEdit() {
 }
 
 .tgc-attach-btn:hover {
-  background: #eef1fb;
-  border-color: #4361ee;
+  background: var(--primary-soft);
+  border-color: var(--primary);
 }
 
 /* Pending attachment strip */
@@ -6498,8 +6515,8 @@ async function saveContactEdit() {
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
-  background: #f8f9fb;
-  border-bottom: 1px solid #e8e9ed;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
 }
 
 .tgc-attach-thumb {
@@ -6516,9 +6533,9 @@ async function saveContactEdit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #eef1fb;
+  background: var(--primary-soft);
   border-radius: 6px;
-  color: #4361ee;
+  color: var(--primary);
   font-size: 18px;
   flex-shrink: 0;
 }
@@ -6530,7 +6547,7 @@ async function saveContactEdit() {
 
 .tgc-attach-name {
   font-size: 13px;
-  color: #1a1a2e;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6541,7 +6558,7 @@ async function saveContactEdit() {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-tertiary);
   cursor: pointer;
   margin-top: 2px;
 }
@@ -6576,7 +6593,7 @@ async function saveContactEdit() {
   border-radius: 50%;
   border: none;
   background: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 20px;
   cursor: pointer;
   display: flex;
@@ -6594,13 +6611,13 @@ async function saveContactEdit() {
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  background: #f8f9fb;
-  border-bottom: 1px solid #e8e9ed;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
   border-radius: 0;
 }
 
 .tgc-reply-strip-icon {
-  color: #4361ee;
+  color: var(--primary);
   font-size: 13px;
   flex-shrink: 0;
 }
@@ -6613,7 +6630,7 @@ async function saveContactEdit() {
 .tgc-reply-strip-name {
   font-size: 12px;
   font-weight: 600;
-  color: #4361ee;
+  color: var(--primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6621,7 +6638,7 @@ async function saveContactEdit() {
 
 .tgc-reply-strip-text {
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6629,7 +6646,7 @@ async function saveContactEdit() {
 
 /* ── Compose ────────────────────────────────────────────────────────────────── */
 .tgc-join-pending {
-  color: #555;
+  color: var(--text-body);
   font-size: 13px;
   display: flex;
   align-items: flex-start;
@@ -6638,15 +6655,15 @@ async function saveContactEdit() {
 }
 
 .tgc-join-pending i {
-  color: #f4a261;
+  color: var(--warning);
   margin-top: 2px;
   flex-shrink: 0;
 }
 
 .tgc-join-check-btn {
   background: none;
-  border: 1px solid #4361ee;
-  color: #4361ee;
+  border: 1px solid var(--primary);
+  color: var(--primary);
   border-radius: 6px;
   padding: 6px 12px;
   font-size: 13px;
@@ -6657,7 +6674,7 @@ async function saveContactEdit() {
 }
 
 .tgc-join-check-btn:hover {
-  background: #eef0fd;
+  background: var(--primary-soft);
 }
 
 /* ── Mini App overlay ───────────────────────────────────────────────────────── */
@@ -6667,7 +6684,7 @@ async function saveContactEdit() {
   z-index: 50;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--bg-card);
 }
 
 .tgc-webview-header {
@@ -6675,15 +6692,15 @@ async function saveContactEdit() {
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  border-bottom: 1px solid #e8e9ed;
-  background: #fff;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
   flex-shrink: 0;
 }
 
 .tgc-webview-title {
   font-size: 14px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -6696,9 +6713,9 @@ async function saveContactEdit() {
 }
 
 .tgc-join-bar {
-  border-top: 1px solid #e8e9ed;
+  border-top: 1px solid var(--border);
   flex-shrink: 0;
-  background: #fff;
+  background: var(--bg-card);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6706,8 +6723,8 @@ async function saveContactEdit() {
   padding: 12px 16px;
 }
 .tgc-join-btn {
-  background: #4361ee;
-  color: #fff;
+  background: var(--primary);
+  color: var(--text-on-accent);
   border: none;
   border-radius: 8px;
   padding: 10px 32px;
@@ -6725,7 +6742,7 @@ async function saveContactEdit() {
   cursor: default;
 }
 .tgc-join-btn:not(:disabled):hover {
-  background: #3251d3;
+  background: var(--primary-hover);
 }
 .tgc-spinner-sm {
   width: 14px;
@@ -6736,9 +6753,9 @@ async function saveContactEdit() {
 .tgc-compose {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid #e8e9ed;
+  border-top: 1px solid var(--border);
   flex-shrink: 0;
-  background: #fff;
+  background: var(--bg-card);
 }
 
 .tgc-compose-row {
@@ -6750,12 +6767,12 @@ async function saveContactEdit() {
 
 .tgc-input {
   flex: 1;
-  background: #f5f6fa;
-  border: 1px solid #dde0e8;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-strong);
   border-radius: 20px;
   padding: 8px 14px;
   font-size: 14px;
-  color: #1a1a2e;
+  color: var(--text-primary);
   resize: none;
   outline: none;
   min-height: 38px;
@@ -6767,17 +6784,17 @@ async function saveContactEdit() {
 }
 
 .tgc-input:focus {
-  border-color: #4361ee;
-  background: #fff;
+  border-color: var(--primary);
+  background: var(--bg-card);
 }
 
 .tgc-send-btn {
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  background: #4361ee;
+  background: var(--primary);
   border: none;
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 14px;
   cursor: pointer;
   flex-shrink: 0;
@@ -6809,16 +6826,16 @@ async function saveContactEdit() {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #bbb;
+  color: var(--text-disabled);
   gap: 12px;
   font-size: 14px;
-  background: #f5f7fb;
+  background: var(--bg-inset);
 }
 
 .tgc-empty-list,
 .tgc-empty-chat {
   text-align: center;
-  color: #aaa;
+  color: var(--text-faint);
   font-size: 13px;
   padding: 24px 16px;
 }
@@ -6828,7 +6845,7 @@ async function saveContactEdit() {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  color: #e63946;
+  color: var(--danger);
   font-size: 13px;
   padding: 20px 16px;
   text-align: center;
@@ -6848,8 +6865,8 @@ async function saveContactEdit() {
   padding: 7px 16px;
   border: none;
   border-radius: 8px;
-  background: #4361ee;
-  color: #fff;
+  background: var(--primary);
+  color: var(--text-on-accent);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -6857,7 +6874,7 @@ async function saveContactEdit() {
 }
 
 .tgc-reconnect-btn:hover:not(:disabled) {
-  background: #3451d1;
+  background: var(--primary-hover);
 }
 
 .tgc-reconnect-btn:disabled {
@@ -6881,8 +6898,8 @@ async function saveContactEdit() {
 .tgc-spinner {
   width: 22px;
   height: 22px;
-  border: 2px solid #e0e0e8;
-  border-top-color: #4361ee;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
   border-radius: 50%;
   animation: tgc-spin 0.7s linear infinite;
 }
@@ -6901,8 +6918,8 @@ async function saveContactEdit() {
 
 .tgc-load-more-btn {
   background: none;
-  border: 1px solid #dde0e8;
-  color: #4361ee;
+  border: 1px solid var(--border-strong);
+  color: var(--primary);
   border-radius: 16px;
   padding: 4px 16px;
   font-size: 12px;
@@ -6911,7 +6928,7 @@ async function saveContactEdit() {
 }
 
 .tgc-load-more-btn:hover {
-  background: #f0f2f5;
+  background: var(--bg-muted);
 }
 
 /* ── Contacts overlay ───────────────────────────────────────────────────────── */
@@ -6929,8 +6946,8 @@ async function saveContactEdit() {
 
 .tgc-contacts-panel {
   width: 320px;
-  background: #fff;
-  border-left: 1px solid #e8e9ed;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -6941,11 +6958,11 @@ async function saveContactEdit() {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  border-bottom: 1px solid #e8e9ed;
+  border-bottom: 1px solid var(--border);
   font-size: 15px;
   font-weight: 600;
   flex-shrink: 0;
-  color: #1a1a2e;
+  color: var(--text-primary);
 }
 
 .tgc-contacts-search {
@@ -6978,7 +6995,7 @@ async function saveContactEdit() {
 }
 
 .tgc-contact-item:hover {
-  background: #f0f2f5;
+  background: var(--bg-muted);
 }
 
 .tgc-contact-info {
@@ -6988,7 +7005,7 @@ async function saveContactEdit() {
 .tgc-contact-name {
   font-size: 14px;
   font-weight: 500;
-  color: #1a1a2e;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6996,11 +7013,11 @@ async function saveContactEdit() {
 
 .tgc-contact-sub {
   font-size: 12px;
-  color: #999;
+  color: var(--text-faint);
 }
 
 .tgc-add-contact {
-  border-top: 1px solid #e8e9ed;
+  border-top: 1px solid var(--border);
   padding: 12px 14px;
   flex-shrink: 0;
 }
@@ -7008,7 +7025,7 @@ async function saveContactEdit() {
 .tgc-add-contact-title {
   font-size: 12px;
   font-weight: 600;
-  color: #888;
+  color: var(--text-muted);
   margin-bottom: 8px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -7053,15 +7070,15 @@ async function saveContactEdit() {
 }
 
 .tgc-chat-title-wrap.tgc-clickable:hover .tgc-chat-name {
-  color: #4361ee;
+  color: var(--primary);
 }
 
 /* ── Profile panel ──────────────────────────────────────────────────────────── */
 .tgc-profile-panel {
   width: 300px;
   flex-shrink: 0;
-  background: #fff;
-  border-left: 1px solid #e8e9ed;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -7082,14 +7099,14 @@ async function saveContactEdit() {
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px 10px 16px;
-  border-bottom: 1px solid #e8e9ed;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .tgc-profile-title {
   font-size: 15px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text-primary);
 }
 
 .tgc-profile-body {
@@ -7103,7 +7120,7 @@ async function saveContactEdit() {
   flex-direction: column;
   align-items: center;
   padding: 24px 16px 16px;
-  border-bottom: 1px solid #f0f2f5;
+  border-bottom: 1px solid var(--border-faint);
 }
 
 .tgc-profile-avatar {
@@ -7115,7 +7132,7 @@ async function saveContactEdit() {
   justify-content: center;
   font-size: 32px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-on-accent);
   flex-shrink: 0;
   position: relative;
   overflow: hidden;
@@ -7125,7 +7142,7 @@ async function saveContactEdit() {
 .tgc-profile-name {
   font-size: 17px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text-primary);
   text-align: center;
   word-break: break-word;
 }
@@ -7133,7 +7150,7 @@ async function saveContactEdit() {
 .tgc-profile-type-badge {
   margin-top: 4px;
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
   text-transform: capitalize;
 }
 
@@ -7142,7 +7159,7 @@ async function saveContactEdit() {
   flex-direction: column;
   gap: 8px;
   padding: 12px 16px;
-  border-bottom: 1px solid #e8eaed;
+  border-bottom: 1px solid var(--border);
 }
 
 .tgc-contact-edit-input {
@@ -7161,8 +7178,8 @@ async function saveContactEdit() {
   padding: 6px 18px;
   border-radius: 6px;
   border: none;
-  background: #4361ee;
-  color: #fff;
+  background: var(--primary);
+  color: var(--text-on-accent);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -7179,14 +7196,14 @@ async function saveContactEdit() {
 .tgc-contact-cancel-btn {
   padding: 6px 14px;
   border-radius: 6px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-strong);
   background: none;
-  color: #555;
+  color: var(--text-body);
   font-size: 13px;
   cursor: pointer;
   transition: background 0.15s;
   &:hover {
-    background: #f0f2f5;
+    background: var(--bg-muted);
   }
 }
 
@@ -7205,7 +7222,7 @@ async function saveContactEdit() {
 }
 
 .tgc-profile-row:hover {
-  background: #f5f6fa;
+  background: var(--bg-inset);
 }
 
 .tgc-profile-row-nocopy {
@@ -7217,7 +7234,7 @@ async function saveContactEdit() {
 }
 
 .tgc-profile-row-icon {
-  color: #4361ee;
+  color: var(--primary);
   font-size: 16px;
   flex-shrink: 0;
   width: 18px;
@@ -7231,13 +7248,13 @@ async function saveContactEdit() {
 
 .tgc-profile-row-label {
   font-size: 11px;
-  color: #999;
+  color: var(--text-faint);
   margin-bottom: 1px;
 }
 
 .tgc-profile-row-value {
   font-size: 14px;
-  color: #1a1a2e;
+  color: var(--text-primary);
   word-break: break-word;
 }
 
@@ -7247,12 +7264,12 @@ async function saveContactEdit() {
 
 .tgc-bio-text {
   font-size: 13px;
-  color: #444;
+  color: var(--text-secondary);
   line-height: 1.5;
 }
 
 .tgc-bio-link {
-  color: #2481cc;
+  color: var(--info);
   text-decoration: none;
   cursor: pointer;
   &:hover {
@@ -7261,14 +7278,14 @@ async function saveContactEdit() {
 }
 
 .tgc-copy-icon {
-  color: #bbb;
+  color: var(--text-disabled);
   font-size: 13px;
   flex-shrink: 0;
   transition: color 0.1s;
 }
 
 .tgc-profile-row:hover .tgc-copy-icon {
-  color: #4361ee;
+  color: var(--primary);
 }
 
 /* ── Copy toast ─────────────────────────────────────────────────────────────── */
@@ -7278,7 +7295,7 @@ async function saveContactEdit() {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(26, 26, 46, 0.85);
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 13px;
   padding: 6px 16px;
   border-radius: 20px;
@@ -7308,8 +7325,8 @@ async function saveContactEdit() {
 
 .tgc-ctx-menu {
   position: fixed;
-  background: #fff;
-  border: 1px solid #e8e9ed;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   z-index: 51;
@@ -7327,40 +7344,40 @@ async function saveContactEdit() {
   border: none;
   padding: 9px 14px;
   font-size: 14px;
-  color: #1a1a2e;
+  color: var(--text-primary);
   cursor: pointer;
   text-align: left;
   transition: background 0.1s;
 }
 
 .tgc-ctx-item:hover {
-  background: #f0f2f5;
+  background: var(--bg-muted);
 }
 
 .tgc-ctx-item i {
   width: 16px;
   text-align: center;
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 .tgc-ctx-danger,
 .tgc-ctx-danger i {
-  color: #e0245e;
+  color: var(--danger);
 }
 
 .tgc-ctx-danger:hover {
-  background: #fdecef;
+  background: var(--danger-soft);
 }
 
 .tgc-ctx-divider {
   height: 1px;
-  background: #e8e9ed;
+  background: var(--bg-active);
   margin: 4px 0;
 }
 
 .tgc-pin-icon {
   font-size: 10px;
-  color: #aaa;
+  color: var(--text-faint);
   flex-shrink: 0;
   transform: rotate(45deg);
 }
@@ -7368,7 +7385,7 @@ async function saveContactEdit() {
 .tgc-ctx-chevron {
   margin-left: auto;
   font-size: 11px;
-  color: #aaa;
+  color: var(--text-faint);
   transition: transform 0.15s;
   &.rotated {
     transform: rotate(180deg);
@@ -7378,7 +7395,7 @@ async function saveContactEdit() {
 .tgc-ctx-folder-item {
   padding-left: 28px;
   font-size: 13px;
-  color: #555;
+  color: var(--text-body);
 }
 
 .tgc-ctx-folder-emoji {
@@ -7397,7 +7414,7 @@ async function saveContactEdit() {
   gap: 4px;
   background: none;
   border: none;
-  color: #4361ee;
+  color: var(--primary);
   cursor: pointer;
   padding: 6px 8px;
   border-radius: 6px;
@@ -7410,7 +7427,7 @@ async function saveContactEdit() {
 }
 
 .tgc-back-btn:hover {
-  background: #eef0fb;
+  background: var(--primary-soft);
 }
 
 /* "Back" text label -- always shown alongside the arrow */
@@ -7584,8 +7601,8 @@ async function saveContactEdit() {
 .tgc-thread-panel {
   width: 300px;
   flex-shrink: 0;
-  background: #fff;
-  border-left: 1px solid #e8e9ed;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -7595,8 +7612,8 @@ async function saveContactEdit() {
 .tgc-thread-count {
   font-size: 12px;
   font-weight: 600;
-  background: #4361ee;
-  color: #fff;
+  background: var(--primary);
+  color: var(--text-on-accent);
   border-radius: 10px;
   padding: 1px 6px;
   margin-left: 6px;
@@ -7604,15 +7621,15 @@ async function saveContactEdit() {
 }
 
 .tgc-thread-root {
-  border-bottom: 1px solid #f0f2f5;
+  border-bottom: 1px solid var(--border-faint);
   padding: 10px 16px;
-  background: #f8f9fb;
+  background: var(--bg-subtle);
   flex-shrink: 0;
 }
 
 .tgc-thread-root-text {
   font-size: 13px;
-  color: #555;
+  color: var(--text-body);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 60px;
@@ -7630,7 +7647,7 @@ async function saveContactEdit() {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  background: #f5f7fb;
+  background: var(--bg-inset);
 }
 
 .tgc-thread-msg {
@@ -7648,7 +7665,7 @@ async function saveContactEdit() {
 .tgc-thread-msg-name {
   font-size: 11px;
   font-weight: 600;
-  color: #4361ee;
+  color: var(--primary);
   margin-bottom: 2px;
 }
 
@@ -7662,21 +7679,21 @@ async function saveContactEdit() {
 }
 
 .tgc-thread-msg-in .tgc-thread-msg-text {
-  background: #fff;
-  border: 1px solid #e8e9ed;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-bottom-left-radius: 3px;
-  color: #1a1a2e;
+  color: var(--text-primary);
 }
 
 .tgc-thread-msg-out .tgc-thread-msg-text {
-  background: #4361ee;
-  color: #fff;
+  background: var(--primary);
+  color: var(--text-on-accent);
   border-bottom-right-radius: 3px;
 }
 
 .tgc-thread-msg-time {
   font-size: 10px;
-  color: #bbb;
+  color: var(--text-disabled);
   margin-top: 2px;
   text-align: right;
 }
@@ -7690,9 +7707,9 @@ async function saveContactEdit() {
   align-items: flex-end;
   gap: 8px;
   padding: 8px 12px;
-  border-top: 1px solid #e8e9ed;
+  border-top: 1px solid var(--border);
   flex-shrink: 0;
-  background: #fff;
+  background: var(--bg-card);
 }
 
 @media (max-width: 640px) {
@@ -7719,7 +7736,7 @@ async function saveContactEdit() {
 }
 
 .tgc-invite-card {
-  background: #fff;
+  background: var(--bg-card);
   border-radius: 16px;
   padding: 32px 24px 24px;
   max-width: 320px;
@@ -7732,8 +7749,8 @@ async function saveContactEdit() {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: #e8eeff;
-  color: #4361ee;
+  background: var(--primary-soft);
+  color: var(--primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -7744,14 +7761,14 @@ async function saveContactEdit() {
 .tgc-invite-title {
   font-size: 18px;
   font-weight: 700;
-  color: #111;
+  color: var(--text-heading);
   margin-bottom: 6px;
   word-break: break-word;
 }
 
 .tgc-invite-meta {
   font-size: 13px;
-  color: #666;
+  color: var(--text-tertiary);
   margin-bottom: 24px;
 }
 
@@ -7764,16 +7781,16 @@ async function saveContactEdit() {
 .tgc-invite-cancel {
   flex: 1;
   padding: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
-  color: #444;
+  background: var(--bg-card);
+  color: var(--text-secondary);
   font-size: 14px;
   cursor: pointer;
 }
 
 .tgc-invite-cancel:hover {
-  background: #f5f5f5;
+  background: var(--bg-inset);
 }
 
 .tgc-invite-join {
@@ -7781,8 +7798,8 @@ async function saveContactEdit() {
   padding: 10px;
   border: none;
   border-radius: 8px;
-  background: #4361ee;
-  color: #fff;
+  background: var(--primary);
+  color: var(--text-on-accent);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -7793,7 +7810,7 @@ async function saveContactEdit() {
 }
 
 .tgc-invite-join:hover:not(:disabled) {
-  background: #3451d1;
+  background: var(--primary-hover);
 }
 
 .tgc-invite-join:disabled {
@@ -7807,7 +7824,7 @@ async function saveContactEdit() {
 
 .tgc-gourl-hint {
   font-size: 13px;
-  color: #666;
+  color: var(--text-tertiary);
   margin-bottom: 12px;
 }
 
@@ -7815,7 +7832,7 @@ async function saveContactEdit() {
   width: 100%;
   box-sizing: border-box;
   padding: 9px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   font-size: 14px;
   margin-bottom: 16px;
@@ -7824,12 +7841,12 @@ async function saveContactEdit() {
 }
 
 .tgc-gourl-input:focus {
-  border-color: #4361ee;
+  border-color: var(--primary);
 }
 
 /* ── Group member list ──────────────────────────────────────────────────────── */
 .tgc-members {
-  border-top: 1px solid #f0f2f5;
+  border-top: 1px solid var(--border-faint);
   padding: 10px 0 4px;
 }
 
@@ -7843,14 +7860,14 @@ async function saveContactEdit() {
 .tgc-members-title {
   font-size: 12px;
   font-weight: 600;
-  color: #888;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .tgc-members-count {
   font-size: 12px;
-  color: #999;
+  color: var(--text-faint);
 }
 
 .tgc-members-search {
@@ -7878,7 +7895,7 @@ async function saveContactEdit() {
 }
 
 .tgc-member-item:hover {
-  background: #f0f2f5;
+  background: var(--bg-muted);
 }
 
 .tgc-member-av {
@@ -7891,7 +7908,7 @@ async function saveContactEdit() {
   justify-content: center;
   font-size: 13px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-on-accent);
   overflow: hidden;
   user-select: none;
 }
@@ -7902,7 +7919,7 @@ async function saveContactEdit() {
 
 .tgc-member-name {
   font-size: 14px;
-  color: #1a1a2e;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -7912,8 +7929,8 @@ async function saveContactEdit() {
   margin-left: 6px;
   font-size: 10px;
   font-weight: 600;
-  color: #4361ee;
-  background: #eef1fe;
+  color: var(--primary);
+  background: var(--primary-soft);
   border-radius: 4px;
   padding: 1px 4px;
   text-transform: uppercase;
@@ -7921,7 +7938,7 @@ async function saveContactEdit() {
 
 .tgc-member-sub {
   font-size: 12px;
-  color: #999;
+  color: var(--text-faint);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -7932,10 +7949,10 @@ async function saveContactEdit() {
   width: calc(100% - 28px);
   margin: 6px 14px 10px;
   padding: 7px 10px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
-  color: #444;
+  background: var(--bg-card);
+  color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
 }
@@ -7959,16 +7976,16 @@ async function saveContactEdit() {
   justify-content: center;
   gap: 8px;
   padding: 9px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: #fff;
-  color: #444;
+  background: var(--bg-card);
+  color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
 }
 
 .tgc-profile-action-btn:hover:not(:disabled) {
-  background: #f5f5f5;
+  background: var(--bg-inset);
 }
 
 .tgc-profile-action-btn:disabled {
@@ -7978,11 +7995,11 @@ async function saveContactEdit() {
 
 .tgc-profile-action-danger,
 .tgc-profile-action-danger i {
-  color: #d33;
+  color: var(--danger);
 }
 
 .tgc-profile-action-danger:hover:not(:disabled) {
-  background: #fdecec;
+  background: var(--danger-soft);
 }
 
 /* Report dialog */
@@ -8007,7 +8024,7 @@ async function saveContactEdit() {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #444;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
@@ -8018,11 +8035,11 @@ async function saveContactEdit() {
 
 /* Danger variant of the confirm button */
 .tgc-danger-btn {
-  background: #d33;
+  background: var(--danger);
 }
 
 .tgc-danger-btn:hover:not(:disabled) {
-  background: #b52a2a;
+  background: var(--danger-hover);
 }
 
 /* Delete confirmations */
@@ -8032,7 +8049,7 @@ async function saveContactEdit() {
   justify-content: center;
   gap: 7px;
   font-size: 13px;
-  color: #444;
+  color: var(--text-secondary);
   margin-bottom: 18px;
   cursor: pointer;
 }
@@ -8042,14 +8059,14 @@ async function saveContactEdit() {
   box-sizing: border-box;
   padding: 9px 12px;
   margin-bottom: 10px;
-  border: 1px solid #d8dde3;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   font-size: 14px;
   outline: none;
 }
 
 .tgc-phone-input:focus {
-  border-color: #3390ec;
+  border-color: var(--info);
 }
 
 .tgc-phone-check {
@@ -8061,15 +8078,15 @@ async function saveContactEdit() {
 }
 
 .tgc-phone-check-good {
-  color: #2e9e5b;
+  color: var(--success);
 }
 
 .tgc-phone-check-bad {
-  color: #e63946;
+  color: var(--danger);
 }
 
 .tgc-phone-check-plain {
-  color: #888;
+  color: var(--text-muted);
 }
 
 .tgc-phone-warning {
@@ -8078,8 +8095,8 @@ async function saveContactEdit() {
   text-align: left;
   font-size: 12px;
   line-height: 1.5;
-  color: #b26a00;
-  background: #fff6e5;
+  color: var(--warning-soft-text);
+  background: var(--warning-soft);
   border-radius: 8px;
   padding: 9px 11px;
   margin-bottom: 18px;
@@ -8087,9 +8104,9 @@ async function saveContactEdit() {
 
 .tgc-webview-proxy-note {
   font-size: 12px;
-  color: #8a6d1a;
-  background: #fdf6e3;
-  border-bottom: 1px solid #f0e3bb;
+  color: var(--warning-soft-text);
+  background: var(--warning-soft);
+  border-bottom: 1px solid var(--warning-border);
   padding: 6px 12px;
   display: flex;
   align-items: center;
@@ -8103,13 +8120,13 @@ async function saveContactEdit() {
 
 .tgc-openlink-url {
   font-size: 13px;
-  color: #666;
+  color: var(--text-tertiary);
   word-break: break-all;
   max-height: 80px;
   overflow-y: auto;
   margin-bottom: 20px;
   padding: 8px 10px;
-  background: #f7f8fc;
+  background: var(--bg-inset);
   border-radius: 8px;
   text-align: left;
 }
@@ -8125,13 +8142,13 @@ async function saveContactEdit() {
 }
 
 .tgc-clean-icon {
-  background: #fdecec;
-  color: #d33;
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .tgc-clean-account-line {
   font-size: 13px;
-  color: #444;
+  color: var(--text-secondary);
   margin-bottom: 4px;
   word-break: break-word;
 }
@@ -8164,7 +8181,7 @@ async function saveContactEdit() {
   max-height: 300px;
   overflow-y: auto;
   margin-bottom: 14px;
-  border: 1px solid #eee;
+  border: 1px solid var(--border);
   border-radius: 8px;
 }
 
@@ -8177,13 +8194,13 @@ async function saveContactEdit() {
   border: none;
   background: none;
   font-size: 14px;
-  color: #222;
+  color: var(--text-heading);
   cursor: pointer;
   text-align: left;
 }
 
 .tgc-forward-item:hover:not(:disabled) {
-  background: #f2f5ff;
+  background: var(--primary-soft);
 }
 
 .tgc-forward-item:disabled {
@@ -8206,7 +8223,7 @@ async function saveContactEdit() {
 
 /* Typing indicator */
 .tgc-typing {
-  color: #4361ee;
+  color: var(--primary);
   font-style: italic;
 }
 
@@ -8220,7 +8237,7 @@ async function saveContactEdit() {
 }
 
 .tgc-msg-selected .tgc-msg-bubble {
-  outline: 2px solid #4361ee;
+  outline: 2px solid var(--primary);
   outline-offset: 1px;
 }
 
@@ -8228,7 +8245,7 @@ async function saveContactEdit() {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  border: 2px solid #bbb;
+  border: 2px solid var(--border-strong);
   color: transparent;
   font-size: 11px;
   display: flex;
@@ -8237,13 +8254,13 @@ async function saveContactEdit() {
   align-self: center;
   margin: 0 6px;
   flex-shrink: 0;
-  background: #fff;
+  background: var(--bg-card);
 }
 
 .tgc-msg-select-tick.checked {
-  background: #4361ee;
-  border-color: #4361ee;
-  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--text-on-accent);
 }
 
 .tgc-select-bar {
@@ -8251,14 +8268,14 @@ async function saveContactEdit() {
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border-top: 1px solid #eee;
-  background: #fff;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
 }
 
 .tgc-select-count {
   font-size: 14px;
   font-weight: 600;
-  color: #222;
+  color: var(--text-heading);
   flex: 1;
 }
 
@@ -8274,15 +8291,15 @@ async function saveContactEdit() {
   padding: 8px 14px;
   border: none;
   border-radius: 8px;
-  background: #4361ee;
-  color: #fff;
+  background: var(--primary);
+  color: var(--text-on-accent);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .tgc-select-btn:hover:not(:disabled) {
-  background: #3451d1;
+  background: var(--primary-hover);
 }
 
 .tgc-select-btn:disabled {
@@ -8291,10 +8308,10 @@ async function saveContactEdit() {
 }
 
 .tgc-select-danger {
-  background: #d33;
+  background: var(--danger);
 }
 
 .tgc-select-danger:hover:not(:disabled) {
-  background: #b52a2a;
+  background: var(--danger-hover);
 }
 </style>

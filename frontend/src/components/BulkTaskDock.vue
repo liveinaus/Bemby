@@ -196,18 +196,18 @@ onMounted(() => startBulkTaskPolling());
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--border-strong);
   border-radius: 999px;
-  background: #fff;
-  color: #333;
+  background: var(--bg-card);
+  color: var(--text-primary);
   font-size: 13px;
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
 }
 
 .task-dock-pill:hover {
-  border-color: #1296db;
-  color: #1296db;
+  border-color: var(--info);
+  color: var(--info);
 }
 
 .task-dock-panel {
@@ -215,9 +215,9 @@ onMounted(() => startBulkTaskPolling());
   max-height: min(60vh, 520px);
   overflow-y: auto;
   padding: 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--bg-card);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
 }
 
@@ -230,14 +230,14 @@ onMounted(() => startBulkTaskPolling());
 
 .task-dock-hint {
   font-size: 11px;
-  color: #8c8c8c;
+  color: var(--text-muted);
 }
 
 .task-card {
   padding: 10px;
-  border: 1px solid #eee;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fafafa;
+  background: var(--bg-subtle);
 }
 
 .task-card + .task-card {
@@ -261,42 +261,42 @@ onMounted(() => startBulkTaskPolling());
   margin-left: 6px;
   font-weight: 400;
   font-size: 11px;
-  color: #8c8c8c;
+  color: var(--text-muted);
 }
 
 .task-card-state {
   font-size: 11px;
-  color: #8c8c8c;
+  color: var(--text-muted);
 }
 
 .task-card-state.state-running {
-  color: #1296db;
+  color: var(--info);
 }
 
 .task-card-state.state-cancelled {
-  color: #faad14;
+  color: var(--warning);
 }
 
 .task-bar {
   height: 6px;
   margin: 8px 0 6px;
   border-radius: 999px;
-  background: #eee;
+  background: var(--bg-active);
   overflow: hidden;
 }
 
 .task-bar-fill {
   height: 100%;
-  background: #1296db;
+  background: var(--info);
   transition: width 0.3s ease;
 }
 
 .task-bar-fill.state-completed {
-  background: #52c41a;
+  background: var(--success);
 }
 
 .task-bar-fill.state-cancelled {
-  background: #faad14;
+  background: var(--warning-solid);
 }
 
 .task-card-meta {
@@ -305,15 +305,15 @@ onMounted(() => startBulkTaskPolling());
   gap: 10px;
   flex-wrap: wrap;
   font-size: 11px;
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 .task-failed {
-  color: #ff4d4f;
+  color: var(--danger);
 }
 
 .task-current {
-  color: #1296db;
+  color: var(--info);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -325,7 +325,7 @@ onMounted(() => startBulkTaskPolling());
   border: none;
   background: none;
   padding: 0;
-  color: #1296db;
+  color: var(--info);
   font-size: 11px;
   cursor: pointer;
 }
@@ -334,7 +334,7 @@ onMounted(() => startBulkTaskPolling());
   max-height: 220px;
   overflow-y: auto;
   margin-top: 8px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--border);
   padding-top: 8px;
 }
 
@@ -350,24 +350,24 @@ onMounted(() => startBulkTaskPolling());
   height: 8px;
   margin-top: 5px;
   border-radius: 50%;
-  background: #d0d0d0;
+  background: var(--bg-track);
 }
 
 .task-dot.status-done {
-  background: #52c41a;
+  background: var(--success);
 }
 
 .task-dot.status-failed {
-  background: #ff4d4f;
+  background: var(--danger);
 }
 
 .task-dot.status-cancelled {
-  background: #bfbfbf;
+  background: var(--bg-track);
 }
 
 .task-dot.status-working,
 .task-dot.status-waiting {
-  background: #1296db;
+  background: var(--info);
   animation: task-pulse 1s ease-in-out infinite;
 }
 
@@ -394,18 +394,18 @@ onMounted(() => startBulkTaskPolling());
 }
 
 .task-item-status {
-  color: #8c8c8c;
+  color: var(--text-muted);
   font-size: 11px;
 }
 
 .task-item-msg {
   font-size: 11px;
-  color: #666;
+  color: var(--text-tertiary);
   word-break: break-word;
 }
 
 .task-item-error {
-  color: #ff4d4f;
+  color: var(--danger);
 }
 
 .task-card-actions {

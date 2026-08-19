@@ -8,6 +8,9 @@
         <i class="fa-solid fa-bars"></i>
       </button>
       <div class="mobile-header-right">
+        <button class="lang-btn theme-btn-mobile" :title="t(`theme.${themeMode}`)" :aria-label="t('theme.label')" @click="cycleTheme">
+          <i :class="THEME_ICONS[themeMode]"></i>
+        </button>
         <button class="lang-btn" @click="setLocale(locale === 'zh' ? 'en' : 'zh')">
           {{ locale === 'zh' ? 'EN' : '中文' }}
         </button>
@@ -41,6 +44,19 @@
       <a class="nav-link" href="#" :class="{ active: currentView === 'settings' }" @click.prevent="setView('settings')"><i class="fa-solid fa-gear"></i>{{ t('nav.settings') }}</a>
       <a class="nav-link" href="#" :class="{ active: currentView === 'help' }" @click.prevent="setView('help')"><i class="fa-solid fa-circle-question"></i>{{ t('nav.help') }}</a>
       <div class="sidebar-footer">
+        <div class="theme-switcher" role="group" :aria-label="t('theme.label')">
+          <button
+            v-for="mode in THEME_MODES"
+            :key="mode"
+            class="theme-btn"
+            :class="{ active: themeMode === mode }"
+            :title="t(`theme.${mode}`)"
+            :aria-pressed="themeMode === mode"
+            @click="setTheme(mode)"
+          >
+            <i :class="THEME_ICONS[mode]"></i>
+          </button>
+        </div>
         <div class="lang-switcher">
           <button class="lang-btn" @click="setLocale(locale === 'zh' ? 'en' : 'zh')">
             {{ locale === 'zh' ? 'EN' : '中文' }}
@@ -112,6 +128,14 @@ import {
 } from './composables/schedulePage';
 import { dataStoreEnabled, loadDataStoreSetting } from './composables/dataStore';
 import { requestedView } from './composables/viewNav';
+import { cycleTheme, setTheme, themeMode, type ThemeMode } from './composables/useTheme';
+
+const THEME_MODES: ThemeMode[] = ['light', 'dark', 'auto'];
+const THEME_ICONS: Record<ThemeMode, string> = {
+  light: 'fa-solid fa-sun',
+  dark: 'fa-solid fa-moon',
+  auto: 'fa-solid fa-circle-half-stroke',
+};
 
 type ViewName = 'accounts' | 'messenger' | 'jobs' | 'schedule' | 'templates' | 'data' | 'settings' | 'logs' | 'help';
 
@@ -221,7 +245,7 @@ async function submitForcePwdChange() {
 }
 
 .force-pwd-card {
-  background: var(--bg-card, #1e1e2e);
+  background: var(--bg-card);
   border-radius: 8px;
   padding: 2rem;
   width: 100%;
@@ -231,12 +255,12 @@ async function submitForcePwdChange() {
 
 .force-pwd-title {
   margin: 0 0 0.5rem;
-  color: var(--text-primary, #fff);
+  color: var(--text-primary, var(--text-on-accent));
   font-size: 1.25rem;
 }
 
 .force-pwd-subtitle {
-  color: var(--text-secondary, #aaa);
+  color: var(--text-secondary, var(--text-faint));
   margin: 0 0 1.5rem;
   font-size: 0.9rem;
 }

@@ -84,7 +84,7 @@
                 </td>
                 <td>
                   {{ l.jobName ?? l.jobId }}
-                  <span style="margin-left: 4px; font-size: 11px; color: #aaa"
+                  <span style="margin-left: 4px; font-size: 11px; color: var(--text-faint)"
                     >▾</span
                   >
                 </td>
@@ -116,7 +116,7 @@
                     <button
                       v-if="watchableRun(l)"
                       class="btn btn-sm btn-ghost btn-icon"
-                      style="flex-shrink: 0; color: #2e9e5b"
+                      style="flex-shrink: 0; color: var(--success)"
                       :title="t('manualBrowser.watch')"
                       @click.stop="manualBrowserRunId = watchableRun(l) as string"
                     >
@@ -139,7 +139,7 @@
                     <button
                       v-if="l.status === 'failed'"
                       class="btn btn-sm btn-ghost btn-icon"
-                      style="flex-shrink: 0; color: #aaa"
+                      style="flex-shrink: 0; color: var(--text-faint)"
                       :title="t('common.run')"
                       :disabled="rerunning.has(l.id)"
                       @click.stop="rerunJob(l)"
@@ -149,7 +149,7 @@
                     <button
                       v-if="l.status !== 'running'"
                       class="btn btn-sm btn-ghost btn-icon"
-                      style="flex-shrink: 0; color: #aaa"
+                      style="flex-shrink: 0; color: var(--text-faint)"
                       :title="l.retired ? t('logs.unretire') : t('logs.retire')"
                       @click.stop="toggleRetire(l)"
                     >
@@ -163,18 +163,18 @@
               <tr v-if="l.jobType === 'checkin' && expandedId === l.id">
                 <td
                   colspan="5"
-                  style="padding: 0; background: #f8f9fa; border-top: none"
+                  style="padding: 0; background: var(--bg-subtle); border-top: none"
                 >
                   <div class="detail-panel">
                     <div
                       v-if="detailLoading"
-                      style="color: #888; font-size: 13px"
+                      style="color: var(--text-muted); font-size: 13px"
                     >
                       {{ t("logs.detail.loading") }}
                     </div>
                     <div
                       v-else-if="!checkinDetail?.length"
-                      style="color: #888; font-size: 13px"
+                      style="color: var(--text-muted); font-size: 13px"
                     >
                       {{ t("logs.detail.noDetail") }}
                     </div>
@@ -184,7 +184,7 @@
                         :key="a.attempt"
                         :style="
                           checkinDetail.length > 1
-                            ? 'margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #e5e7eb'
+                            ? 'margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)'
                             : ''
                         "
                       >
@@ -193,7 +193,7 @@
                           style="
                             font-size: 11px;
                             font-weight: 600;
-                            color: #aaa;
+                            color: var(--text-faint);
                             text-transform: uppercase;
                             letter-spacing: 0.05em;
                             text-align: center;
@@ -495,18 +495,18 @@
               <tr v-if="(l.jobType === 'custom' || l.jobType === 'autoreg') && expandedId === l.id">
                 <td
                   colspan="5"
-                  style="padding: 0; background: #f8f9fa; border-top: none"
+                  style="padding: 0; background: var(--bg-subtle); border-top: none"
                 >
                   <div class="detail-panel">
                     <div
                       v-if="detailLoading"
-                      style="color: #888; font-size: 13px"
+                      style="color: var(--text-muted); font-size: 13px"
                     >
                       {{ t("logs.detail.loading") }}
                     </div>
                     <div
                       v-else-if="!customDetail?.length"
-                      style="color: #888; font-size: 13px"
+                      style="color: var(--text-muted); font-size: 13px"
                     >
                       {{ t("logs.detail.noDetail") }}
                     </div>
@@ -668,7 +668,7 @@
                                challenges, so a step that fell back to it is called out -->
                           <span
                             v-if="s.cfBuild"
-                            :style="s.cfBuild === 'free' ? 'color:#c47f17' : undefined"
+                            :style="s.cfBuild === 'free' ? 'color:var(--warning)' : undefined"
                             :title="s.cfBuild === 'free' ? t('logs.cf.buildFreeHint') : ''"
                             >{{ t("logs.cf.build") }}:
                             {{
@@ -706,7 +706,7 @@
                             >{{ t("logs.cf.pageTitle") }}:
                             {{ s.cfPageTitle }}</span
                           >
-                          <span v-if="s.cfNavError" style="color: #e63946"
+                          <span v-if="s.cfNavError" style="color: var(--danger)"
                             >{{ t("logs.cf.navError") }}:
                             {{ s.cfNavError }}</span
                           >
@@ -747,10 +747,10 @@
                               }}</span>
                               <span
                                 v-if="w.error"
-                                style="color: #e63946"
+                                style="color: var(--danger)"
                                 >{{ w.error }}</span
                               >
-                              <span v-else style="color: #2e9e5b">{{
+                              <span v-else style="color: var(--success)">{{
                                 w.outcome ?? w.label
                               }}</span>
                             </div>
@@ -1006,18 +1006,18 @@
               <tr v-if="l.jobType === 'embywatch' && expandedId === l.id">
                 <td
                   colspan="5"
-                  style="padding: 0; background: #f8f9fa; border-top: none"
+                  style="padding: 0; background: var(--bg-subtle); border-top: none"
                 >
                   <div class="detail-panel">
                     <div
                       v-if="detailLoading"
-                      style="color: #888; font-size: 13px"
+                      style="color: var(--text-muted); font-size: 13px"
                     >
                       {{ t("logs.detail.loading") }}
                     </div>
                     <div
                       v-else-if="!embywatchDetail"
-                      style="color: #888; font-size: 13px"
+                      style="color: var(--text-muted); font-size: 13px"
                     >
                       {{ t("logs.detail.noDetail") }}
                     </div>
@@ -1082,8 +1082,8 @@
                               class="emby-seq-badge"
                               :style="
                                 epi.markedWatched
-                                  ? 'color:#065f46'
-                                  : 'color:#991b1b'
+                                  ? 'color:var(--success-soft-text)'
+                                  : 'color:var(--danger-soft-text)'
                               "
                             >
                               {{
@@ -1179,8 +1179,8 @@
                             class="emby-stat-value"
                             :style="
                               embywatchDetail.markedWatched
-                                ? 'color:#065f46'
-                                : 'color:#991b1b'
+                                ? 'color:var(--success-soft-text)'
+                                : 'color:var(--danger-soft-text)'
                             "
                           >
                             {{
@@ -1699,11 +1699,11 @@ function hasWarning(l: Log): boolean {
 
 <style scoped>
 .row-expanded td {
-  background: #f0f4ff;
+  background: var(--primary-soft);
 }
 
 .row-even td {
-  background: #f0f2f5;
+  background: var(--bg-muted);
 }
 
 .row-retired td {
@@ -1718,23 +1718,23 @@ function hasWarning(l: Log): boolean {
 .emby-title {
   font-size: 15px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text-primary);
   margin-bottom: 2px;
 }
 
 .emby-episode-label {
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
   margin-bottom: 14px;
 }
 
 .msg-warning {
-  color: #b45309;
+  color: var(--warning-soft-text);
 }
 
 .emby-note {
   font-size: 12px;
-  color: #b45309;
+  color: var(--warning-soft-text);
   margin: 6px 0 10px;
 }
 
@@ -1745,8 +1745,8 @@ function hasWarning(l: Log): boolean {
 }
 
 .emby-stat {
-  background: #fff;
-  border: 1px solid #e8e8e8;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 16px;
   min-width: 90px;
@@ -1757,14 +1757,14 @@ function hasWarning(l: Log): boolean {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #888;
+  color: var(--text-muted);
   margin-bottom: 4px;
 }
 
 .emby-stat-value {
   font-size: 16px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1779,8 +1779,8 @@ function hasWarning(l: Log): boolean {
 }
 
 .emby-seq-item {
-  background: #fff;
-  border: 1px solid #e8e8e8;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 12px;
 }
@@ -1796,8 +1796,8 @@ function hasWarning(l: Log): boolean {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #eef1fb;
-  color: #556;
+  background: var(--primary-soft);
+  color: var(--text-body);
   font-size: 11px;
   font-weight: 600;
   display: inline-flex;
@@ -1809,7 +1809,7 @@ function hasWarning(l: Log): boolean {
   flex: 1;
   font-size: 13px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--text-primary);
 }
 
 .emby-seq-badge {
@@ -1820,7 +1820,7 @@ function hasWarning(l: Log): boolean {
 
 .emby-seq-meta {
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted);
   margin-top: 3px;
   padding-left: 28px;
   font-variant-numeric: tabular-nums;
@@ -1829,7 +1829,7 @@ function hasWarning(l: Log): boolean {
 /* Chat background container */
 .chat-bg {
   display: inline-block;
-  background: #eef1f5;
+  background: var(--bg-inset);
   border-radius: 10px;
   padding: 12px 14px;
   max-width: 420px;
@@ -1854,19 +1854,19 @@ function hasWarning(l: Log): boolean {
 
 /* Outgoing bubble (right) */
 .bubble-sent {
-  background: #dcf8c6;
+  background: var(--success-soft);
   border-radius: 14px 14px 4px 14px;
   padding: 8px 12px;
   font-size: 13px;
   font-family: monospace;
-  color: #111;
+  color: var(--text-heading);
   max-width: 75%;
   word-break: break-all;
 }
 
 .ai-badge {
   font-size: 11px;
-  color: #6366f1;
+  color: var(--primary);
   text-align: right;
   margin-top: 3px;
   padding-right: 2px;
@@ -1874,25 +1874,25 @@ function hasWarning(l: Log): boolean {
 }
 
 .bubble-callback {
-  background: #e9e9eb;
+  background: var(--bg-active);
   border-radius: 14px 14px 14px 4px;
   padding: 6px 10px;
   font-size: 12px;
-  color: #333;
+  color: var(--text-primary);
   max-width: 75%;
   font-style: italic;
 }
 
 .chat-error {
   font-size: 12px;
-  color: #e63946;
+  color: var(--danger);
   text-align: center;
   padding: 2px 0;
 }
 
 .tg-bubble {
   display: inline-block;
-  background: #e9e9eb;
+  background: var(--bg-active);
   border-radius: 14px 14px 14px 4px;
   overflow: hidden;
   max-width: 300px;
@@ -1904,7 +1904,7 @@ function hasWarning(l: Log): boolean {
 }
 .tg-bubble-img-placeholder {
   height: 80px;
-  background: #d8d8da;
+  background: var(--bg-track);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1914,19 +1914,19 @@ function hasWarning(l: Log): boolean {
   padding: 8px 12px;
   font-size: 13px;
   line-height: 1.55;
-  color: #111;
+  color: var(--text-heading);
 }
 .tg-bubble-text a {
-  color: #2563eb;
+  color: var(--primary);
 }
 .tg-bubble-text code {
-  background: #d4d4d6;
+  background: var(--bg-track);
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 12px;
 }
 .tg-bubble-text pre {
-  background: #d4d4d6;
+  background: var(--bg-track);
   padding: 8px;
   border-radius: 4px;
   overflow-x: auto;
@@ -1946,18 +1946,18 @@ function hasWarning(l: Log): boolean {
   font-size: 12px;
   padding: 6px 8px;
   border-radius: 8px;
-  border: 1.5px solid #d0d7de;
-  background: #fff;
-  color: #333;
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-primary);
   text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .tg-btn-active {
-  background: #dcf8c6;
-  color: #1a7f37;
-  border-color: #9ad79a;
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: var(--success-border);
   font-weight: 600;
 }
 
@@ -1970,15 +1970,15 @@ function hasWarning(l: Log): boolean {
 }
 
 .custom-step {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 14px;
-  background: #fff;
+  background: var(--bg-card);
 }
 
 .custom-step-error {
-  border-color: #fca5a5;
-  background: #fff5f5;
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
 }
 
 .custom-step-header {
@@ -1992,8 +1992,8 @@ function hasWarning(l: Log): boolean {
   min-width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #e0e7ff;
-  color: #3730a3;
+  background: var(--primary-soft);
+  color: var(--primary-soft-text);
   font-size: 11px;
   font-weight: 700;
   display: flex;
@@ -2005,19 +2005,19 @@ function hasWarning(l: Log): boolean {
 .custom-step-label {
   flex: 1;
   font-weight: 500;
-  color: #1a1a2e;
+  color: var(--text-primary);
 }
 
 .custom-step-duration {
   font-size: 11px;
-  color: #aaa;
+  color: var(--text-faint);
 }
 
 .custom-step-callback {
   margin-top: 6px;
   font-size: 12px;
-  color: #555;
-  background: #f0f4ff;
+  color: var(--text-body);
+  background: var(--primary-soft);
   border-radius: 4px;
   padding: 4px 8px;
 }
@@ -2035,14 +2035,14 @@ function hasWarning(l: Log): boolean {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
-  color: #6366f1;
+  color: var(--primary);
   padding: 2px 7px;
-  border: 1.5px solid #6366f1;
+  border: 1.5px solid var(--primary);
   border-radius: 4px;
 }
 
 .dev-toggle input[type="checkbox"] {
-  accent-color: #6366f1;
+  accent-color: var(--primary);
   width: 14px;
   height: 14px;
 }
@@ -2060,7 +2060,7 @@ function hasWarning(l: Log): boolean {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #6366f1;
+  color: var(--primary);
   margin-bottom: 4px;
 }
 
@@ -2090,8 +2090,8 @@ function hasWarning(l: Log): boolean {
   min-width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #4a9eff;
-  color: #fff;
+  background: var(--info);
+  color: var(--text-on-accent);
   font-size: 10px;
   font-weight: 600;
   display: inline-flex;
@@ -2108,8 +2108,8 @@ function hasWarning(l: Log): boolean {
 .web-shot-loop {
   padding: 0 5px;
   border-radius: 8px;
-  background: #eef2ff;
-  color: #4338ca;
+  background: var(--primary-soft);
+  color: var(--primary-soft-text);
   font-size: 10px;
   font-weight: 600;
   flex: none;

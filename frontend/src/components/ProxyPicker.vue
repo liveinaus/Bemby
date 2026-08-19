@@ -13,7 +13,7 @@
         {{ p.name }}{{ usable(p) ? "" : ` (${offLabel(p)})` }}
       </option>
     </select>
-    <div v-if="hint" style="font-size: 11px; color: #aaa; margin-top: 3px">{{ hint }}</div>
+    <div v-if="hint" style="font-size: 11px; color: var(--text-faint); margin-top: 3px">{{ hint }}</div>
 
     <!-- The pool the draw runs over. Nothing ticked means the whole list, so a pool never
          has to be maintained just to use a random exit -->
@@ -86,7 +86,7 @@
         </label>
       </div>
 
-      <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+      <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
         {{ t("jobs.proxyRandomPoolHint") }}
         <template v-if="grouped"> {{ t("jobs.proxyRandomPoolSupplierHint") }}</template>
         {{ t("jobs.proxyRandomPoolDisabledHint") }}
@@ -238,9 +238,9 @@ function toggleSupplier(supplierId: string) {
 .proxy-pool {
   margin-top: 8px;
   padding: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--bg-card);
 }
 
 .proxy-pool-head {
@@ -252,7 +252,7 @@ function toggleSupplier(supplierId: string) {
 
 .proxy-pool-count {
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted);
   margin-right: auto;
 }
 
@@ -271,7 +271,7 @@ function toggleSupplier(supplierId: string) {
 }
 
 .proxy-pool-group + .proxy-pool-group {
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--border-faint);
 }
 
 .proxy-pool-group-head {
@@ -284,7 +284,7 @@ function toggleSupplier(supplierId: string) {
 .proxy-pool-toggle {
   border: 0;
   background: none;
-  color: #888;
+  color: var(--text-muted);
   cursor: pointer;
   padding: 0 2px;
   font-size: 11px;
@@ -295,7 +295,7 @@ function toggleSupplier(supplierId: string) {
 }
 
 .proxy-pool-off {
-  color: #aaa;
+  color: var(--text-faint);
   text-decoration: line-through;
 }
 </style>

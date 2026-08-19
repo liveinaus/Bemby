@@ -113,7 +113,7 @@
                   <button
                     v-if="watchableRun(j.id)"
                     class="btn btn-sm btn-ghost btn-icon"
-                    style="color: #2e9e5b"
+                    style="color: var(--success)"
                     :title="t('manualBrowser.watch')"
                     @click="watchRun(watchableRun(j.id) as string)"
                   >
@@ -202,7 +202,7 @@
         <!-- Name + Type (no template) | Name + Account (template, checkin/custom) -->
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">{{ t('jobs.labelName') }} <span style="color:#e63946">*</span></label>
+            <label class="form-label">{{ t('jobs.labelName') }} <span style="color:var(--danger)">*</span></label>
             <div class="name-with-icon">
               <JobIconPicker v-model="form.icon" />
               <input v-model.trim="form.name" class="form-input" placeholder="Xxemby" />
@@ -218,7 +218,7 @@
             </select>
           </div>
           <div v-if="form.templateId && (form.jobType === 'checkin' || form.jobType === 'custom' || form.jobType === 'autoreg')" class="form-group">
-            <label class="form-label">{{ t('jobs.labelAccount') }} <span style="color:#e63946">*</span></label>
+            <label class="form-label">{{ t('jobs.labelAccount') }} <span style="color:var(--danger)">*</span></label>
             <select v-model="form.accountId" class="form-select">
               <option :value="null" disabled>{{ t('jobs.selectAccount') }}</option>
               <option v-for="a in accounts" :key="a.id" :value="a.id">{{ formatAccountLabel(a) }}</option>
@@ -229,29 +229,29 @@
         <!-- Check-in: Account + Bot (no template only — when template, account is in the row above) -->
         <div v-if="form.jobType === 'checkin' && !form.templateId" class="form-row">
           <div class="form-group">
-            <label class="form-label">{{ t('jobs.labelAccount') }} <span style="color:#e63946">*</span></label>
+            <label class="form-label">{{ t('jobs.labelAccount') }} <span style="color:var(--danger)">*</span></label>
             <select v-model="form.accountId" class="form-select">
               <option :value="null" disabled>{{ t('jobs.selectAccount') }}</option>
               <option v-for="a in accounts" :key="a.id" :value="a.id">{{ formatAccountLabel(a) }}</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">{{ t('jobs.labelBot') }} <span style="color:#e63946">*</span></label>
+            <label class="form-label">{{ t('jobs.labelBot') }} <span style="color:var(--danger)">*</span></label>
             <input v-model.trim="form.botUsername" class="form-input" placeholder="SomeBotUsername" />
           </div>
         </div>
 
         <!-- Emby Watch: Server URL (hidden when template controls it) -->
         <div v-if="form.jobType === 'embywatch' && !form.templateId" class="form-group">
-          <label class="form-label">{{ t('jobs.labelServerUrl') }} <span style="color:#e63946">*</span></label>
+          <label class="form-label">{{ t('jobs.labelServerUrl') }} <span style="color:var(--danger)">*</span></label>
           <div style="display:flex;align-items:center;gap:6px">
             <select v-model="embyServer.protocol" class="form-select" style="width:88px;flex-shrink:0">
               <option value="https">https</option>
               <option value="http">http</option>
             </select>
-            <span style="color:#aaa;font-size:13px;flex-shrink:0">://</span>
+            <span style="color:var(--text-faint);font-size:13px;flex-shrink:0">://</span>
             <input v-model.trim="embyServer.host" class="form-input" placeholder="emby.xxxx.com" @paste="handleEmbyHostPaste" />
-            <span style="color:#aaa;font-size:13px;flex-shrink:0">:</span>
+            <span style="color:var(--text-faint);font-size:13px;flex-shrink:0">:</span>
             <input v-model.number="embyServer.port" class="form-input" type="number" min="1" max="65535" style="width:72px;flex-shrink:0" placeholder="443" />
           </div>
         </div>
@@ -260,11 +260,11 @@
         <template v-if="form.jobType === 'embywatch'">
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">{{ t('jobs.labelEmbyUser') }} <span style="color:#e63946">*</span></label>
+              <label class="form-label">{{ t('jobs.labelEmbyUser') }} <span style="color:var(--danger)">*</span></label>
               <input v-model.trim="embyCfg.username" class="form-input" placeholder="Username" autocomplete="off" />
             </div>
             <div class="form-group">
-              <label class="form-label">{{ t('jobs.labelEmbyPass') }} <span style="color:#e63946">*</span></label>
+              <label class="form-label">{{ t('jobs.labelEmbyPass') }} <span style="color:var(--danger)">*</span></label>
               <input v-model="embyCfg.password" class="form-input" type="password" placeholder="Password" autocomplete="new-password" />
             </div>
           </div>
@@ -276,7 +276,7 @@
             <div class="form-group">
               <label class="form-label">
                 {{ t('jobs.labelPlayDuration') }}
-                <span style="color:#aaa;font-weight:400"> — {{ t('common.blankForDefault') }}</span>
+                <span style="color:var(--text-faint);font-weight:400"> — {{ t('common.blankForDefault') }}</span>
               </label>
               <input v-model.number="embyCfg.playDuration" class="form-input" type="number" min="30" placeholder="300" />
             </div>
@@ -302,12 +302,12 @@
               <input v-model="embyCfg.ignoreSslErrors" type="checkbox" />
               <span>{{ t('jobs.labelIgnoreSslErrors') }}</span>
             </label>
-            <div style="font-size:11px;color:#aaa;margin-top:4px;padding-left:24px">{{ t('jobs.ignoreSslErrorsHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:4px;padding-left:24px">{{ t('jobs.ignoreSslErrorsHint') }}</div>
           </div>
           <div class="form-group">
             <label class="form-label">{{ t('jobs.labelLibrary') }}</label>
             <input v-model.trim="embyCfg.library" class="form-input" type="text" :placeholder="t('jobs.libraryPlaceholder')" />
-            <div style="font-size:11px;color:#aaa;margin-top:4px">{{ t('jobs.libraryHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:4px">{{ t('jobs.libraryHint') }}</div>
           </div>
           <div class="emby-rules-hint">{{ t('jobs.playbackRulesHint') }}</div>
           <div class="form-group" style="margin-top:4px">
@@ -315,35 +315,35 @@
               <input v-model="embyCfg.markWatched" type="checkbox" />
               <span>{{ t('jobs.labelMarkWatched') }}</span>
             </label>
-            <div style="font-size:11px;color:#aaa;margin-top:4px;padding-left:24px">{{ t('jobs.markWatchedHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:4px;padding-left:24px">{{ t('jobs.markWatchedHint') }}</div>
           </div>
           <div class="form-group" style="margin-top:4px">
             <label class="form-check">
               <input v-model="embyCfg.verifyPlayable" type="checkbox" />
               <span>{{ t('jobs.labelVerifyPlayable') }}</span>
             </label>
-            <div style="font-size:11px;color:#aaa;margin-top:4px;padding-left:24px">{{ t('jobs.verifyPlayableHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:4px;padding-left:24px">{{ t('jobs.verifyPlayableHint') }}</div>
           </div>
           <div class="form-group" style="margin-top:4px">
             <label class="form-check">
               <input v-model="embyCfg.realWatch" type="checkbox" />
               <span>{{ t('jobs.labelRealWatch') }}</span>
             </label>
-            <div style="font-size:11px;color:#aaa;margin-top:4px;padding-left:24px">{{ t('jobs.realWatchHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:4px;padding-left:24px">{{ t('jobs.realWatchHint') }}</div>
           </div>
           <div class="form-group" style="margin-top:4px">
             <label class="form-check">
               <input v-model="embyCfg.sequencePlay" type="checkbox" />
               <span>{{ t('jobs.labelSequencePlay') }}</span>
             </label>
-            <div style="font-size:11px;color:#aaa;margin-top:4px;padding-left:24px">{{ t('jobs.sequencePlayHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:4px;padding-left:24px">{{ t('jobs.sequencePlayHint') }}</div>
           </div>
         </template>
         <!-- embywatch optional account (always shown, job-specific) -->
         <div v-if="form.jobType === 'embywatch' && accounts.length > 0" class="form-group" style="margin-top:8px">
           <label class="form-label">
             {{ t('jobs.labelAccount') }}
-            <span style="color:#aaa;font-weight:400"> — {{ t('jobs.accountOptionalHint') }}</span>
+            <span style="color:var(--text-faint);font-weight:400"> — {{ t('jobs.accountOptionalHint') }}</span>
           </label>
           <select v-model="form.accountId" class="form-select">
             <option :value="null">{{ t('jobs.noAccount') }}</option>
@@ -355,7 +355,7 @@
         <template v-if="form.jobType === 'custom'">
           <div v-if="!form.templateId" class="form-row">
             <div class="form-group">
-              <label class="form-label">{{ t('jobs.labelAccount') }} <span style="color:#e63946">*</span></label>
+              <label class="form-label">{{ t('jobs.labelAccount') }} <span style="color:var(--danger)">*</span></label>
               <select v-model="form.accountId" class="form-select">
                 <option :value="null" disabled>{{ t('jobs.selectAccount') }}</option>
                 <option v-for="a in accounts" :key="a.id" :value="a.id">{{ formatAccountLabel(a) }}</option>
@@ -370,14 +370,14 @@
           <div v-if="!form.templateId" class="form-group">
             <label class="form-label">{{ t('jobs.custom.labelJobMaxRetries') }}</label>
             <input v-model.number="customJobMaxRetries" class="form-input" type="number" min="1" max="20" style="max-width:120px" />
-            <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.jobMaxRetriesHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.jobMaxRetriesHint') }}</div>
           </div>
 
           <!-- Action chain builder (hidden when template controls it) -->
           <div v-if="!form.templateId" class="form-group">
             <label class="form-label">{{ t('jobs.custom.actions') }}</label>
 
-            <div v-if="customActions.length === 0" style="font-size:13px;color:#aaa;padding:10px 0">
+            <div v-if="customActions.length === 0" style="font-size:13px;color:var(--text-faint);padding:10px 0">
               {{ t('jobs.custom.noActions') }}
             </div>
 
@@ -417,10 +417,10 @@
                     <input v-if="action.contentDropdown === 'custom'" v-model="action.contentCustom" class="form-input" style="margin-top:6px" placeholder="/mycommand" />
                     <template v-if="action.contentDropdown === '{aiInput}'">
                       <input v-model.trim="action.contentAiInputLength" class="form-input" style="margin-top:6px" type="number" min="1" max="20" :placeholder="t('jobs.aiInputLengthPlaceholder')" />
-                      <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.aiInputLengthHint') }}</div>
-                      <div v-if="aiKeyMissing" style="font-size:11px;color:#e63946;margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
+                      <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLengthHint') }}</div>
+                      <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
                     </template>
-                    <div v-else style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.contentHint') }}</div>
+                    <div v-else style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.contentHint') }}</div>
                   </div>
                   <div class="form-group">
                     <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
@@ -434,7 +434,7 @@
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.custom.labelContact') }}</label>
                   <input v-model.trim="action.contact" class="form-input" :placeholder="t('jobs.custom.contactPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.contactHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.contactHint') }}</div>
                 </div>
                 <div class="form-row" style="margin-bottom:0;margin-top:8px">
                   <div class="form-group">
@@ -448,10 +448,10 @@
                     <input v-if="action.contentDropdown === 'custom'" v-model="action.contentCustom" class="form-input" style="margin-top:6px" placeholder="/mycommand" />
                     <template v-if="action.contentDropdown === '{aiInput}'">
                       <input v-model.trim="action.contentAiInputLength" class="form-input" style="margin-top:6px" type="number" min="1" max="20" :placeholder="t('jobs.aiInputLengthPlaceholder')" />
-                      <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.aiInputLengthHint') }}</div>
-                      <div v-if="aiKeyMissing" style="font-size:11px;color:#e63946;margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
+                      <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLengthHint') }}</div>
+                      <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
                     </template>
-                    <div v-else style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.contentHint') }}</div>
+                    <div v-else style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.contentHint') }}</div>
                   </div>
                   <div class="form-group">
                     <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
@@ -475,17 +475,17 @@
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.custom.labelScope') }}</label>
                   <input v-model.number="action.scope" class="form-input" type="number" max="0" step="1" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.custom.labelSuccessContains') }}</label>
                   <input v-model.trim="action.successContains" class="form-input" :placeholder="t('jobs.custom.successContainsPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.successContainsHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.successContainsHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.custom.labelFailContains') }}</label>
                   <input v-model.trim="action.failContains" class="form-input" :placeholder="t('jobs.custom.failContainsPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.failContainsHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.failContainsHint') }}</div>
                 </div>
               </div>
 
@@ -509,10 +509,10 @@
                     <input v-if="action.buttonDropdown === 'custom'" v-model="action.buttonCustom" class="form-input" style="margin-top:6px" placeholder="Custom button text" />
                     <template v-if="action.buttonDropdown === '{aiBtn}'">
                       <input v-model.trim="action.buttonAiHint" class="form-input" style="margin-top:6px" :placeholder="t('jobs.aiHintPlaceholder')" />
-                      <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.aiHintHint') }}</div>
-                      <div v-if="aiKeyMissing" style="font-size:11px;color:#e63946;margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
+                      <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiHintHint') }}</div>
+                      <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
                     </template>
-                    <div v-else style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.buttonHint') }}</div>
+                    <div v-else style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.buttonHint') }}</div>
                   </div>
                   <div class="form-group">
                     <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
@@ -526,17 +526,17 @@
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.custom.labelScope') }}</label>
                   <input v-model.number="action.scope" class="form-input" type="number" max="0" step="1" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.custom.labelSuccessContains') }}</label>
                   <input v-model.trim="action.successContains" class="form-input" :placeholder="t('jobs.custom.successContainsPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.successContainsHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.successContainsHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.custom.labelFailContains') }}</label>
                   <input v-model.trim="action.failContains" class="form-input" :placeholder="t('jobs.custom.failContainsPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.failContainsHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.failContainsHint') }}</div>
                 </div>
               </div>
 
@@ -545,7 +545,7 @@
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.custom.labelContact') }}</label>
                   <input v-model.trim="action.contact" class="form-input" :placeholder="t('jobs.custom.contactPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.contactHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.contactHint') }}</div>
                 </div>
                 <div class="form-row" style="margin-bottom:0;margin-top:8px">
                   <div class="form-group">
@@ -559,10 +559,10 @@
                     <input v-if="action.buttonDropdown === 'custom'" v-model="action.buttonCustom" class="form-input" style="margin-top:6px" placeholder="Custom button text" />
                     <template v-if="action.buttonDropdown === '{aiBtn}'">
                       <input v-model.trim="action.buttonAiHint" class="form-input" style="margin-top:6px" :placeholder="t('jobs.aiHintPlaceholder')" />
-                      <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.aiHintHint') }}</div>
-                      <div v-if="aiKeyMissing" style="font-size:11px;color:#e63946;margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
+                      <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiHintHint') }}</div>
+                      <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
                     </template>
-                    <div v-else style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.buttonHint') }}</div>
+                    <div v-else style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.buttonHint') }}</div>
                   </div>
                   <div class="form-group">
                     <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
@@ -576,17 +576,17 @@
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.custom.labelScope') }}</label>
                   <input v-model.number="action.scope" class="form-input" type="number" max="0" step="1" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.custom.labelSuccessContains') }}</label>
                   <input v-model.trim="action.successContains" class="form-input" :placeholder="t('jobs.custom.successContainsPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.successContainsHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.successContainsHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.custom.labelFailContains') }}</label>
                   <input v-model.trim="action.failContains" class="form-input" :placeholder="t('jobs.custom.failContainsPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.failContainsHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.failContainsHint') }}</div>
                 </div>
               </div>
 
@@ -606,8 +606,8 @@
                     <input v-model.number="action.maxRetries" class="form-input" type="number" min="0" max="10" />
                   </div>
                 </div>
-                <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.aiInputLengthHint') }}</div>
-                <div v-if="aiKeyMissing" style="font-size:11px;color:#e63946;margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
+                <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLengthHint') }}</div>
+                <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
               </div>
 
               <!-- join_group -->
@@ -615,33 +615,33 @@
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.custom.labelGroupId') }}</label>
                   <input v-model.trim="action.groupId" class="form-input" :placeholder="t('jobs.custom.groupIdPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.groupIdHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.groupIdHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-checkbox-label">
                     <input type="checkbox" v-model="action.checkMembership" />
                     {{ t('jobs.custom.labelCheckMembership') }}
                   </label>
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.checkMembershipHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.checkMembershipHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-label">{{ t('jobs.custom.labelVerifyButton') }}</label>
                   <input v-model.trim="action.verifyButton" class="form-input" :placeholder="t('jobs.custom.verifyButtonPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.verifyButtonHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.verifyButtonHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-checkbox-label">
                     <input type="checkbox" v-model="action.verifyMentionsMe" />
                     {{ t('jobs.custom.labelVerifyMentionsMe') }}
                   </label>
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.verifyMentionsMeHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.verifyMentionsMeHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-checkbox-label">
                     <input type="checkbox" v-model="action.verifyMaskedName" />
                     {{ t('jobs.custom.labelVerifyMaskedName') }}
                   </label>
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.verifyMaskedNameHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.verifyMaskedNameHint') }}</div>
                 </div>
                 <div v-if="action.verifyButton" class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-label">{{ t('jobs.custom.labelVerifyWaitMs') }}</label>
@@ -650,7 +650,7 @@
                 <div v-if="action.verifyButton" class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-label">{{ t('jobs.custom.labelVerifyMaxWaitMs') }}</label>
                   <input v-model.number="action.verifyMaxWaitMs" type="number" min="1000" step="1000" class="form-input" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.verifyMaxWaitMsHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.verifyMaxWaitMsHint') }}</div>
                 </div>
               </div>
 
@@ -659,14 +659,14 @@
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.custom.labelChannelId') }}</label>
                   <input v-model.trim="action.channelId" class="form-input" :placeholder="t('jobs.custom.channelIdPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.channelIdHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.channelIdHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-checkbox-label">
                     <input type="checkbox" v-model="action.checkMembership" />
                     {{ t('jobs.custom.labelCheckSubscription') }}
                   </label>
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.checkSubscriptionHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.checkSubscriptionHint') }}</div>
                 </div>
               </div>
 
@@ -675,17 +675,17 @@
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ action.type === 'open_mini_app' ? t('jobs.custom.labelContactOptional') : action.type === 'open_mini_app_url' ? t('jobs.custom.labelMiniAppOwner') : t('jobs.custom.labelMenuAppOwner') }}</label>
                   <input v-model.trim="action.contact" class="form-input" :placeholder="t('jobs.custom.contactOptionalPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ action.type === 'open_mini_app' ? t('jobs.custom.contactOptionalHint') : action.type === 'open_mini_app_url' ? t('jobs.custom.miniAppOwnerHint') : t('jobs.custom.menuAppOwnerHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ action.type === 'open_mini_app' ? t('jobs.custom.contactOptionalHint') : action.type === 'open_mini_app_url' ? t('jobs.custom.miniAppOwnerHint') : t('jobs.custom.menuAppOwnerHint') }}</div>
                 </div>
                 <div v-if="action.type === 'open_mini_app_url'" class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-label">{{ t('jobs.custom.labelMiniAppUrl') }}</label>
                   <input v-model.trim="action.url" class="form-input" :placeholder="t('jobs.custom.miniAppUrlPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.miniAppUrlHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.miniAppUrlHint') }}</div>
                 </div>
                 <div v-if="action.type === 'open_mini_app'" class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-label">{{ t('jobs.custom.labelMiniAppButton') }}</label>
                   <input v-model.trim="action.button" class="form-input" :placeholder="t('jobs.custom.miniAppButtonPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.miniAppButtonHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.miniAppButtonHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <MiniAppStepsEditor :steps="action.appSteps" />
@@ -693,12 +693,12 @@
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-label">{{ t('jobs.custom.labelSuccessContains') }}</label>
                   <input v-model.trim="action.successContains" class="form-input" :placeholder="t('jobs.custom.successContainsPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.successContainsHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.successContainsHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-label">{{ t('jobs.custom.labelFailContains') }}</label>
                   <input v-model.trim="action.failContains" class="form-input" :placeholder="t('jobs.custom.failContainsPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.failContainsHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.failContainsHint') }}</div>
                 </div>
                 <div class="form-row" style="margin-bottom:0;margin-top:8px">
                   <div class="form-group">
@@ -710,7 +710,7 @@
                     <input v-model.number="action.miniAppMaxWaitMs" class="form-input" type="number" min="0" step="10000" placeholder="300000" />
                   </div>
                 </div>
-                <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.miniAppMaxWaitHint') }}</div>
+                <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.miniAppMaxWaitHint') }}</div>
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <ProxyPicker
                     v-model="action.miniAppProxyId"
@@ -727,19 +727,19 @@
                     <input type="checkbox" v-model="action.miniAppTryAllProxies" />
                     {{ t('jobs.custom.labelMiniAppTryAll') }}
                   </label>
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.miniAppTryAllHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.miniAppTryAllHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-label">{{ t('jobs.web.labelProfileId') }}</label>
                   <input v-model.trim="action.profileId" class="form-input" :placeholder="profileIdPlaceholder" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.web.profileIdHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.web.profileIdHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-checkbox-label">
                     <input type="checkbox" v-model="action.keepAppSession" />
                     {{ t('jobs.custom.labelKeepAppSession') }}
                   </label>
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.keepAppSessionHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.keepAppSessionHint') }}</div>
                 </div>
               </div>
 
@@ -748,7 +748,7 @@
                 <div class="form-group" style="margin-bottom:0">
                   <label class="form-label">{{ t('jobs.web.labelUrl') }}</label>
                   <input v-model.trim="action.url" class="form-input" :placeholder="t('jobs.web.urlPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.web.urlHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.web.urlHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0;margin-top:10px">
                   <WebStepsEditor :steps="action.webSteps" :ai-key-missing="aiKeyMissing" />
@@ -756,12 +756,12 @@
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-label">{{ t('jobs.custom.labelSuccessContains') }}</label>
                   <input v-model.trim="action.successContains" class="form-input" :placeholder="t('jobs.custom.successContainsPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.successContainsHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.successContainsHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-label">{{ t('jobs.custom.labelFailContains') }}</label>
                   <input v-model.trim="action.failContains" class="form-input" :placeholder="t('jobs.custom.failContainsPlaceholder')" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.failContainsHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.failContainsHint') }}</div>
                 </div>
                 <div class="form-row" style="margin-bottom:0;margin-top:8px">
                   <div class="form-group">
@@ -773,7 +773,7 @@
                     <input v-model.number="action.miniAppMaxWaitMs" class="form-input" type="number" min="0" step="10000" placeholder="300000" />
                   </div>
                 </div>
-                <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.miniAppMaxWaitHint') }}</div>
+                <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.miniAppMaxWaitHint') }}</div>
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <ProxyPicker
                     v-model="action.miniAppProxyId"
@@ -790,12 +790,12 @@
                     <input type="checkbox" v-model="action.miniAppTryAllProxies" />
                     {{ t('jobs.custom.labelMiniAppTryAll') }}
                   </label>
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.custom.miniAppTryAllHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.miniAppTryAllHint') }}</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0;margin-top:8px">
                   <label class="form-label">{{ t('jobs.web.labelProfileId') }}</label>
                   <input v-model.trim="action.profileId" class="form-input" :placeholder="profileIdPlaceholder" />
-                  <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.web.profileIdHint') }}</div>
+                  <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.web.profileIdHint') }}</div>
                 </div>
               </div>
             </div>
@@ -810,32 +810,32 @@
         <template v-if="form.jobType === 'autoreg' && !form.templateId">
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">{{ t('jobs.labelAccount') }} <span style="color:#e63946">*</span></label>
+              <label class="form-label">{{ t('jobs.labelAccount') }} <span style="color:var(--danger)">*</span></label>
               <select v-model="form.accountId" class="form-select">
                 <option :value="null" disabled>{{ t('jobs.selectAccount') }}</option>
                 <option v-for="a in accounts" :key="a.id" :value="a.id">{{ formatAccountLabel(a) }}</option>
               </select>
             </div>
             <div class="form-group">
-              <label class="form-label">{{ t('jobs.autoreg.labelBot') }} <span style="color:#e63946">*</span></label>
+              <label class="form-label">{{ t('jobs.autoreg.labelBot') }} <span style="color:var(--danger)">*</span></label>
               <input v-model.trim="form.botUsername" class="form-input" placeholder="SomeBotUsername" />
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label">{{ t('jobs.autoreg.labelGroup') }} <span style="color:#e63946">*</span></label>
+            <label class="form-label">{{ t('jobs.autoreg.labelGroup') }} <span style="color:var(--danger)">*</span></label>
             <input v-model.trim="autoregCfg.groupId" class="form-input" placeholder="@groupname" />
-            <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.groupHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.groupHint') }}</div>
           </div>
           <div class="form-group">
-            <label class="form-label">{{ t('jobs.autoreg.labelCodePrefix') }} <span v-if="!autoregCfg.codeRegex" style="color:#e63946">*</span></label>
+            <label class="form-label">{{ t('jobs.autoreg.labelCodePrefix') }} <span v-if="!autoregCfg.codeRegex" style="color:var(--danger)">*</span></label>
             <input v-model.trim="autoregCfg.codePrefix" class="form-input" placeholder="ABC-*-XYZ_" />
-            <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.codePrefixHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.codePrefixHint') }}</div>
           </div>
           <div class="form-group">
-            <label class="form-label">{{ t('jobs.autoreg.labelCodeRegex') }} <span v-if="!autoregCfg.codePrefix" style="color:#e63946">*</span></label>
+            <label class="form-label">{{ t('jobs.autoreg.labelCodeRegex') }} <span v-if="!autoregCfg.codePrefix" style="color:var(--danger)">*</span></label>
             <input v-model.trim="autoregCfg.codeRegex" class="form-input" :placeholder="t('jobs.autoreg.codeRegexPlaceholder')" />
-            <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.codeRegexHint') }}</div>
-            <div style="font-size:11px;color:#777;margin-top:3px">{{ t('jobs.autoreg.eitherPrefixOrRegex') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.codeRegexHint') }}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:3px">{{ t('jobs.autoreg.eitherPrefixOrRegex') }}</div>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -843,12 +843,12 @@
                 <input v-model="autoregCfg.stripChinese" type="checkbox" />
                 <span>{{ t('jobs.autoreg.labelStripChinese') }}</span>
               </label>
-              <div style="font-size:11px;color:#aaa;margin-top:4px;padding-left:24px">{{ t('jobs.autoreg.stripChineseHint') }}</div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:4px;padding-left:24px">{{ t('jobs.autoreg.stripChineseHint') }}</div>
             </div>
             <div class="form-group">
               <label class="form-label">{{ t('jobs.autoreg.labelStripChars') }}</label>
               <input v-model.trim="autoregCfg.stripChars" class="form-input" :placeholder="t('jobs.autoreg.stripCharsPlaceholder')" />
-              <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.stripCharsHint') }}</div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.stripCharsHint') }}</div>
             </div>
           </div>
           <div class="form-group">
@@ -856,7 +856,7 @@
               <input v-model="autoregCfg.aiModifyCode" type="checkbox" />
               <span>{{ t('jobs.autoreg.labelAiModifyCode') }}</span>
             </label>
-            <div style="font-size:11px;color:#aaa;margin-top:4px;padding-left:24px">{{ t('jobs.autoreg.aiModifyCodeHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:4px;padding-left:24px">{{ t('jobs.autoreg.aiModifyCodeHint') }}</div>
           </div>
           <div v-if="autoregCfg.aiModifyCode" class="form-row">
             <div class="form-group">
@@ -866,7 +866,7 @@
             <div class="form-group">
               <label class="form-label">{{ t('jobs.autoreg.labelAiContextCount') }}</label>
               <input v-model.number="autoregCfg.aiContextCount" class="form-input" type="number" min="0" max="50" />
-              <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.aiContextCountHint') }}</div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.aiContextCountHint') }}</div>
             </div>
           </div>
           <div class="form-group">
@@ -875,7 +875,7 @@
               <option value="button">{{ t('jobs.autoreg.entryModeButton') }}</option>
               <option value="command">{{ t('jobs.autoreg.entryModeCommand') }}</option>
             </select>
-            <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.entryModeHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.entryModeHint') }}</div>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -890,13 +890,13 @@
             <div v-if="autoregCfg.entryMode === 'button'" class="form-group">
               <label class="form-label">{{ t('jobs.autoreg.labelRegisterButton') }}</label>
               <input v-model.trim="autoregCfg.registerButton" class="form-input" :placeholder="t('jobs.autoreg.registerButtonPlaceholder')" />
-              <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.registerButtonHint') }}</div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.registerButtonHint') }}</div>
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">{{ t('jobs.autoreg.labelCodeReady') }}</label>
             <input v-model.trim="autoregCfg.codeReadyContains" class="form-input" :placeholder="t('jobs.autoreg.codeReadyPlaceholder')" />
-            <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.codeReadyHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.codeReadyHint') }}</div>
           </div>
           <!-- Some bots vet the code first, then offer a button/link that opens registration -->
           <div class="form-group">
@@ -904,53 +904,53 @@
               <input v-model="autoregCfg.clickAfterCode" type="checkbox" />
               <span>{{ t('jobs.autoreg.labelClickAfterCode') }}</span>
             </label>
-            <div style="font-size:11px;color:#aaa;margin-top:4px;padding-left:24px">{{ t('jobs.autoreg.clickAfterCodeHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:4px;padding-left:24px">{{ t('jobs.autoreg.clickAfterCodeHint') }}</div>
           </div>
           <div v-if="autoregCfg.clickAfterCode" class="form-row">
             <div class="form-group">
               <label class="form-label">{{ t('jobs.autoreg.labelAfterCodeButton') }}</label>
               <input v-model.trim="autoregCfg.afterCodeButton" class="form-input" :placeholder="t('jobs.autoreg.afterCodeButtonPlaceholder')" />
-              <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.afterCodeButtonHint') }}</div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.afterCodeButtonHint') }}</div>
             </div>
             <div class="form-group">
               <label class="form-check">
                 <input v-model="autoregCfg.afterCodeRequired" type="checkbox" />
                 <span>{{ t('jobs.autoreg.labelAfterCodeRequired') }}</span>
               </label>
-              <div style="font-size:11px;color:#aaa;margin-top:4px;padding-left:24px">{{ t('jobs.autoreg.afterCodeRequiredHint') }}</div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:4px;padding-left:24px">{{ t('jobs.autoreg.afterCodeRequiredHint') }}</div>
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label">{{ t('jobs.autoreg.labelSignupUsername') }} <span style="color:#e63946">*</span></label>
+            <label class="form-label">{{ t('jobs.autoreg.labelSignupUsername') }} <span style="color:var(--danger)">*</span></label>
             <input v-model.trim="autoregCfg.signupUsername" class="form-input" placeholder="myname{num:3}" />
-            <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.signupUsernameHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.signupUsernameHint') }}</div>
           </div>
           <div class="form-group">
             <label class="form-label">{{ t('jobs.autoreg.labelUsernameReady') }}</label>
             <input v-model.trim="autoregCfg.usernameReadyContains" class="form-input" :placeholder="t('jobs.autoreg.usernameReadyPlaceholder')" />
-            <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.usernameReadyHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.usernameReadyHint') }}</div>
           </div>
           <div class="form-row">
             <div class="form-group">
               <label class="form-label">{{ t('jobs.autoreg.labelListenMinutes') }}</label>
               <input v-model.number="autoregCfg.listenMinutes" class="form-input" type="number" min="1" max="1440" />
-              <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.listenMinutesHint') }}</div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.listenMinutesHint') }}</div>
             </div>
             <div class="form-group">
               <label class="form-label">{{ t('jobs.autoreg.labelScanHistory') }}</label>
               <input v-model.number="autoregCfg.scanHistoryCount" class="form-input" type="number" min="0" max="100" />
-              <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.scanHistoryHint') }}</div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.scanHistoryHint') }}</div>
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">{{ t('jobs.labelSuccessContains') }}</label>
             <input v-model.trim="autoregCfg.successContains" class="form-input" :placeholder="t('jobs.autoreg.successContainsPlaceholder')" />
-            <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.successContainsHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.successContainsHint') }}</div>
           </div>
           <div class="form-group">
             <label class="form-label">{{ t('jobs.labelFailContains') }}</label>
             <input v-model.trim="autoregCfg.failContains" class="form-input" :placeholder="t('jobs.autoreg.failContainsPlaceholder')" />
-            <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.autoreg.failContainsHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.autoreg.failContainsHint') }}</div>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -987,7 +987,7 @@
                 <option value="custom">{{ t('common.custom') }}...</option>
               </select>
               <input v-if="cmdDropdown === 'custom'" v-model.trim="cmdCustom" class="form-input" style="margin-top:6px" placeholder="/mycommand" />
-              <div style="font-size:11px;color:#aaa;margin-top:4px">{{ t('jobs.startCommandHint') }}</div>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:4px">{{ t('jobs.startCommandHint') }}</div>
             </div>
             <div class="form-group">
               <label class="form-label">{{ t('jobs.labelCheckinButton') }}</label>
@@ -1001,8 +1001,8 @@
               <input v-if="btnDropdown === 'custom'" v-model.trim="btnCustom" class="form-input" style="margin-top:6px" placeholder="Custom button text" />
               <template v-if="btnDropdown === '{aiBtn}'">
                 <input v-model.trim="btnAiHint" class="form-input" style="margin-top:6px" :placeholder="t('jobs.aiHintPlaceholder')" />
-                <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.aiHintHint') }}</div>
-                <div v-if="aiKeyMissing" style="font-size:11px;color:#e63946;margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
+                <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiHintHint') }}</div>
+                <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
               </template>
             </div>
           </div>
@@ -1019,12 +1019,12 @@
           <div class="form-group">
             <label class="form-label">{{ t('jobs.labelSuccessContains') }}</label>
             <input v-model.trim="checkinSuccessContains" class="form-input" :placeholder="t('jobs.successContainsPlaceholder')" />
-            <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.successContainsHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.successContainsHint') }}</div>
           </div>
           <div class="form-group">
             <label class="form-label">{{ t('jobs.labelFailContains') }}</label>
             <input v-model.trim="checkinFailContains" class="form-input" :placeholder="t('jobs.failContainsPlaceholder')" />
-            <div style="font-size:11px;color:#aaa;margin-top:3px">{{ t('jobs.failContainsHint') }}</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.failContainsHint') }}</div>
           </div>
         </template>
 
@@ -1032,7 +1032,7 @@
           <div class="form-group">
             <label class="form-label">{{ t('jobs.labelRunEveryDays') }}</label>
             <input v-model.trim="runEveryDaysText" class="form-input" type="text" :placeholder="t('jobs.runEveryDaysPlaceholder')" style="max-width:120px" />
-            <div style="font-size:11px;margin-top:4px" :style="runEveryDaysValid ? 'color:#aaa' : 'color:#991b1b'">{{ t('jobs.runEveryDaysHint') }}</div>
+            <div style="font-size:11px;margin-top:4px" :style="runEveryDaysValid ? 'color:var(--text-faint)' : 'color:var(--danger-soft-text)'">{{ t('jobs.runEveryDaysHint') }}</div>
           </div>
           <div class="form-group">
             <label class="form-label">{{ t('jobs.labelMaxRetries') }}</label>
@@ -1060,7 +1060,7 @@
         <div class="modal-body">
           <div v-if="extractError" class="error-msg">{{ extractError }}</div>
           <div class="form-group">
-            <label class="form-label">{{ t('jobs.extractTemplateName') }} <span style="color:#e63946">*</span></label>
+            <label class="form-label">{{ t('jobs.extractTemplateName') }} <span style="color:var(--danger)">*</span></label>
             <input v-model.trim="extractName" class="form-input" :placeholder="extractSource.name" @keyup.enter="confirmExtract" />
           </div>
         </div>
@@ -2728,15 +2728,15 @@ onUnmounted(() => {
   margin-left: 8px;
   font-size: 12px;
   font-weight: 400;
-  color: #8c8c8c;
+  color: var(--text-muted);
 }
 
 .bulk-run-conflict {
   margin: 0 0 10px;
   padding: 8px 10px;
   border-radius: 6px;
-  background: #fffbe6;
-  color: #ad6800;
+  background: var(--warning-soft);
+  color: var(--warning-soft-text);
   font-size: 12px;
 }
 
@@ -2755,15 +2755,15 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #6b7280;
+  color: var(--text-tertiary);
 }
 
 .custom-action-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 8px;
-  background: #fafafa;
+  background: var(--bg-subtle);
 }
 
 .custom-action-header {
@@ -2778,7 +2778,7 @@ onUnmounted(() => {
   text-align: center;
   font-size: 11px;
   font-weight: 600;
-  color: #aaa;
+  color: var(--text-faint);
 }
 
 .custom-action-type-select {
@@ -2796,29 +2796,29 @@ onUnmounted(() => {
 }
 
 .th-sort:hover {
-  background: #f0f4ff;
+  background: var(--primary-soft);
 }
 
 .th-sort.sort-active {
-  color: #3730a3;
+  color: var(--primary-soft-text);
 }
 
 .sort-icon {
   font-size: 10px;
-  color: #ccc;
+  color: var(--text-disabled);
   margin-left: 2px;
 }
 
 .th-sort.sort-active .sort-icon {
-  color: #6366f1;
+  color: var(--primary);
 }
 
 tbody tr:nth-child(even):not(.row-selected) td {
-  background: #f0f2f5;
+  background: var(--bg-muted);
 }
 
 .row-selected td {
-  background: #bfdbfe;
+  background: var(--primary-soft-strong);
 }
 
 .badge-tpl {
@@ -2827,8 +2827,8 @@ tbody tr:nth-child(even):not(.row-selected) td {
   font-weight: 700;
   padding: 1px 4px;
   border-radius: 3px;
-  background: #e0e7ff;
-  color: #4338ca;
+  background: var(--primary-soft);
+  color: var(--primary-soft-text);
   margin-left: 5px;
   vertical-align: middle;
   letter-spacing: 0.03em;
@@ -2838,8 +2838,8 @@ tbody tr:nth-child(even):not(.row-selected) td {
   margin-bottom: 14px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: #f0f4ff;
-  border: 1px solid #c7d2fe;
+  background: var(--primary-soft);
+  border: 1px solid var(--primary-border);
 }
 
 .template-summary-row {
@@ -2851,7 +2851,7 @@ tbody tr:nth-child(even):not(.row-selected) td {
 
 .template-summary-detail {
   font-size: 13px;
-  color: #4b5563;
+  color: var(--text-secondary);
 }
 
 /* ── Mobile action sheet ──────────────────────────────────────────────────────── */
@@ -2866,7 +2866,7 @@ tbody tr:nth-child(even):not(.row-selected) td {
 }
 
 .action-sheet {
-  background: #fff;
+  background: var(--bg-card);
   border-radius: 16px 16px 0 0;
   width: 100%;
   padding-bottom: max(16px, env(safe-area-inset-bottom));
@@ -2879,8 +2879,8 @@ tbody tr:nth-child(even):not(.row-selected) td {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #888;
-  border-bottom: 1px solid #f0f0f0;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-faint);
 }
 
 .action-sheet-btn {
@@ -2892,18 +2892,18 @@ tbody tr:nth-child(even):not(.row-selected) td {
   background: none;
   border: none;
   font-size: 15px;
-  color: #1a1a2e;
+  color: var(--text-primary);
   cursor: pointer;
   text-align: left;
   transition: background 0.1s;
 }
 
 .action-sheet-btn:not(:disabled):active {
-  background: #f5f5f5;
+  background: var(--bg-inset);
 }
 
 .action-sheet-btn.danger {
-  color: #e63946;
+  color: var(--danger);
 }
 
 .action-sheet-btn:disabled {
@@ -2913,23 +2913,23 @@ tbody tr:nth-child(even):not(.row-selected) td {
 
 .action-sheet-divider {
   height: 1px;
-  background: #f0f0f0;
+  background: var(--bg-active);
   margin: 4px 0;
 }
 
 .action-sheet-cancel {
-  color: #888;
+  color: var(--text-muted);
   font-weight: 500;
 }
 
 .last-success {
   font-size: 13px;
-  color: #555;
+  color: var(--text-body);
   white-space: nowrap;
 }
 .last-success-never {
   font-size: 13px;
-  color: #aaa;
+  color: var(--text-faint);
 }
 
 .bulk-bar {
@@ -2937,13 +2937,13 @@ tbody tr:nth-child(even):not(.row-selected) td {
   gap: 8px;
   align-items: center;
   padding: 8px 16px;
-  border-top: 1px solid #f0f0f0;
-  background: #fafafa;
+  border-top: 1px solid var(--border-faint);
+  background: var(--bg-subtle);
 }
 
 .bulk-count {
   font-size: 13px;
-  color: #666;
+  color: var(--text-tertiary);
   white-space: nowrap;
 }
 
@@ -2953,7 +2953,7 @@ tbody tr:nth-child(even):not(.row-selected) td {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(26, 26, 46, 0.88);
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 13px;
   padding: 8px 20px;
   border-radius: 20px;

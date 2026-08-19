@@ -5,6 +5,24 @@
     </div>
 
     <div class="settings-grid">
+      <!-- Appearance -->
+      <div class="card">
+        <div class="card-body">
+          <div class="card-section-title">{{ t("theme.label") }}</div>
+          <div class="theme-choices">
+            <button
+              v-for="mode in THEME_MODES"
+              :key="mode"
+              class="btn"
+              :class="themeMode === mode ? 'btn-primary' : 'btn-ghost'"
+              @click="setTheme(mode)"
+            >
+              <i :class="THEME_ICONS[mode]"></i> {{ t(`theme.${mode}`) }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- System defaults -->
       <div class="card">
         <div class="card-body">
@@ -43,7 +61,7 @@
               <input v-model="form.check_daily_run" type="checkbox" />
               <span>{{ t("settings.labelDailyRun") }}</span>
             </label>
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0 24px">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
               {{ t("settings.dailyRunHint") }}
             </p>
           </div>
@@ -65,7 +83,7 @@
           <div class="card-section-title">
             {{ t("settings.notifySection") }}
           </div>
-          <p style="font-size: 12px; color: #888; margin: 0 0 12px">
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px">
             {{ t("settings.notifyHint") }}
           </p>
 
@@ -73,7 +91,7 @@
                here rather than only inside the collapsed section below -->
           <p
             v-if="!notifyBot.configured"
-            style="font-size: 12px; margin: -6px 0 12px; color: #c47f17"
+            style="font-size: 12px; margin: -6px 0 12px; color: var(--warning)"
           >
             <i class="fa-solid fa-triangle-exclamation"></i>
             {{ t("settings.notifyNoBotWarning") }}
@@ -94,7 +112,7 @@
                 notifyBotTokenMasked || t('settings.notifyBotTokenPlaceholder')
               "
             />
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
               {{ t("settings.notifyBotTokenHint") }}
             </p>
             <p
@@ -126,10 +144,10 @@
               class="form-input"
               :placeholder="t('settings.notifyBotTargetPlaceholder')"
             />
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
               {{ t("settings.notifyBotTargetHint") }}
             </p>
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
               {{ t("settings.notifyBotTopicHint") }}
             </p>
             <button
@@ -147,7 +165,7 @@
             </button>
             <p
               v-if="notifyChatsHint"
-              style="font-size: 12px; color: #888; margin: 6px 0 0"
+              style="font-size: 12px; color: var(--text-muted); margin: 6px 0 0"
             >
               {{ notifyChatsHint }}
             </p>
@@ -160,7 +178,7 @@
                 @click="notifyForm.botTarget = c.target"
               >
                 {{ c.title }}
-                <span style="color: #888">— {{ c.target }} ({{ c.type }})</span>
+                <span style="color: var(--text-muted)">— {{ c.target }} ({{ c.type }})</span>
               </button>
             </div>
           </div>
@@ -213,7 +231,7 @@
                is set, and only for jobs whose account is authenticated. -->
           <div
             style="
-              border-top: 1px solid var(--border, #333);
+              border-top: 1px solid var(--border);
               margin-top: 16px;
               padding-top: 12px;
             "
@@ -230,16 +248,16 @@
                 "
               ></i>
               {{ t("settings.notifyLegacyTitle") }}
-              <span style="color: #c47f17; font-weight: 400">
+              <span style="color: var(--warning); font-weight: 400">
                 ({{ t("settings.notifyDeprecatedTag") }})
               </span>
             </button>
             <div v-if="notifyLegacyOpen" style="margin-top: 10px">
-              <p style="font-size: 12px; margin: 0 0 8px; color: #c47f17">
+              <p style="font-size: 12px; margin: 0 0 8px; color: var(--warning)">
                 <i class="fa-solid fa-triangle-exclamation"></i>
                 {{ t("settings.notifyLegacyDeprecated") }}
               </p>
-              <p style="font-size: 12px; color: #888; margin: 0 0 8px">
+              <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 8px">
                 {{ t("settings.notifyLegacyHint") }}
               </p>
               <label class="form-label">{{
@@ -259,7 +277,7 @@
       <div class="card">
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.cfSolver.title") }}</div>
-          <p style="font-size: 12px; color: #888; margin: 0 0 12px">
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px">
             {{ t("settings.cfSolver.hint") }}
           </p>
           <div v-if="cfInstallMsg" class="success-msg">{{ cfInstallMsg }}</div>
@@ -273,15 +291,15 @@
                  build is listed below, and repeating the preferred one here reads as a
                  contradiction of the second entry -->
             <template v-if="!cfBuilds.length">
-              <span v-if="cfChromiumVersion" style="color: #888"> — {{ cfChromiumVersion }}</span>
-              <span v-if="cfChromiumTier" style="color: #888">
+              <span v-if="cfChromiumVersion" style="color: var(--text-muted)"> — {{ cfChromiumVersion }}</span>
+              <span v-if="cfChromiumTier" style="color: var(--text-muted)">
                 ({{ cfChromiumTier === "keyed" ? t("settings.cfSolver.tierKeyed") : t("settings.cfSolver.tierFree") }})
               </span>
             </template>
           </p>
           <p
             v-if="!cfBuilds.length && cfChromiumPath"
-            style="font-size: 11px; color: #888; margin: -6px 0 12px; word-break: break-all"
+            style="font-size: 11px; color: var(--text-muted); margin: -6px 0 12px; word-break: break-all"
           >
             {{ cfChromiumPath }}
           </p>
@@ -295,7 +313,7 @@
                     ? t("settings.cfSolver.tierKeyed")
                     : t("settings.cfSolver.tierFree")
                 }}</strong>
-                <span style="color: #888"> — CloakBrowser {{ b.version }}</span>
+                <span style="color: var(--text-muted)"> — CloakBrowser {{ b.version }}</span>
                 <span
                   :style="`margin-left:6px;font-size:11px;color:${b.preferred ? '#2e9e5b' : '#888'}`"
                 >
@@ -306,21 +324,21 @@
                   }}
                 </span>
               </span>
-              <div style="font-size: 11px; color: #aaa; word-break: break-all">{{ b.path }}</div>
+              <div style="font-size: 11px; color: var(--text-faint); word-break: break-all">{{ b.path }}</div>
             </div>
           </div>
           <p
             v-if="cfChromiumTier === 'keyed' && !cfFreeInstalled"
-            style="font-size: 12px; margin: -6px 0 12px; color: #c47f17"
+            style="font-size: 12px; margin: -6px 0 12px; color: var(--warning)"
           >
             <i class="fa-solid fa-triangle-exclamation"></i>
             {{ t("settings.cfSolver.noFreeFallback") }}
           </p>
-          <p v-if="cfKeyedPending" style="font-size: 12px; margin: -6px 0 12px; color: #c47f17">
+          <p v-if="cfKeyedPending" style="font-size: 12px; margin: -6px 0 12px; color: var(--warning)">
             <i class="fa-solid fa-triangle-exclamation"></i>
             {{ t("settings.cfSolver.keyedPending") }}
           </p>
-          <p v-if="cfChromiumInstalled && !cfFontsInstalled" style="font-size: 12px; margin: -6px 0 12px; color: #c47f17">
+          <p v-if="cfChromiumInstalled && !cfFontsInstalled" style="font-size: 12px; margin: -6px 0 12px; color: var(--warning)">
             <i class="fa-solid fa-triangle-exclamation"></i>
             {{ t("settings.cfSolver.fontsMissing") }}<span v-if="cfFontsMissing"> ({{ cfFontsMissing }})</span>
           </p>
@@ -332,7 +350,7 @@
                 {{ l.name }} ({{ l.id }})
               </option>
             </select>
-            <div style="font-size: 11px; color: #888; margin-top: 3px">
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px">
               {{ t("settings.cfSolver.langHint") }}
             </div>
           </div>
@@ -341,12 +359,12 @@
           <div class="form-group" style="margin: 0 0 12px; max-width: 560px">
             <label class="form-label">{{ t("settings.cfSolver.vncLabel") }}</label>
             <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
-              <span v-if="vncInstalled" style="font-size: 12px; color: #2e9e5b">
+              <span v-if="vncInstalled" style="font-size: 12px; color: var(--success)">
                 <i class="fa-solid fa-check"></i>
                 {{ vncVersion || t("settings.cfSolver.vncPresent") }}
-                <span style="color: #888">({{ vncSourceText }})</span>
+                <span style="color: var(--text-muted)">({{ vncSourceText }})</span>
               </span>
-              <span v-else style="font-size: 12px; color: #c47f17">
+              <span v-else style="font-size: 12px; color: var(--warning)">
                 <i class="fa-solid fa-triangle-exclamation"></i>
                 {{ t("settings.cfSolver.vncMissing") }}
               </span>
@@ -363,7 +381,7 @@
                 {{ t("common.delete") }}
               </button>
             </div>
-            <div style="font-size: 11px; color: #888; margin-top: 3px">
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px">
               {{ t("settings.cfSolver.vncHint") }}
             </div>
             <pre v-if="vncLog" class="vnc-log">{{ vncLog }}</pre>
@@ -376,7 +394,7 @@
               placeholder="{ip}"
               @change="saveCfProfileId"
             />
-            <div style="font-size: 11px; color: #888; margin-top: 3px">
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px">
               {{ t("settings.cfSolver.profileIdHint") }}
             </div>
           </div>
@@ -393,7 +411,7 @@
                 ></i>
                 <strong>{{ t("settings.profiles.title") }}</strong>
               </button>
-              <span style="font-size: 11px; color: #888">
+              <span style="font-size: 11px; color: var(--text-muted)">
                 {{
                   t("settings.profiles.summary")
                     .replace("{n}", String(cfProfiles.length))
@@ -468,7 +486,7 @@
             <div v-if="cfProfilesOpen && profilesMsg" class="success-msg" style="margin: 6px 0">{{ profilesMsg }}</div>
             <div v-if="cfProfilesOpen && profilesError" class="error-msg" style="margin: 6px 0">{{ profilesError }}</div>
 
-            <div v-if="cfProfilesOpen && !cfProfiles.length" style="font-size: 12px; color: #888">
+            <div v-if="cfProfilesOpen && !cfProfiles.length" style="font-size: 12px; color: var(--text-muted)">
               {{ t("settings.profiles.empty") }}
             </div>
             <table v-else-if="cfProfilesOpen" class="profiles-table">
@@ -508,7 +526,7 @@
                     <template v-else>{{ p.name }}</template>
                   </td>
                   <td>{{ formatBytes(p.sizeBytes) }}</td>
-                  <td style="font-size: 12px; color: #666">
+                  <td style="font-size: 12px; color: var(--text-tertiary)">
                     {{ p.lastUsedAt ? formatWhen(p.lastUsedAt) : t("settings.profiles.neverUsed") }}
                   </td>
                   <td style="white-space: nowrap">
@@ -556,7 +574,7 @@
                 </tr>
               </tbody>
             </table>
-            <div v-if="cfProfilesOpen" style="font-size: 11px; color: #888; margin-top: 6px">
+            <div v-if="cfProfilesOpen" style="font-size: 11px; color: var(--text-muted); margin-top: 6px">
               {{ t("settings.profiles.hint") }}
             </div>
           </div>
@@ -597,17 +615,17 @@
               {{ cfTesting ? t("settings.cfSolver.testing") : t("settings.cfSolver.testBtn") }}
             </button>
           </div>
-          <div v-if="cfChromiumInstalled" style="font-size: 11px; color: #888; margin-top: 6px">
+          <div v-if="cfChromiumInstalled" style="font-size: 11px; color: var(--text-muted); margin-top: 6px">
             {{ t("settings.cfSolver.reinstallHint") }}
           </div>
-          <div v-if="!cfFreeInstalled" style="font-size: 11px; color: #888; margin-top: 6px">
+          <div v-if="!cfFreeInstalled" style="font-size: 11px; color: var(--text-muted); margin-top: 6px">
             {{ t("settings.cfSolver.installFreeHint") }}
           </div>
           <!-- Kept off the row above and styled quietly: it throws away a 200MB download
                that everything else here depends on, so it should not read as a next step -->
           <div
             v-if="cfChromiumInstalled"
-            style="margin-top: 12px; padding-top: 10px; border-top: 1px solid #eee"
+            style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border)"
           >
             <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
               <button
@@ -645,7 +663,7 @@
                 {{ cfUninstalling ? t("settings.cfSolver.uninstalling") : t("settings.cfSolver.uninstallBtn") }}
               </button>
             </div>
-            <div style="font-size: 11px; color: #888; margin-top: 6px">
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px">
               {{ t("settings.cfSolver.stopHint") }}
               {{ t("settings.cfSolver.clearProfilesHint") }}
               {{ t("settings.cfSolver.uninstallHint") }}
@@ -656,7 +674,7 @@
           </div>
           <div
             v-if="cfTestNotes.length"
-            style="font-size: 11px; color: #888; margin-top: 8px"
+            style="font-size: 11px; color: var(--text-muted); margin-top: 8px"
           >
             <div v-for="n in cfTestNotes" :key="n">• {{ n }}</div>
           </div>
@@ -667,19 +685,19 @@
           >
 
           <!-- CloakBrowser licence keys: one free key per GitHub account, one browser each -->
-          <div style="border-top: 1px solid var(--border, #333); margin-top: 16px; padding-top: 12px">
+          <div style="border-top: 1px solid var(--border); margin-top: 16px; padding-top: 12px">
             <button class="btn btn-ghost btn-sm" @click="cfKeysOpen = !cfKeysOpen">
               <i :class="cfKeysOpen ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'"></i>
               {{ t("settings.cfKeys.title") }}
-              <span style="color: #888; font-weight: 400">({{ cfKeys.length }})</span>
+              <span style="color: var(--text-muted); font-weight: 400">({{ cfKeys.length }})</span>
             </button>
             <div v-if="cfKeysOpen" style="margin-top: 10px">
-              <p style="font-size: 12px; color: #888; margin: 0 0 12px">
+              <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px">
                 {{ t("settings.cfKeys.hint") }}
               </p>
               <div v-if="cfKeysMsg" class="success-msg">{{ cfKeysMsg }}</div>
               <div v-if="cfKeysError" class="error-msg">{{ cfKeysError }}</div>
-              <p v-if="cfKeys.length" style="font-size: 11px; color: #888; margin: 0 0 8px">
+              <p v-if="cfKeys.length" style="font-size: 11px; color: var(--text-muted); margin: 0 0 8px">
                 {{ t("settings.cfKeys.inUse") }}: {{ cfKeysInUse }} / {{ cfKeys.length }}
               </p>
               <div
@@ -733,13 +751,13 @@
           </div>
 
           <!-- Browser timings and limits: defaults are what the solver ships with -->
-          <div style="border-top: 1px solid var(--border, #333); margin-top: 16px; padding-top: 12px">
+          <div style="border-top: 1px solid var(--border); margin-top: 16px; padding-top: 12px">
             <button class="btn btn-ghost btn-sm" @click="cfTuningOpen = !cfTuningOpen">
               <i :class="cfTuningOpen ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'"></i>
               {{ t("settings.cfTuning.title") }}
             </button>
             <div v-if="cfTuningOpen" style="margin-top: 10px">
-              <p style="font-size: 12px; color: #888; margin: 0 0 12px">
+              <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px">
                 {{ t("settings.cfTuning.hint") }}
               </p>
               <div v-if="cfTuningMsg" class="success-msg">{{ cfTuningMsg }}</div>
@@ -747,7 +765,7 @@
               <div v-for="f in cfTuningFields" :key="f" class="form-group">
                 <label class="form-label">
                   {{ t(`settings.cfTuning.fields.${f}.label`) }}
-                  <span style="font-weight: 400; color: #888">
+                  <span style="font-weight: 400; color: var(--text-muted)">
                     ({{ t("settings.cfTuning.default") }}: {{ cfTuningDefaults[f] }})
                   </span>
                 </label>
@@ -759,7 +777,7 @@
                   :max="cfTuningLimits[f]?.max"
                   :placeholder="String(cfTuningDefaults[f])"
                 />
-                <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+                <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
                   {{ t(`settings.cfTuning.fields.${f}.hint`) }}
                   <span v-if="cfTuningLimits[f]">
                     {{ t("settings.cfTuning.range") }}: {{ cfTuningLimits[f].min }}–{{ cfTuningLimits[f].max }}
@@ -792,7 +810,7 @@
           <div class="form-group">
             <label class="form-label">
               {{ t("settings.labelNewUsername") }}
-              <span style="font-weight: 400; color: #aaa">
+              <span style="font-weight: 400; color: var(--text-faint)">
                 {{ t("settings.hintKeepBlank") }}</span
               >
             </label>
@@ -805,7 +823,7 @@
           <div class="form-group">
             <label class="form-label">
               {{ t("settings.labelNewPassword") }}
-              <span style="font-weight: 400; color: #aaa">
+              <span style="font-weight: 400; color: var(--text-faint)">
                 {{ t("settings.hintKeepBlank") }}</span
               >
             </label>
@@ -819,7 +837,7 @@
           <div class="form-group">
             <label class="form-label"
               >{{ t("settings.labelCurrentPass") }}
-              <span style="color: #e63946">*</span></label
+              <span style="color: var(--danger)">*</span></label
             >
             <input
               v-model="cred.currentPassword"
@@ -841,7 +859,7 @@
           <div class="settings-subsection" style="margin-top: 22px">
             {{ t("settings.sessionsSection") }}
           </div>
-          <p style="font-size: 12px; color: #888; margin: 0 0 12px">
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px">
             {{ t("settings.sessionsHint") }}
           </p>
           <button
@@ -866,7 +884,7 @@
           <div class="settings-subsection">
             {{ t("settings.defaultTgApiSection") }}
           </div>
-          <p style="font-size: 12px; color: #888; margin: 0 0 14px">
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 14px">
             {{ t("settings.defaultTgApiHint") }}
           </p>
 
@@ -906,7 +924,7 @@
               />
               <p
                 v-if="defaultTgApiHashMasked"
-                style="font-size: 11px; color: #888; margin: 4px 0 0"
+                style="font-size: 11px; color: var(--text-muted); margin: 4px 0 0"
               >
                 {{ t("settings.defaultTgApiHashSet") }}
                 <code style="font-size: 11px">{{
@@ -954,7 +972,7 @@
               />
               <span>{{ t("settings.schedulePageToggle") }}</span>
             </label>
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0 24px">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
               {{ t("settings.schedulePageHint") }}
             </p>
           </div>
@@ -972,7 +990,7 @@
               />
               <span>{{ t("settings.jobsTemplateEditToggle") }}</span>
             </label>
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0 24px">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
               {{ t("settings.jobsTemplateEditHint") }}
             </p>
           </div>
@@ -989,7 +1007,7 @@
                 <input type="checkbox" v-model="dataStoreSetting" @change="saveDataStore" />
                 <span>{{ t("settings.dataStoreToggle") }}</span>
               </label>
-              <p style="font-size: 12px; color: #888; margin: 4px 0 0 24px">
+              <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
                 {{ t("settings.dataStoreHint") }}
               </p>
             </div>
@@ -1008,7 +1026,7 @@
               />
               <span>{{ t("settings.accountDisplayToggle") }}</span>
             </label>
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0 24px">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
               {{ t("settings.accountDisplayHint") }}
             </p>
           </div>
@@ -1029,7 +1047,7 @@
               style="max-width: 160px"
               @change="saveLogRetention"
             />
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
               {{ t("settings.logRetentionHint") }}
             </p>
           </div>
@@ -1051,7 +1069,7 @@
               style="max-width: 160px"
               @change="saveScheduleGap"
             />
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
               {{ t("settings.scheduleGapHint") }}
             </p>
           </div>
@@ -1062,7 +1080,7 @@
       <div class="card">
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.secretsSection") }}</div>
-          <p style="font-size: 12px; color: #888; margin: 0 0 12px">
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px">
             {{ t("settings.secretsHint") }}
           </p>
 
@@ -1072,7 +1090,7 @@
           <div v-for="sec in secrets" :key="sec.key" class="ua-preset-row">
             <span class="ua-preset-name">{{ sec.key }}</span>
             <span class="ua-preset-value">{{ "{" + sec.key + "}" }}</span>
-            <span style="font-size: 11px; color: #aaa">
+            <span style="font-size: 11px; color: var(--text-faint)">
               {{ sec.updatedAt ? fmtSecretDate(sec.updatedAt) : "" }}
             </span>
             <button
@@ -1083,7 +1101,7 @@
               <i class="fa-solid fa-xmark"></i>
             </button>
           </div>
-          <p v-if="!secrets.length" style="font-size: 12px; color: #aaa; margin: 0 0 12px">
+          <p v-if="!secrets.length" style="font-size: 12px; color: var(--text-faint); margin: 0 0 12px">
             {{ t("settings.secretsEmpty") }}
           </p>
 
@@ -1111,7 +1129,7 @@
               {{ secretSaving ? t("common.saving") : t("common.save") }}
             </button>
           </div>
-          <p style="font-size: 12px; color: #888; margin: 6px 0 0">
+          <p style="font-size: 12px; color: var(--text-muted); margin: 6px 0 0">
             {{ t("settings.secretsWriteOnlyHint") }}
           </p>
 
@@ -1134,7 +1152,7 @@
                 {{ msOauthSaving ? t("common.saving") : t("common.save") }}
               </button>
             </div>
-            <p style="font-size: 12px; color: #888; margin: 6px 0 0">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 6px 0 0">
               {{ t("settings.msOauthClientIdHint") }}
             </p>
           </div>
@@ -1148,7 +1166,7 @@
       <div v-if="msApiAvailable" class="card">
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.msapi.title") }}</div>
-          <p style="font-size: 12px; color: #888; margin: 0 0 12px">
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px">
             {{ t("settings.msapi.hint") }}
           </p>
 
@@ -1163,7 +1181,7 @@
               autocomplete="off"
               placeholder="http://host:3000"
             />
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
               {{ t("settings.msapi.baseUrlHint") }}
             </p>
           </div>
@@ -1176,7 +1194,7 @@
               autocomplete="off"
               :placeholder="msApiKeyMasked || 'msk_...'"
             />
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
               {{ t("settings.msapi.apiKeyHint") }}
             </p>
           </div>
@@ -1189,7 +1207,7 @@
               style="max-width: 220px"
               :placeholder="msApiPoolTypeDefault"
             />
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
               {{ t("settings.msapi.poolTypeHint") }}
             </p>
           </div>
@@ -1211,7 +1229,7 @@
               {{ msApiTesting ? t("settings.msapi.testing") : t("settings.msapi.testBtn") }}
             </button>
           </div>
-          <p v-if="msApiPool" style="font-size: 12px; margin: 8px 0 0; color: #2e9e5b">
+          <p v-if="msApiPool" style="font-size: 12px; margin: 8px 0 0; color: var(--success)">
             <i class="fa-solid fa-circle-check"></i> {{ msApiPool }}
           </p>
         </div>
@@ -1223,7 +1241,7 @@
           <div class="card-section-title">
             {{ t("settings.proxiesSection") }}
           </div>
-          <p style="font-size: 12px; color: #888; margin: 0 0 12px">
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px">
             {{ t("settings.proxiesHint") }}
           </p>
 
@@ -1238,7 +1256,7 @@
                 :class="proxyListOpen ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'"
               ></i>
               {{ t("settings.proxyListTitle") }}
-              <span style="color: #888; font-weight: 400">({{ proxies.length }})</span>
+              <span style="color: var(--text-muted); font-weight: 400">({{ proxies.length }})</span>
             </button>
             <span class="proxy-fold-note">{{ proxyStateSummary }}</span>
           </div>
@@ -1483,7 +1501,7 @@
               </button>
             </div>
           </div>
-          <p v-if="proxyAddShown" style="font-size: 11px; color: #888; margin: 4px 0 0">
+          <p v-if="proxyAddShown" style="font-size: 11px; color: var(--text-muted); margin: 4px 0 0">
             {{ t("settings.proxyUrlHint") }}
           </p>
 
@@ -1496,20 +1514,20 @@
                 "
               ></i>
               {{ t("settings.providersSection") }}
-              <span v-if="providers.length" style="color: #888; font-weight: 400"
+              <span v-if="providers.length" style="color: var(--text-muted); font-weight: 400"
                 >({{ providers.length }})</span
               >
             </button>
           </div>
           <div v-if="proxyProvidersOpen" class="proxy-edit-panel" style="margin-top: 4px">
-            <p style="font-size: 11px; color: #888; margin: 0 0 8px">
+            <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 8px">
               {{ t("settings.providersHint") }}
             </p>
 
             <div
               v-for="(prov, i) in providers"
               :key="prov.id"
-              style="border-top: 1px solid #eee; padding-top: 8px; margin-top: 8px"
+              style="border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px"
             >
               <div class="proxy-row">
                 <input
@@ -1612,7 +1630,7 @@
                 />
                 <span>{{ t("settings.proxySyncMatchByName") }}</span>
               </label>
-              <p style="font-size: 12px; color: #888; margin: 4px 0 0 24px">
+              <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
                 {{ t("settings.proxySyncMatchByNameHint") }}
               </p>
             </div>
@@ -1631,14 +1649,14 @@
             </button>
           </div>
           <div v-if="proxyHealthOpen" class="proxy-edit-panel" style="margin-top: 4px">
-            <p style="font-size: 12px; color: #888; margin: 0 0 6px">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px">
               {{ t("settings.proxyHealthHint") }}
             </p>
             <label class="form-checkbox-label" style="margin-bottom: 4px">
               <input type="checkbox" v-model="proxyTestCf" />
               <span>{{ t("settings.proxyTestCf") }}</span>
             </label>
-            <p style="font-size: 11px; color: #888; margin: 0 0 8px 24px">
+            <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 8px 24px">
               {{ t("settings.proxyTestCfHint") }}
             </p>
             <div class="proxy-row">
@@ -1649,11 +1667,11 @@
                 :placeholder="t('settings.proxyTestExtraPlaceholder')"
               />
             </div>
-            <p style="font-size: 11px; color: #888; margin: 4px 0 8px">
+            <p style="font-size: 11px; color: var(--text-muted); margin: 4px 0 8px">
               {{ t("settings.proxyTestExtraHint") }}
             </p>
             <div class="proxy-row">
-              <span style="font-size: 12px; color: #555">{{ t("settings.proxyTestInterval") }}</span>
+              <span style="font-size: 12px; color: var(--text-body)">{{ t("settings.proxyTestInterval") }}</span>
               <input
                 v-model.number="proxyTestIntervalHours"
                 class="form-input"
@@ -1670,14 +1688,14 @@
                 {{ proxyHealthSaving ? t("common.saving") : t("common.save") }}
               </button>
             </div>
-            <p style="font-size: 11px; color: #888; margin: 4px 0 8px">
+            <p style="font-size: 11px; color: var(--text-muted); margin: 4px 0 8px">
               {{ t("settings.proxyTestIntervalHint") }}
             </p>
             <label class="form-checkbox-label" style="margin-bottom: 4px">
               <input type="checkbox" v-model="proxyCheckBeforeUse" />
               <span>{{ t("settings.proxyCheckBeforeUse") }}</span>
             </label>
-            <p style="font-size: 11px; color: #888; margin: 0 0 0 24px">
+            <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 0 24px">
               {{ t("settings.proxyCheckBeforeUseHint") }}
             </p>
           </div>
@@ -1713,10 +1731,10 @@
           <div class="card-section-title">
             {{ t("settings.appClientsSection") }}
           </div>
-          <p style="font-size: 12px; color: #888; margin: 0 0 6px">
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px">
             {{ t("settings.appClientsHint") }}
           </p>
-          <p style="font-size: 12px; color: #888; margin: 0 0 12px">
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 12px">
             {{ t("settings.appClientDeviceVars") }}
           </p>
 
@@ -1951,7 +1969,7 @@
                 class="form-input"
                 placeholder="Mac"
               />
-              <p style="font-size: 12px; color: #888; margin: 4px 0 0">
+              <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
                 {{ t("settings.deviceNameVars") }}
               </p>
             </div>
@@ -2029,7 +2047,7 @@
           <div v-if="importError" class="error-msg">{{ importError }}</div>
 
           <div class="form-group">
-            <p style="font-size: 12px; color: #888; margin: 0 0 8px">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 8px">
               {{ t("settings.importExport.exportHint") }}
             </p>
             <label class="form-label">{{
@@ -2059,7 +2077,7 @@
                 ></i>
               </button>
             </div>
-            <p style="font-size: 11px; color: #888; margin: 4px 0 8px">
+            <p style="font-size: 11px; color: var(--text-muted); margin: 4px 0 8px">
               {{ t("settings.importExport.exportSecretHint") }}
             </p>
             <button class="btn btn-secondary" @click="doExport">
@@ -2118,7 +2136,7 @@
               <input type="checkbox" v-model="importForceReauth" />
               <span>{{ t("settings.importExport.forceReauthLabel") }}</span>
             </label>
-            <p style="font-size: 12px; color: #888; margin: 4px 0 0 24px">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
               {{ t("settings.importExport.forceReauthHint") }}
             </p>
             <div
@@ -2203,7 +2221,7 @@
     <div class="card settings-wide">
       <div class="card-body">
         <div class="card-section-title">{{ t("settings.aiSection") }}</div>
-        <p style="font-size: 12px; color: #888; margin: 0 0 16px">
+        <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 16px">
           {{ t("settings.aiHint") }}
         </p>
 
@@ -2213,7 +2231,7 @@
             <input v-model="form.ai_fallback_enabled" type="checkbox" @change="saveFallbackEnabled" />
             <span>{{ t("settings.aiFallbackLabel") }}</span>
           </label>
-          <p style="font-size: 12px; color: #888; margin: 4px 0 0 24px">
+          <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
             {{ t("settings.aiFallbackHint") }}
           </p>
         </div>
@@ -2238,12 +2256,12 @@
           </button>
         </div>
 
-        <div v-if="aiSuppliersLoading" style="color: #888; font-size: 13px">
+        <div v-if="aiSuppliersLoading" style="color: var(--text-muted); font-size: 13px">
           {{ t("common.loading") }}
         </div>
         <div
           v-else-if="!suppliers.length"
-          style="color: #aaa; font-size: 13px; margin-bottom: 12px"
+          style="color: var(--text-faint); font-size: 13px; margin-bottom: 12px"
         >
           {{ t("settings.noSuppliers") }}
         </div>
@@ -2361,7 +2379,7 @@
               </span>
               <span
                 v-if="!s.models.length"
-                style="color: #aaa; font-size: 12px"
+                style="color: var(--text-faint); font-size: 12px"
                 >—</span
               >
             </div>
@@ -2465,7 +2483,7 @@
           style="
             margin-top: 20px;
             padding-top: 16px;
-            border-top: 1px solid #e5e7eb;
+            border-top: 1px solid var(--border);
           "
         >
           <div class="form-group">
@@ -2501,7 +2519,7 @@
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.memorySection") }}</div>
 
-          <div v-if="memoryLoading" style="color: #888; font-size: 13px">
+          <div v-if="memoryLoading" style="color: var(--text-muted); font-size: 13px">
             {{ t("common.loading") }}
           </div>
           <template v-else-if="memory">
@@ -2543,7 +2561,7 @@
                 <strong>{{ memory.limitMb }} MB ({{ memoryPercent }}%)</strong>
               </div>
             </div>
-            <p style="font-size: 12px; color: #888; margin: 8px 0 0">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 8px 0 0">
               {{ t("settings.memoryHint") }}
             </p>
           </template>
@@ -2564,7 +2582,7 @@
       <div class="card">
         <div class="card-body">
           <div class="card-section-title">{{ t("settings.system.title") }}</div>
-          <p style="font-size: 12px; color: #888; margin: 0 0 10px">
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 10px">
             {{ t("settings.system.hint") }}
           </p>
           <div v-if="!restartSupervised" class="error-msg" style="margin-bottom: 10px">
@@ -2594,7 +2612,7 @@
             <i class="fa-solid fa-triangle-exclamation"></i>
             {{ t("settings.system.forceRestartBtn") }}
           </button>
-          <p style="font-size: 12px; color: #888; margin: 10px 0 0">
+          <p style="font-size: 12px; color: var(--text-muted); margin: 10px 0 0">
             {{ t("settings.system.forceRestartHint") }}
           </p>
         </div>
@@ -2668,7 +2686,7 @@
           <p>
             {{ t("settings.profiles.deleteConfirm").replace("{n}", String(selectedProfiles.length)) }}
           </p>
-          <p style="font-family: monospace; font-size: 12px; color: #666">
+          <p style="font-family: monospace; font-size: 12px; color: var(--text-tertiary)">
             {{ selectedProfiles.join(", ") }}
           </p>
         </div>
@@ -2728,6 +2746,14 @@ import {
 } from "../composables/dataStore";
 import { applyMsApiSetting, msApiAvailable } from "../composables/msApi";
 import { setTemplateEditButton } from "../composables/templateEditButton";
+import { setTheme, themeMode, type ThemeMode } from "../composables/useTheme";
+
+const THEME_MODES: ThemeMode[] = ["light", "dark", "auto"];
+const THEME_ICONS: Record<ThemeMode, string> = {
+  light: "fa-solid fa-sun",
+  dark: "fa-solid fa-moon",
+  auto: "fa-solid fa-circle-half-stroke",
+};
 
 const timezones = [
   "Australia/Sydney",
@@ -4944,7 +4970,7 @@ async function signOutEverywhere() {
 .profiles-panel {
   margin: 0 0 14px;
   padding: 10px 12px;
-  border: 1px solid #eee;
+  border: 1px solid var(--border);
   border-radius: 6px;
 }
 
@@ -4966,7 +4992,7 @@ async function signOutEverywhere() {
 .profiles-sep {
   width: 1px;
   align-self: stretch;
-  background: #eee;
+  background: var(--bg-active);
   margin: 0 2px;
 }
 
@@ -4975,7 +5001,7 @@ async function signOutEverywhere() {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: #666;
+  color: var(--text-tertiary);
 }
 
 .profiles-table {
@@ -4988,20 +5014,20 @@ async function signOutEverywhere() {
 .profiles-table td {
   text-align: left;
   padding: 5px 6px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-faint);
   font-size: 13px;
 }
 
 .profiles-table th {
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted);
   font-weight: 600;
 }
 
 .vnc-log {
   margin-top: 6px;
   padding: 6px 8px;
-  background: #f6f7f9;
+  background: var(--bg-inset);
   border-radius: 4px;
   font-size: 11px;
   max-height: 160px;
@@ -5038,10 +5064,10 @@ async function signOutEverywhere() {
   gap: 6px;
   padding: 5px 14px;
   border-radius: 20px;
-  border: 1.5px solid #ddd;
+  border: 1.5px solid var(--border-strong);
   cursor: pointer;
   font-size: 13px;
-  color: #555;
+  color: var(--text-body);
   user-select: none;
   transition:
     border-color 0.15s,
@@ -5054,20 +5080,20 @@ async function signOutEverywhere() {
 }
 
 .event-pill.active {
-  border-color: var(--color-primary, #2563eb);
-  background: #eff6ff;
-  color: var(--color-primary, #2563eb);
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: var(--primary);
   font-weight: 500;
 }
 
 .event-pill:hover:not(.active) {
-  border-color: #bbb;
-  background: #fafafa;
+  border-color: var(--border-strong);
+  background: var(--bg-subtle);
 }
 
 .ie-divider {
   border: none;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--border);
   margin: 16px 0;
 }
 
@@ -5100,7 +5126,7 @@ async function signOutEverywhere() {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #888;
+  color: var(--text-muted);
   margin-bottom: 10px;
 }
 
@@ -5119,7 +5145,7 @@ async function signOutEverywhere() {
 }
 
 .mem-row span {
-  color: #888;
+  color: var(--text-muted);
 }
 
 .mem-row strong {
@@ -5143,19 +5169,19 @@ async function signOutEverywhere() {
   background: none;
   border: none;
   cursor: pointer;
-  color: #888;
+  color: var(--text-muted);
   padding: 0;
   display: flex;
   align-items: center;
 }
 
 .toggle-secret-btn:hover {
-  color: #444;
+  color: var(--text-secondary);
 }
 
 .import-mode-hint {
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .ua-preset-row {
@@ -5163,14 +5189,14 @@ async function signOutEverywhere() {
   align-items: center;
   gap: 8px;
   padding: 6px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-faint);
 }
 
 .ua-preset-name {
   flex: 0 0 140px;
   font-size: 13px;
   font-weight: 500;
-  color: #1a1a2e;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5180,7 +5206,7 @@ async function signOutEverywhere() {
   flex: 1;
   font-size: 11px;
   font-family: monospace;
-  color: #888;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5189,7 +5215,7 @@ async function signOutEverywhere() {
 
 .ua-preset-del {
   flex-shrink: 0;
-  color: #e63946;
+  color: var(--danger);
   padding: 3px 7px;
 }
 
@@ -5203,11 +5229,11 @@ async function signOutEverywhere() {
 
 /* AI supplier cards */
 .supplier-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px 14px;
   margin-bottom: 10px;
-  background: #fafafa;
+  background: var(--bg-subtle);
 }
 .supplier-header {
   display: flex;
@@ -5228,13 +5254,13 @@ async function signOutEverywhere() {
 }
 .supplier-url {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-tertiary);
   font-family: monospace;
   word-break: break-all;
 }
 .supplier-timeout {
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--text-faint);
 }
 .supplier-actions {
   display: flex;
@@ -5249,21 +5275,21 @@ async function signOutEverywhere() {
 .supplier-no-key-warning {
   margin-top: 8px;
   font-size: 12px;
-  color: #b45309;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
+  color: var(--warning-soft-text);
+  background: var(--warning-soft);
+  border: 1px solid var(--warning-border);
   border-radius: 5px;
   padding: 5px 10px;
 }
 .supplier-models {
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border);
 }
 .supplier-models-label {
   font-size: 11px;
   font-weight: 600;
-  color: #9ca3af;
+  color: var(--text-faint);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 6px;
@@ -5278,7 +5304,7 @@ async function signOutEverywhere() {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: #e5e7eb;
+  background: var(--bg-active);
   border-radius: 4px;
   padding: 2px 8px;
   font-size: 12px;
@@ -5289,12 +5315,12 @@ async function signOutEverywhere() {
   border: none;
   padding: 0;
   cursor: pointer;
-  color: #9ca3af;
+  color: var(--text-faint);
   font-size: 11px;
   line-height: 1;
 }
 .model-chip-del:hover {
-  color: #ef4444;
+  color: var(--danger);
 }
 .model-add-row {
   display: flex;
@@ -5313,10 +5339,10 @@ async function signOutEverywhere() {
  * the uninstall button came out as blank red blocks.
  */
 .btn-ghost.btn-danger {
-  color: #ef4444;
+  color: var(--danger);
 }
 .btn-ghost.btn-danger:hover {
-  color: #dc2626;
+  color: var(--danger);
 }
 
 /*
@@ -5390,7 +5416,7 @@ async function signOutEverywhere() {
 
 .proxy-fold-note {
   font-size: 11px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 /* A provider can leave dozens of rows, so the open list scrolls in place rather than
@@ -5403,9 +5429,9 @@ async function signOutEverywhere() {
 
 .proxy-edit-panel {
   padding: 10px;
-  border: 1px solid #e8e8f0;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #fafafa;
+  background: var(--bg-subtle);
   margin-bottom: 4px;
   display: flex;
   flex-direction: column;
@@ -5421,14 +5447,20 @@ async function signOutEverywhere() {
 /* Destructive, but not a call to action: red lettering rather than a red slab, so it
    reads as available without competing with the download and test buttons above it. */
 .cf-uninstall-btn {
-  color: #c0392b;
+  color: var(--danger);
   background: transparent;
-  border: 1px solid #f0d0cd;
+  border: 1px solid var(--danger-border);
 }
 
 .cf-uninstall-btn:not(:disabled):hover {
-  background: #fdf1f0;
-  border-color: #e0a9a4;
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
   opacity: 1;
+}
+
+.theme-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 </style>

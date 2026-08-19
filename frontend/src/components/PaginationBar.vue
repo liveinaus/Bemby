@@ -80,7 +80,7 @@ function onSizeChange(value: string) {
   padding: 10px 14px 2px;
 }
 .pagination-total {
-  color: var(--text-secondary, #888);
+  color: var(--text-secondary, var(--text-muted));
   font-size: 0.85rem;
 }
 .pagination-controls {

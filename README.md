@@ -92,6 +92,7 @@ Bemby可签到市面上所有的服（需要正确配置）。无论是TG内，�
 - **登录验证码** — 管理员登录页面使用图形验证码
 - **移动端友好** — 响应式布局，侧边栏折叠为汉堡菜单；表格自适应隐藏次要列；弹窗固定于顶部并使用动态视口高度避免被浏览器界面遮挡；任务列表的操作按钮在移动端合并为单一 ⋯ 按钮，点击后从屏幕底部弹出操作菜单
 - **界面状态持久化** — 任务和日志页面的筛选条件、列排序方式在刷新后自动恢复；登录后自动跳回上次访问的页面
+- **浅色 / 深色主题** — 侧边栏与设置页可在浅色、深色、跟随系统三种模式间切换；选择保存在浏览器本地并在页面加载前生效（无闪白）；"跟随系统"会实时跟随系统的深浅色切换，内嵌的小程序也会收到对应的主题色
 - **Web 管理门户** — Vue 3 单页应用，用于管理账号、任务、设置和查看日志
 - **持久化存储** — SQLite 数据库，重启和容器升级后数据不丢失
 
@@ -445,6 +446,7 @@ A self-hosted automation tool for managing daily Telegram bot check-ins (签到)
 - **Developer logs** — enable "Show developer logs" in the log view to see timing breakdowns (connect, reply latency, button click, button response), AI prompt and response (including responses from each retry attempt), error type, and per-step metadata; a flask icon on any AI step opens a debug panel where you can edit the prompt and re-run the AI call live
 - **Login CAPTCHA** — SVG CAPTCHA on the admin login page
 - **Mobile-friendly** — responsive layout, sidebar collapses to a hamburger menu; tables hide secondary columns on narrow screens; modals pin to the top and use dynamic viewport height to stay clear of browser chrome; job action buttons merge into a single ⋯ button on mobile, opening a bottom action sheet
+- **Light / dark theme** — switch between light, dark and system modes from the sidebar or the settings page; the choice is stored in the browser and applied before first paint, so there is no white flash; "system" follows the OS preference live, and embedded Mini Apps are handed the matching theme colours
 - **UI state persistence** — filter selections and column sort order are restored automatically on refresh; login redirects back to the last visited page
 - **Web admin portal** — Vue 3 SPA for managing accounts, jobs, settings, and viewing logs
 - **Persistent storage** — SQLite database, survives restarts and container upgrades

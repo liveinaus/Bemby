@@ -14,7 +14,7 @@
         {{ anyOpen ? t("jobs.web.collapseAll") : t("jobs.web.expandAll") }}
       </button>
     </div>
-    <div style="font-size: 11px; color: #aaa; margin: -2px 0 6px">
+    <div style="font-size: 11px; color: var(--text-faint); margin: -2px 0 6px">
       {{ heading.hint }}
     </div>
 
@@ -95,7 +95,7 @@
           class="form-input"
           :placeholder="t('jobs.web.selectorPlaceholder')"
         />
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{
             s.type === "web_press"
               ? t("jobs.web.pressSelectorHint")
@@ -142,7 +142,7 @@
         >
           <i class="fa-solid fa-plus"></i> {{ t("jobs.web.addVar") }}
         </button>
-        <div style="font-size: 11px; color: #aaa; margin-top: 6px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 6px">
           {{ t("jobs.web.setHint") }}
         </div>
       </div>
@@ -185,7 +185,7 @@
             />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{
             s.type === "web_data_pick"
               ? t("jobs.web.dataPickTargetHint")
@@ -200,7 +200,7 @@
             class="form-input"
             :placeholder="t('jobs.web.readNamePlaceholder')"
           />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.dataReadHint") }}
           </div>
         </div>
@@ -225,7 +225,7 @@
               />
             </div>
           </div>
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.dataPickHint") }}
           </div>
         </div>
@@ -239,7 +239,7 @@
             style="resize: vertical"
             :placeholder="t('jobs.web.dataValuePlaceholder')"
           />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.dataSaveHint") }}
           </div>
         </div>
@@ -249,7 +249,7 @@
             <input v-model="s.optional" type="checkbox" />
             {{ t("jobs.web.labelDataOptional") }}
           </label>
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.dataOptionalHint") }}
           </div>
         </template>
@@ -270,7 +270,7 @@
               {{ t("jobs.web.emailSourceMsApi") }}
             </option>
           </select>
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{
               msApiEnabled
                 ? t("jobs.web.emailSourceHint")
@@ -297,7 +297,7 @@
             />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.emailCodeHint") }}
         </div>
 
@@ -308,7 +308,7 @@
             class="form-input"
             :placeholder="t('jobs.web.appPasswordPlaceholder')"
           />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.appPasswordHint") }}
           </div>
         </div>
@@ -320,7 +320,7 @@
             class="form-input"
             :placeholder="t('jobs.web.poolTypePlaceholder')"
           />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.poolTypeHint") }}
           </div>
         </div>
@@ -343,7 +343,7 @@
             />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.mailFilterHint") }}
         </div>
 
@@ -355,14 +355,14 @@
               class="form-input"
               :placeholder="t('jobs.web.codePatternPlaceholder')"
             />
-            <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
               {{ t("jobs.web.codePatternHint") }}
             </div>
           </div>
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelMailWait") }}</label>
             <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
-            <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
               {{ t("jobs.web.mailWaitHint") }}
             </div>
           </div>
@@ -389,7 +389,7 @@
             />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.emailLeaseHint") }}
         </div>
       </div>
@@ -422,7 +422,7 @@
             </select>
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.handoverHint") }}
         </div>
       </div>
@@ -452,7 +452,7 @@
             <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.otpSecretHint") }}
         </div>
       </div>
@@ -465,7 +465,7 @@
           class="form-input"
           :placeholder="t('jobs.web.totpSecretPlaceholder')"
         />
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.totpSecretHint") }}
         </div>
         <div class="form-row" style="margin-top: 8px">
@@ -486,7 +486,7 @@
               min="0"
               step="1000"
             />
-            <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
               {{ t("jobs.web.totpMinValidHint") }}
             </div>
           </div>
@@ -502,7 +502,7 @@
           style="resize: vertical"
           :placeholder="t('jobs.web.notifyTextPlaceholder')"
         />
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.notifyTextHint") }}
         </div>
         <div class="form-group" style="margin-top: 8px">
@@ -512,7 +512,7 @@
             class="form-input"
             :placeholder="t('jobs.web.notifyTargetPlaceholder')"
           />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.notifyTargetHint") }}
           </div>
         </div>
@@ -521,7 +521,7 @@
       <div v-if="s.type === 'web_hold'" style="margin-top: 8px">
         <label class="form-label">{{ t("jobs.web.labelHoldMs") }}</label>
         <input v-model.number="s.holdMs" class="form-input" type="number" min="0" step="500" />
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.holdHint") }}
         </div>
       </div>
@@ -547,7 +547,7 @@
           <label class="form-label">{{ t("jobs.web.labelHoldMs") }}</label>
           <input v-model.number="s.holdMs" class="form-input" type="number" min="0" step="500" />
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.holdOffsetHint") }}
         </div>
       </div>
@@ -559,7 +559,7 @@
           class="form-input"
           :placeholder="t('jobs.web.dragToPlaceholder')"
         />
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.dragToHint") }}
         </div>
         <div v-if="!s.toSelector" class="form-row" style="margin-top: 8px">
@@ -575,7 +575,7 @@
         <div class="form-group" style="margin-top: 8px">
           <label class="form-label">{{ t("jobs.web.labelDragDuration") }}</label>
           <input v-model.number="s.durationMs" class="form-input" type="number" min="0" step="100" />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.dragDurationHint") }}
           </div>
         </div>
@@ -591,7 +591,7 @@
           :list="keyListId"
           :placeholder="t('jobs.web.keyPlaceholder')"
         />
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.keyHint") }}
         </div>
       </div>
@@ -603,7 +603,7 @@
           class="form-input"
           :placeholder="t('jobs.web.optionPlaceholder')"
         />
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.optionHint") }}
         </div>
       </div>
@@ -615,7 +615,7 @@
           class="form-input"
           :placeholder="t('jobs.web.textPlaceholder')"
         />
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.textHint") }}
         </div>
       </div>
@@ -624,7 +624,7 @@
       <div v-if="s.type === 'web_goto'">
         <label class="form-label">{{ t("jobs.web.labelUrl") }}</label>
         <input v-model.trim="s.url" class="form-input" :placeholder="t('jobs.web.gotoPlaceholder')" />
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.gotoHint") }}
         </div>
       </div>
@@ -661,7 +661,7 @@
             <input v-model.number="s.maxChars" class="form-input" type="number" min="0" step="100" />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{
             s.type === "web_read"
               ? t("jobs.web.readHint")
@@ -677,7 +677,7 @@
         </label>
         <div
           v-if="s.type === 'web_read'"
-          style="font-size: 11px; color: #aaa; margin-top: 3px"
+          style="font-size: 11px; color: var(--text-faint); margin-top: 3px"
         >
           {{ t("jobs.web.readSecretHint") }}
         </div>
@@ -699,7 +699,7 @@
             <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.tgCodeHint") }}
         </div>
         <div class="form-group" style="margin-top: 8px">
@@ -709,7 +709,7 @@
             class="form-input"
             :placeholder="t('jobs.web.tgCodePatternPlaceholder')"
           />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.tgCodePatternHint") }}
           </div>
         </div>
@@ -735,7 +735,7 @@
             />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.tgSendHint") }}
         </div>
         <div class="form-row" style="margin-top: 8px">
@@ -760,7 +760,7 @@
             <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.tgSendReplyHint") }}
         </div>
       </div>
@@ -785,7 +785,7 @@
             />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.tgApiSaveHint") }}
         </div>
         <div class="form-row" style="margin-top: 8px">
@@ -807,7 +807,7 @@
             />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.apiCopyHint") }}
         </div>
       </div>
@@ -832,7 +832,7 @@
             />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.msOauthHint") }}
         </div>
 
@@ -854,7 +854,7 @@
             />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.msClientHint") }}
         </div>
 
@@ -865,7 +865,7 @@
             class="form-input"
             :placeholder="t('jobs.web.msRedirectPlaceholder')"
           />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.msRedirectHint") }}
           </div>
         </div>
@@ -877,7 +877,7 @@
             class="form-input"
             :placeholder="t('jobs.web.msScopePlaceholder')"
           />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.msScopeHint") }}
           </div>
         </div>
@@ -909,7 +909,7 @@
             />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.msSaveHint") }}
         </div>
       </div>
@@ -922,7 +922,7 @@
             class="form-input"
             :placeholder="t('jobs.web.containsTextPlaceholder')"
           />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.containsTextHint") }}
           </div>
         </div>
@@ -934,7 +934,7 @@
               class="form-input"
               :placeholder="t('jobs.web.patternPlaceholder')"
             />
-            <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
               {{ t("jobs.web.patternHint") }}
             </div>
           </div>
@@ -944,14 +944,14 @@
               <option value="first">{{ t("jobs.web.chooseFirst") }}</option>
               <option value="random">{{ t("jobs.web.chooseRandom") }}</option>
             </select>
-            <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
               {{ t("jobs.web.chooseHint") }}
             </div>
           </div>
           <div v-else class="form-group">
             <label class="form-label">{{ t("jobs.web.labelLimit") }}</label>
             <input v-model.number="s.limit" class="form-input" type="number" min="0" step="1" />
-            <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+            <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
               {{ t("jobs.web.limitHint") }}
             </div>
           </div>
@@ -961,7 +961,7 @@
           <input v-model="s.skipUsed" type="checkbox" />
           {{ t("jobs.web.labelSkipUsed") }}
         </label>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.skipUsedHint") }}
         </div>
       </div>
@@ -1014,7 +1014,7 @@
             :placeholder="t('jobs.web.wordsPlaceholder')"
           />
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ s.check === "value" ? t("jobs.web.ifValueHint") : t("jobs.web.ifHint") }}
         </div>
 
@@ -1022,7 +1022,7 @@
           <input v-model="s.negate" type="checkbox" />
           {{ t("jobs.web.labelNegate") }}
         </label>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.negateHint") }}
         </div>
 
@@ -1030,7 +1030,7 @@
         <div v-if="s.check !== 'value'" style="margin-top: 8px">
           <label class="form-label">{{ t("jobs.web.labelIfWait") }}</label>
           <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.ifWaitHint") }}
           </div>
         </div>
@@ -1059,7 +1059,7 @@
         <div>
           <label class="form-label">{{ t("jobs.web.labelTimes") }}</label>
           <input v-model.number="s.times" class="form-input" type="number" min="1" step="1" />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.timesHint") }}
           </div>
         </div>
@@ -1067,7 +1067,7 @@
         <div style="margin-top: 8px">
           <label class="form-label">{{ t("jobs.web.labelBetween") }}</label>
           <input v-model.number="s.betweenMs" class="form-input" type="number" min="0" step="1000" />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.betweenHint") }}
           </div>
         </div>
@@ -1076,7 +1076,7 @@
           <input v-model="s.continueOnError" type="checkbox" />
           {{ t("jobs.web.labelContinueOnError") }}
         </label>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.continueOnErrorHint") }}
         </div>
 
@@ -1107,14 +1107,14 @@
             <input v-model.number="s.max" class="form-input" type="number" min="0" step="1" />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.forEachHint") }}
         </div>
 
         <div style="margin-top: 8px">
           <label class="form-label">{{ t("jobs.web.labelBetween") }}</label>
           <input v-model.number="s.betweenMs" class="form-input" type="number" min="0" step="1000" />
-          <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.betweenHint") }}
           </div>
         </div>
@@ -1123,7 +1123,7 @@
           <input v-model="s.continueOnError" type="checkbox" />
           {{ t("jobs.web.labelContinueOnError") }}
         </label>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.continueOnErrorHint") }}
         </div>
 
@@ -1152,7 +1152,7 @@
           s.type === "web_delay" ? t("jobs.web.labelDelay") : t("jobs.web.labelTimeout")
         }}</label>
         <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{
             s.type === "web_delay" ? t("jobs.web.delayHint") : t("jobs.web.timeoutHint")
           }}
@@ -1170,16 +1170,16 @@
             <input v-model.number="s.scrollY" class="form-input" type="number" step="100" />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.scrollHint") }}
         </div>
       </div>
 
-      <div v-if="s.type === 'web_turnstile'" style="font-size: 11px; color: #aaa">
+      <div v-if="s.type === 'web_turnstile'" style="font-size: 11px; color: var(--text-faint)">
         {{ t("jobs.web.turnstileHint") }}
       </div>
 
-      <div v-if="s.type === 'web_back'" style="font-size: 11px; color: #aaa">
+      <div v-if="s.type === 'web_back'" style="font-size: 11px; color: var(--text-faint)">
         {{ t("jobs.web.backHint") }}
       </div>
 
@@ -1201,7 +1201,7 @@
           style="resize: vertical"
           :placeholder="hintPlaceholder(s.type)"
         />
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ hintHint(s.type) }}
         </div>
       </div>
@@ -1218,21 +1218,21 @@
             <input v-model.number="s.max" class="form-input" type="number" min="0" max="20" step="1" />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.clickGapHint") }}
         </div>
         <label class="form-checkbox-label" style="margin-top: 8px">
           <input v-model="s.refine" type="checkbox" />
           {{ t("jobs.web.labelRefinePoints") }}
         </label>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.refinePointsHint") }}
         </div>
         <label class="form-checkbox-label" style="margin-top: 8px">
           <input v-model="s.zoom" type="checkbox" />
           {{ t("jobs.web.labelZoomPanel") }}
         </label>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.zoomPanelHint") }}
         </div>
       </div>
@@ -1244,7 +1244,7 @@
           class="form-input"
           :placeholder="t('jobs.web.aiTextPlaceholder')"
         />
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.aiTextHint") }}
         </div>
       </div>
@@ -1259,7 +1259,7 @@
           style="resize: vertical"
           :placeholder="t('jobs.web.writeHintPlaceholder')"
         />
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.writeHintHint") }}
         </div>
         <div class="form-row" style="margin-top: 8px">
@@ -1276,7 +1276,7 @@
             />
           </div>
         </div>
-        <div style="font-size: 11px; color: #aaa; margin-top: 3px">
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.writeVarNameHint") }}
         </div>
       </div>
@@ -1538,12 +1538,12 @@ function moveVar(step: WebStepForm, i: number, by: number) {
 
 <style scoped>
 .web-step-card {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;
   margin-bottom: 8px;
   /* The parent action card is #fafafa, so these sit a shade lighter to read as nested */
-  background: #fff;
+  background: var(--bg-card);
 }
 
 .web-step-header {
@@ -1571,7 +1571,7 @@ function moveVar(step: WebStepForm, i: number, by: number) {
 .web-fold {
   border: none;
   background: none;
-  color: #9ca3af;
+  color: var(--text-faint);
   cursor: pointer;
   padding: 0 2px;
   font-size: 11px;
@@ -1580,14 +1580,14 @@ function moveVar(step: WebStepForm, i: number, by: number) {
 }
 
 .web-fold:hover {
-  color: #4a9eff;
+  color: var(--info);
 }
 
 /* A folded step's one line. Clickable, since a summary that says the wrong thing is exactly
    when the fields are wanted back */
 .web-step-summary {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-tertiary);
   cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1596,14 +1596,14 @@ function moveVar(step: WebStepForm, i: number, by: number) {
 }
 
 .web-step-summary:hover {
-  color: #374151;
+  color: var(--text-secondary);
 }
 
 /* A loop's own steps, set in from the loop's fields so the nesting reads at a glance */
 .web-loop-body {
   margin-top: 10px;
   padding-left: 10px;
-  border-left: 2px solid #4a9eff;
+  border-left: 2px solid var(--info);
 }
 
 /* The two arms of a condition, told apart by colour: taken on yes, taken on no */
@@ -1613,19 +1613,19 @@ function moveVar(step: WebStepForm, i: number, by: number) {
 }
 
 .web-branch-then {
-  border-left: 2px solid #2e9e5b;
+  border-left: 2px solid var(--success);
 }
 
 .web-branch-else {
-  border-left: 2px solid #d98324;
+  border-left: 2px solid var(--warning);
 }
 
 /* A step this build cannot edit: warned about rather than hidden, since it still runs */
 .web-step-unknown {
   font-size: 11px;
-  color: #b45309;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
+  color: var(--warning-soft-text);
+  background: var(--warning-soft);
+  border: 1px solid var(--warning-border);
   border-radius: 4px;
   padding: 6px 8px;
 }
@@ -1634,8 +1634,8 @@ function moveVar(step: WebStepForm, i: number, by: number) {
   min-width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #4a9eff;
-  color: #fff;
+  background: var(--info);
+  color: var(--text-on-accent);
   font-size: 11px;
   font-weight: 600;
   display: inline-flex;

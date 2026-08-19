@@ -2923,13 +2923,13 @@ onMounted(() => {
 
 <style scoped>
 .help-para {
-  color: #555;
+  color: var(--text-body);
   line-height: 1.7;
   margin-bottom: 10px;
 }
 
 .help-steps {
-  color: #555;
+  color: var(--text-body);
   line-height: 1.9;
   padding-left: 20px;
   margin-top: 10px;
@@ -2945,14 +2945,14 @@ onMounted(() => {
   padding: 7px 10px;
   vertical-align: top;
   font-size: 13px;
-  border-bottom: 1px solid #f0f0f0;
-  color: #444;
+  border-bottom: 1px solid var(--border-faint);
+  color: var(--text-secondary);
 }
 
 .help-table td:first-child {
   font-weight: 600;
   width: 180px;
-  color: #222;
+  color: var(--text-heading);
   white-space: nowrap;
 }
 
@@ -2965,14 +2965,14 @@ onMounted(() => {
 
 .help-note {
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
   line-height: 1.6;
   margin-top: 6px;
 }
 
 code {
   font-family: "SFMono-Regular", Consolas, monospace;
-  background: #f0f2f5;
+  background: var(--bg-muted);
   padding: 1px 5px;
   border-radius: 3px;
   font-size: 12px;

@@ -113,19 +113,19 @@ function fmtTime(iso: string) {
   gap: 8px;
   padding: 4px 0 6px;
   margin-bottom: 6px;
-  background: #fff;
-  border-bottom: 1px solid #eef0f4;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-faint);
   z-index: 1;
 }
 .sched-day-label {
   font-size: 12px;
   font-weight: 600;
-  color: #444;
+  color: var(--text-secondary);
 }
 .sched-day-count {
   font-size: 11px;
-  color: #999;
-  background: #f2f3f6;
+  color: var(--text-faint);
+  background: var(--bg-inset);
   border-radius: 10px;
   padding: 0 7px;
 }
@@ -142,23 +142,23 @@ function fmtTime(iso: string) {
   font-size: 12.5px;
   padding: 3px 6px 3px 9px;
   border-radius: 6px;
-  background: #f5f6f8;
+  background: var(--bg-inset);
   border: 1px solid transparent;
-  border-left: 3px solid #c9ced8;
+  border-left: 3px solid var(--border-strong);
 }
 .sched-type-icon {
   font-size: 10.5px;
-  color: #8b93a3;
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 .sched-time {
   font-weight: 600;
-  color: #4361ee;
+  color: var(--primary);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
 .sched-name {
-  color: #444;
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -169,12 +169,12 @@ function fmtTime(iso: string) {
   padding: 0 2px;
   font-size: 11px;
   line-height: 1;
-  color: #b6bcc8;
+  color: var(--text-disabled);
   cursor: pointer;
   flex-shrink: 0;
 }
 .sched-skip:hover:not(:disabled) {
-  color: #e63946;
+  color: var(--danger);
 }
 .sched-skip:disabled {
   cursor: default;
@@ -182,41 +182,41 @@ function fmtTime(iso: string) {
 
 /* Colour by job type: the left edge and the icon, so the chip stays readable */
 .sched-type-checkin {
-  border-left-color: #4361ee;
+  border-left-color: var(--primary);
 }
 .sched-type-checkin .sched-type-icon {
-  color: #4361ee;
+  color: var(--primary);
 }
 .sched-type-embywatch {
-  border-left-color: #8b5cf6;
+  border-left-color: var(--purple);
 }
 .sched-type-embywatch .sched-type-icon {
-  color: #8b5cf6;
+  color: var(--purple);
 }
 .sched-type-custom {
-  border-left-color: #0d9488;
+  border-left-color: var(--success);
 }
 .sched-type-custom .sched-type-icon {
-  color: #0d9488;
+  color: var(--success);
 }
 .sched-type-autoreg {
-  border-left-color: #d97706;
+  border-left-color: var(--warning);
 }
 .sched-type-autoreg .sched-type-icon {
-  color: #d97706;
+  color: var(--warning);
 }
 
 .sched-chip-next {
-  background: #eef1ff;
-  border-color: #c7d0ff;
+  background: var(--primary-soft);
+  border-color: var(--primary-border);
 }
 .sched-chip-next .sched-name {
-  color: #2c3a99;
+  color: var(--primary-soft-text);
   font-weight: 600;
 }
 .sched-empty {
   font-size: 13px;
-  color: #999;
+  color: var(--text-faint);
   text-align: center;
   padding: 16px 0;
 }

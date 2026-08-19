@@ -166,32 +166,32 @@ async function removeIcon(name: string) {
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  background: #fff;
-  border: 1px solid #d8dde3;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
   cursor: pointer;
-  color: #374151;
+  color: var(--text-secondary);
 }
 
 .icon-trigger:hover {
-  border-color: #9ca3af;
+  border-color: var(--border-strong);
 }
 
 .icon-trigger-caret {
   font-size: 10px;
-  color: #9ca3af;
+  color: var(--text-faint);
 }
 
 .icon-clear {
   background: none;
   border: none;
-  color: #9ca3af;
+  color: var(--text-faint);
   cursor: pointer;
   padding: 4px;
 }
 
 .icon-clear:hover {
-  color: #ef4444;
+  color: var(--danger);
 }
 
 .icon-panel {
@@ -200,8 +200,8 @@ async function removeIcon(name: string) {
   left: 0;
   z-index: 60;
   width: 296px;
-  background: #fff;
-  border: 1px solid #e3e7eb;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
 }
@@ -211,17 +211,17 @@ async function removeIcon(name: string) {
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px;
-  border-bottom: 1px solid #f0f2f4;
+  border-bottom: 1px solid var(--border-faint);
   font-size: 13px;
   font-weight: 600;
-  color: #374151;
+  color: var(--text-secondary);
 }
 
 .icon-panel-close {
   background: none;
   border: none;
   cursor: pointer;
-  color: #9ca3af;
+  color: var(--text-faint);
 }
 
 .icon-scroll {
@@ -237,12 +237,12 @@ async function removeIcon(name: string) {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #9ca3af;
+  color: var(--text-faint);
   margin: 8px 0 6px;
 }
 
 .icon-group-count {
-  color: #c4c9d0;
+  color: var(--text-disabled);
 }
 
 .icon-grid {
@@ -257,22 +257,22 @@ async function removeIcon(name: string) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f7f8fa;
+  background: var(--bg-inset);
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
-  color: #4b5563;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
 .icon-cell:hover {
-  background: #eef1f5;
+  background: var(--bg-inset);
 }
 
 .icon-cell-active {
-  border-color: #3390ec;
-  background: #e8f2fd;
-  color: #3390ec;
+  border-color: var(--info);
+  background: var(--primary-soft);
+  color: var(--info);
 }
 
 .icon-cell img {
@@ -290,8 +290,8 @@ async function removeIcon(name: string) {
   display: none;
   align-items: center;
   justify-content: center;
-  background: #ef4444;
-  color: #fff;
+  background: var(--danger);
+  color: var(--text-on-accent);
   border-radius: 50%;
   font-size: 8px;
 }
@@ -301,21 +301,21 @@ async function removeIcon(name: string) {
 }
 
 .icon-cell-upload {
-  border: 1px dashed #cbd2da;
-  background: #fff;
-  color: #9ca3af;
+  border: 1px dashed var(--border-strong);
+  background: var(--bg-card);
+  color: var(--text-faint);
 }
 
 .icon-error {
   margin-top: 8px;
   font-size: 12px;
-  color: #b91c1c;
+  color: var(--danger-soft-text);
 }
 
 .icon-hint {
   margin-top: 8px;
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--text-faint);
   line-height: 1.5;
 }
 </style>
