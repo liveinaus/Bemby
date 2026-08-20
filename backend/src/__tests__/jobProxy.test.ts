@@ -73,6 +73,35 @@ describe("makeJobProxyResolver", () => {
     });
   });
 
+  it("flags an exit that has been deleted, since its id reads like a name", () => {
+    const resolve = makeJobProxyResolver();
+    // What the jobs page showed for this was a bare id in the proxy column, which looks
+    // exactly like a configured exit with an odd name -- the account appeared to have a
+    // proxy nobody had set.
+    expect(resolve(row({ account_proxy_id: "gone" }))).toEqual({
+      kind: "proxy",
+      label: "gone",
+      source: "account",
+      missing: true,
+    });
+  });
+
+  it("flags the account's deleted exit apart from the job's own working one", () => {
+    const resolve = makeJobProxyResolver();
+    const result = resolve(row({ config: cfg("p1"), account_proxy_id: "gone" }));
+
+    // The job's browser exit is fine; it is Telegram's that has gone, and they are set on
+    // different pages, so one flag must not stand in for the other.
+    expect(result).toMatchObject({
+      kind: "proxy",
+      label: "Sydney",
+      source: "job",
+      tgLabel: "gone",
+      tgMissing: true,
+    });
+    expect(result.missing).toBeUndefined();
+  });
+
   it("reads direct as direct, whether it is unset or picked outright", () => {
     const resolve = makeJobProxyResolver();
     expect(resolve(row())).toEqual({ kind: "direct", label: "", source: "account" });

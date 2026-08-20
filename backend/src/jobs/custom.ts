@@ -68,7 +68,12 @@ import { fillSecrets, missingSecretRefs } from "../db/secrets";
 import { connectWithTimeout, destroyQuietly } from "../tg/clientTimeout";
 import { displayForRun } from "./runDisplays";
 
-import type { CustomAction, CustomConfig, CustomStepLog } from "../types";
+import type {
+  CustomAction,
+  CustomCondition,
+  CustomConfig,
+  CustomStepLog,
+} from "../types";
 
 export type CustomJobLog = {
   steps: CustomStepLog[];
@@ -1016,7 +1021,7 @@ export function stepNeedingBot(
   botUsername: string,
 ): { at: number; type: CustomAction["type"] } | null {
   if (botUsername.trim()) return null;
-  const at = actions.findIndex((a) => {
+  const needsBot = (a: CustomAction): boolean => {
     switch (a.type) {
       // Both need to know whose: one hunts a button in a conversation, the other asks a
       // bot what it pins beside the composer. Neither has anything to work from otherwise.
@@ -1029,12 +1034,53 @@ export function stepNeedingBot(
       case "subscribe_channel":
       case "open_url":
       case "delay":
+      case "end_job":
+      case "fail_job":
         return false;
+      // The check needs one only to read a bot's chat; whatever its arms hold is asked the
+      // same question, since a branch runs as ordinary steps once it is taken.
+      case "if_check": {
+        const armNeedsBot = (c: CustomCondition) =>
+          c.check === "reply_text" && !c.contact?.trim();
+        return (
+          armNeedsBot(a) ||
+          (a.elseIfs ?? []).some(armNeedsBot) ||
+          branchesOf(a).some((branch) => branch.some(needsBot))
+        );
+      }
       default:
         return true;
     }
-  });
+  };
+  const at = actions.findIndex(needsBot);
   return at >= 0 ? { at, type: actions[at].type } : null;
+}
+
+/** Every arm of a check, the `else` included, so a walk can reach what they hold. */
+function branchesOf(
+  action: Extract<CustomAction, { type: "if_check" }>,
+): CustomAction[][] {
+  return [
+    action.then ?? [],
+    ...(action.elseIfs ?? []).map((arm) => arm.then ?? []),
+    action.otherwise ?? [],
+  ];
+}
+
+/** How deep checks may nest, so a config cannot fold itself into something unreadable. */
+const MAX_ACTION_DEPTH = 3;
+
+/**
+ * Throws when checks nest past the cap. Done up front rather than part-way through a run:
+ * a chain that would stop halfway is better refused before anything is sent.
+ */
+export function assertActionDepth(actions: CustomAction[], depth = 0): void {
+  for (const action of actions) {
+    if (action.type !== "if_check") continue;
+    if (depth >= MAX_ACTION_DEPTH)
+      throw new Error(`Checks cannot be nested more than ${MAX_ACTION_DEPTH} deep.`);
+    for (const branch of branchesOf(action)) assertActionDepth(branch, depth + 1);
+  }
 }
 
 export async function runCustom(
@@ -1068,6 +1114,8 @@ export async function runCustom(
     action.proxyId
       ? { proxyId: action.proxyId, proxyPool: action.proxyPool }
       : { proxyId: jobProxy.proxyId, proxyPool: jobProxy.pool };
+
+  assertActionDepth(config.actions ?? []);
 
   const missing = stepNeedingBot(config.actions ?? [], botUsername);
   if (missing) {
@@ -1108,11 +1156,91 @@ export async function runCustom(
       // contact handle -- the scope anchor for click_message_button.
       const contactAnchors = new Map<string, SendAnchor>();
       let jobAttemptFailed = false;
+      // Set by `end_job`: the chain is finished and the run counts as a success, so neither
+      // the actions left nor another job attempt should follow.
+      let jobDone = false;
+      // How the last action that was not itself a check came out, which `last_action` reads.
+      // Null until something has run, so a check placed first says so rather than guessing.
+      let lastActionOk: boolean | null = null;
 
-      for (let i = 0; i < config.actions.length; i++) {
+      /**
+       * Answers one arm of an `if_check`, and says what it looked at so the log reads as the
+       * question that was asked rather than just its answer.
+       */
+      const evaluateCondition = async (
+        cond: CustomCondition,
+      ): Promise<{ met: boolean; what: string }> => {
+        if (cond.check === "last_action") {
+          const wanted = cond.outcome ?? "failed";
+          if (lastActionOk === null)
+            return { met: false, what: `the step before came out ${wanted} (nothing ran before it)` };
+          return {
+            met: wanted === "succeeded" ? lastActionOk : !lastActionOk,
+            what: `the step before came out ${wanted}`,
+          };
+        }
+
+        const wanted = cond.text?.trim() ?? "";
+        if (!wanted) throw new Error("No words given to look for in the reply");
+        const contact = cond.contact?.trim();
+        const peer = contact || botUsername;
+        if (!peer)
+          throw new Error("No contact to read a reply from, and the job has no bot");
+        const what = `"${wanted}" in ${contact ? `@${contact}'s reply` : "the reply"}`;
+
+        const anchor = contact ? contactAnchors.get(contact) : sendAnchor;
+        const minId = await resolveScopeFloor(
+          client,
+          peer,
+          anchor?.msgId ?? 0,
+          cond.scope,
+        );
+
+        let msgs: Api.Message[];
+        if (cond.waitMs && cond.waitMs > 0) {
+          // A wait that runs out is the condition not being met, not a failure: deciding
+          // which arm to take is the whole job of this step.
+          msgs = await waitForReply(
+            client,
+            peer,
+            cond.waitMs,
+            wanted,
+            undefined,
+            signal,
+            minId,
+          ).catch((err: any) => {
+            if (err?.message === "Job cancelled") throw err;
+            return [] as Api.Message[];
+          });
+        } else if (!contact && lastMessages.length) {
+          // What a `wait_reply` or a button click already captured, so the usual "check what
+          // the bot just said" costs no round trip
+          msgs = lastMessages;
+        } else {
+          msgs = (await client
+            .getMessages(peer, { limit: 10 })
+            .catch(() => [])) as Api.Message[];
+          msgs = msgs.filter((m) => m && !m.out && m.id >= minId);
+        }
+        if (msgs.length && !contact) lastMessages = msgs;
+        return { met: msgs.some((m) => matchesAnyLabel(m.message ?? "", wanted)), what };
+      };
+
+      // Actions still to run this attempt. The arm an `if_check` takes is spliced in where
+      // the check sat, so one flat loop runs a nested chain -- the alternative, recursing
+      // through the switch below, would have to carry all the conversation state above with
+      // it. `config.actions` is never touched, so the next attempt starts from the config.
+      const queue: CustomAction[] = [...(config.actions ?? [])];
+      // Where each queued action sits in the nesting, for the log to indent by
+      const depths: number[] = queue.map(() => 0);
+      let stepSeq = 0;
+
+      for (let i = 0; i < queue.length; i++) {
         if (signal?.aborted) throw new Error("Job cancelled");
 
-        const action = config.actions[i];
+        const action = queue[i];
+        const depth = depths[i] ?? 0;
+        const stepNo = ++stepSeq;
         const actionMaxRetries =
           action.type !== "delay" && "maxRetries" in action
             ? (action.maxRetries ?? 0)
@@ -1126,9 +1254,10 @@ export async function runCustom(
           actionAttempt++
         ) {
           const step: CustomStepLog = {
-            step: i + 1,
+            step: stepNo,
             actionType: action.type,
             label: "",
+            ...(depth > 0 ? { depth } : {}),
             ...(jobMaxRetries > 1 ? { jobAttempt } : {}),
             ...(actionMaxRetries > 0 ? { actionAttempt } : {}),
           };
@@ -1341,6 +1470,49 @@ export async function runCustom(
                 });
                 step.result = "Done";
                 break;
+              }
+
+              case "if_check": {
+                const arms: Array<{ cond: CustomCondition; then?: CustomAction[] }> = [
+                  { cond: action, then: action.then },
+                  ...(action.elseIfs ?? []).map((arm) => ({ cond: arm, then: arm.then })),
+                ];
+                const asked: string[] = [];
+                let taken: { at: number; actions: CustomAction[] } | null = null;
+                for (let a = 0; a < arms.length && !taken; a++) {
+                  const { cond } = arms[a];
+                  const { met, what } = await evaluateCondition(cond);
+                  asked.push(cond.negate ? `not ${what}` : what);
+                  if (cond.negate ? !met : met)
+                    taken = { at: a, actions: arms[a].then ?? [] };
+                }
+                const branch = taken ? taken.actions : (action.otherwise ?? []);
+                const which = !taken
+                  ? "else"
+                  : taken.at === 0
+                    ? "then"
+                    : `else if ${taken.at}`;
+                step.label = `Check ${asked.join(", then ")}`;
+                step.result = branch.length
+                  ? `Took the ${which} branch, running ${branch.length} action(s)`
+                  : `Took the ${which} branch, which holds nothing`;
+                if (branch.length) {
+                  queue.splice(i + 1, 0, ...branch);
+                  depths.splice(i + 1, 0, ...branch.map(() => depth + 1));
+                }
+                break;
+              }
+
+              case "end_job": {
+                step.label = "End the job as a success";
+                step.result = action.reason?.trim() || "Chain ended early";
+                jobDone = true;
+                break;
+              }
+
+              case "fail_job": {
+                step.label = "Fail the job";
+                throw new Error(action.reason?.trim() || "Chain failed by a fail step");
               }
 
               case "click_button": {
@@ -3392,16 +3564,27 @@ export async function runCustom(
               step.aiResponse = err.aiResponse;
 
             if (actionAttempt > actionMaxRetries) {
-              // All action retries exhausted -- fail this job attempt
-              jobAttemptFailed = true;
-              lastJobError = err;
+              if (action.continueOnError) {
+                // Left to fail on purpose: the chain carries on to whatever judges it, and
+                // the error stays on the step so the log still shows what went wrong
+                step.result = "Failed, carrying on";
+                step.continued = true;
+              } else {
+                // All action retries exhausted -- fail this job attempt
+                jobAttemptFailed = true;
+                lastJobError = err;
+              }
             }
           } finally {
             step.durationMs = Date.now() - t0;
           }
         }
 
-        if (jobAttemptFailed) break;
+        // A check is not itself an outcome to branch on: leaving this alone is what lets
+        // one check read how the action before it came out, and a second read the same.
+        if (action.type !== "if_check") lastActionOk = actionSucceeded;
+
+        if (jobAttemptFailed || jobDone) break;
       }
 
       if (!jobAttemptFailed) {

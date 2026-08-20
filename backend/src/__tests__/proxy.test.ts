@@ -309,6 +309,22 @@ describe('runJob proxy resolution — account proxy priority (checkin)', () => {
     expect(vi.mocked(runCheckin).mock.calls[0][14]).toBe('socks5://job.proxy:1080');
   });
 
+  it('fails the run when the account names an exit that has been deleted', async () => {
+    vi.mocked(runCheckin).mockResolvedValue(stubLog as any);
+    vi.mocked(db.prepare).mockReturnValue({ get: vi.fn().mockReturnValue({ value: ALL_PROXIES }) } as any);
+
+    // The exit was deleted from the proxy list; the id stayed behind on the account. Every
+    // lookup answers "no url" for it, which used to be read as "no proxy set" -- so the run
+    // went out from the server's own address on a session authorised through a proxy, which
+    // is two IPs on one session and what Telegram kills with AUTH_KEY_DUPLICATED.
+    const account = { ...makeAccount(), proxyId: 'deleted-px' };
+
+    await expect(runJob(makeCheckinJob(), account)).rejects.toThrow(
+      /no longer in the proxy list/i,
+    );
+    expect(runCheckin).not.toHaveBeenCalled();
+  });
+
   it('sends the browser through the account proxy when the job names none', async () => {
     vi.mocked(runCheckin).mockResolvedValue(stubLog as any);
     vi.mocked(db.prepare).mockReturnValue({ get: vi.fn().mockReturnValue({ value: ALL_PROXIES }) } as any);

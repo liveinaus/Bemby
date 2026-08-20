@@ -415,7 +415,38 @@ export type ProxyTestResult = {
   exitIp?: string;
 };
 
-export type CustomAction =
+/**
+ * What an `if_check` asks. `reply_text` reads the chat -- what is already in view, or, when
+ * given a wait, whatever arrives before it runs out. `last_action` asks how the action before
+ * the check came out, which is what pairs with `continueOnError`.
+ */
+export type CustomCondition = {
+  check: "reply_text" | "last_action";
+  /** Words to look for, for `reply_text`. `|` separates alternatives. */
+  text?: string;
+  /** Which outcome counts as met, for `last_action`. Defaults to `failed`. */
+  outcome?: "succeeded" | "failed";
+  /** Take this arm when the condition is *not* met. */
+  negate?: boolean;
+  /** How long to give a reply that has yet to arrive. Blank/0 reads what is in view. */
+  waitMs?: number;
+  /** Messages considered, relative to the last one sent. */
+  scope?: number;
+  /** Whose chat to read. Blank reads the job's bot. */
+  contact?: string;
+};
+
+/** One `else if` arm: a condition of its own and the actions it runs. */
+export type CustomConditionArm = CustomCondition & { then?: CustomAction[] };
+
+/** What every action carries, whatever its type. */
+type CustomActionCommon = {
+  /** Carry on with the next action when this one fails, rather than failing the job. */
+  continueOnError?: boolean;
+};
+
+export type CustomAction = CustomActionCommon &
+  (
   | { type: "send_command"; content: string; maxRetries?: number }
   | {
       type: "send_contact_message";
@@ -582,7 +613,31 @@ export type CustomAction =
        */
       profileId?: string;
     }
-  | { type: "subscribe_channel"; channelId: string; checkMembership?: boolean };
+  | { type: "subscribe_channel"; channelId: string; checkMembership?: boolean }
+  | ({
+      /**
+       * Run one set of actions or another, going on what the run has just seen -- the way a
+       * chain proves for itself whether a flaky step really failed.
+       */
+      type: "if_check";
+      /** Actions run when the condition holds. */
+      then?: CustomAction[];
+      /** Further conditions tried in order when it does not, each with actions of its own. */
+      elseIfs?: CustomConditionArm[];
+      /** Actions run when neither the condition nor any of `elseIfs` held. */
+      otherwise?: CustomAction[];
+    } & CustomCondition)
+  | {
+      /** Stop the chain here and call the run a success, whatever comes after it. */
+      type: "end_job";
+      reason?: string;
+    }
+  | {
+      /** Stop the chain here and fail the attempt, retried like any other failure. */
+      type: "fail_job";
+      reason?: string;
+    }
+  );
 
 /** One sub-step of `open_url`, run against the loaded page. */
 export type WebStep =
@@ -1003,6 +1058,10 @@ export type CustomStepLog = {
   step: number;
   actionType: string;
   label: string;
+  /** How many `if_check` branches this action sat inside; absent at the top level. */
+  depth?: number;
+  /** The action failed but was marked to carry on, so the chain went past it. */
+  continued?: boolean;
   preClickHtml?: string;
   preClickImage?: string;
   preClickButtons?: string[][];
@@ -1074,6 +1133,10 @@ export type JobProxy = {
   poolSize?: number;
   /** The account's own exit, named only when the job or template overrides it. */
   tgLabel?: string;
+  /** Set when the exit named here is no longer in the proxy list, so `label` is a bare id. */
+  missing?: boolean;
+  /** The same, for the account's exit in `tgLabel`. */
+  tgMissing?: boolean;
 };
 
 export type Job = {

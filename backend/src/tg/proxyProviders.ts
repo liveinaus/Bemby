@@ -1,6 +1,11 @@
 import { db } from "../db/database";
 import { cfTuning } from "../jobs/cfTuning";
-import { applyVlessNodes, nodeKey, parseVlessSubscription, pruneVlessProviders } from "./vlessTunnel";
+import {
+  applyVlessNodes,
+  nodeKey,
+  parseVlessSubscription,
+  pruneVlessProviders,
+} from "./vlessTunnel";
 
 // Proxy sellers hand out lists that change over time -- addresses get replaced, plans
 // get resized. Rather than pasting each proxy into Settings by hand, a provider can be
@@ -83,7 +88,8 @@ export type BembyProxy = {
 export type ProxyStatus = "ok" | "failed";
 
 /** Whether an exit may be drawn: not turned off by hand, and not knocked out by a test. */
-export const proxyUsable = (p: BembyProxy) => !p.disabled && p.status !== "failed";
+export const proxyUsable = (p: BembyProxy) =>
+  !p.disabled && p.status !== "failed";
 
 export type ProviderSyncResult = {
   providerId: string;
@@ -120,13 +126,17 @@ export function proxySyncMatchesByName(): boolean {
 // ── Stored configuration ──────────────────────────────────────────────────────
 
 function readSetting(key: string): string | undefined {
-  return (db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as
-    | { value: string }
-    | undefined)?.value;
+  return (
+    db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as
+      { value: string } | undefined
+  )?.value;
 }
 
 function writeSetting(key: string, value: string): void {
-  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value);
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(
+    key,
+    value,
+  );
 }
 
 function clearSetting(key: string): void {
@@ -169,7 +179,13 @@ export function readProviders(): ProxyProvider[] {
       for (let n = 2; ids.has(id); n++) id = `webshare-${n}`;
       providers = [
         ...providers,
-        { id, name: "Webshare", type: "webshare", apiKey: legacyKey, enabled: true },
+        {
+          id,
+          name: "Webshare",
+          type: "webshare",
+          apiKey: legacyKey,
+          enabled: true,
+        },
       ];
     }
     clearSetting("webshare_api_key");
@@ -185,8 +201,13 @@ export function writeProviders(providers: ProxyProvider[]): void {
 }
 
 /** Providers with secrets replaced by a flag, for sending to the client. */
-export function providersForClient(): Array<Omit<ProxyProvider, "apiKey"> & { hasKey: boolean }> {
-  return readProviders().map(({ apiKey, ...rest }) => ({ ...rest, hasKey: !!apiKey }));
+export function providersForClient(): Array<
+  Omit<ProxyProvider, "apiKey"> & { hasKey: boolean }
+> {
+  return readProviders().map(({ apiKey, ...rest }) => ({
+    ...rest,
+    hasKey: !!apiKey,
+  }));
 }
 
 /**
@@ -228,7 +249,8 @@ async function fetchWebshare(provider: ProxyProvider): Promise<BembyProxy[]> {
   if (!apiKey) throw new Error("API token is not set");
 
   const out: BembyProxy[] = [];
-  let url: string | null = `${WEBSHARE_API_URL}?mode=direct&page_size=${WEBSHARE_PAGE_SIZE}`;
+  let url: string | null =
+    `${WEBSHARE_API_URL}?mode=direct&page_size=${WEBSHARE_PAGE_SIZE}`;
 
   for (let page = 0; url && page < PAGE_LIMIT; page++) {
     const res: Response = await fetch(url, {
@@ -243,7 +265,10 @@ async function fetchWebshare(provider: ProxyProvider): Promise<BembyProxy[]> {
           : `Webshare API error ${res.status}: ${body.slice(0, 200)}`,
       );
     }
-    const data = (await res.json()) as { next: string | null; results: WebshareProxy[] };
+    const data = (await res.json()) as {
+      next: string | null;
+      results: WebshareProxy[];
+    };
     for (const p of data.results ?? []) {
       // Skip addresses Webshare itself reports as not working
       if (p.valid === false) continue;
@@ -266,7 +291,10 @@ async function fetchWebshare(provider: ProxyProvider): Promise<BembyProxy[]> {
  * `ip:port`, `ip:port:user:pass`, `user:pass@ip:port` and any of those with a
  * `scheme://` in front. Returns undefined for blanks, comments and malformed lines.
  */
-export function parseProxyLine(line: string, fallbackScheme = "http"): string | undefined {
+export function parseProxyLine(
+  line: string,
+  fallbackScheme = "http",
+): string | undefined {
   const raw = line.trim();
   if (!raw || raw.startsWith("#") || raw.startsWith("//")) return undefined;
 
@@ -274,7 +302,9 @@ export function parseProxyLine(line: string, fallbackScheme = "http"): string | 
   const scheme = (schemeMatch?.[1] ?? fallbackScheme).toLowerCase();
   const body = schemeMatch ? raw.slice(schemeMatch[0].length) : raw;
 
-  const hostPort = (value: string): { host: string; port: string } | undefined => {
+  const hostPort = (
+    value: string,
+  ): { host: string; port: string } | undefined => {
     const m = value.match(/^\[?([^\]\s]+?)\]?:(\d{1,5})$/);
     return m ? { host: m[1], port: m[2] } : undefined;
   };
@@ -319,7 +349,10 @@ export function resolveProviderUrl(
   if (!url.includes(TOKEN_PLACEHOLDER)) {
     return { url, headers: key ? { Authorization: `Bearer ${key}` } : {} };
   }
-  if (!key) throw new Error(`This URL asks for ${TOKEN_PLACEHOLDER}, but no token is set`);
+  if (!key)
+    throw new Error(
+      `This URL asks for ${TOKEN_PLACEHOLDER}, but no token is set`,
+    );
   return {
     url: url.split(TOKEN_PLACEHOLDER).join(encodeURIComponent(key)),
     headers: {},
@@ -367,7 +400,9 @@ async function fetchList(provider: ProxyProvider): Promise<BembyProxy[]> {
  * The subscription is asked for the plain v2ray format rather than Clash or sing-box,
  * which is what a deployment serves when the request does not look like either client.
  */
-async function fetchSubscription(provider: ProxyProvider): Promise<BembyProxy[]> {
+async function fetchSubscription(
+  provider: ProxyProvider,
+): Promise<BembyProxy[]> {
   const configured = provider.url?.trim();
   if (!configured) throw new Error("Subscription URL is not set");
   const { url, headers } = resolveProviderUrl(configured, provider.apiKey);
@@ -378,7 +413,9 @@ async function fetchSubscription(provider: ProxyProvider): Promise<BembyProxy[]>
   });
   if (!res.ok) throw new Error(`Subscription URL returned ${res.status}`);
 
-  const { nodes, skipped } = parseVlessSubscription((await res.text()).slice(0, MAX_LIST_BYTES));
+  const { nodes, skipped } = parseVlessSubscription(
+    (await res.text()).slice(0, MAX_LIST_BYTES),
+  );
   if (!nodes.length) {
     throw new Error(
       skipped
@@ -387,7 +424,9 @@ async function fetchSubscription(provider: ProxyProvider): Promise<BembyProxy[]>
     );
   }
   if (skipped) {
-    console.log(`[vless] ${provider.name}: ${skipped} node(s) of other kinds were skipped`);
+    console.log(
+      `[vless] ${provider.name}: ${skipped} node(s) of other kinds were skipped`,
+    );
   }
 
   const entries = applyVlessNodes(
@@ -413,7 +452,9 @@ function proxyId(provider: ProxyProvider, remoteId: string): string {
  * its loopback ports have to be recorded and bound for the urls it returns to mean
  * anything, so those come back already listening.
  */
-export function fetchFromProvider(provider: ProxyProvider): Promise<BembyProxy[]> {
+export function fetchFromProvider(
+  provider: ProxyProvider,
+): Promise<BembyProxy[]> {
   switch (provider.type) {
     case "webshare":
       return fetchWebshare(provider);
@@ -422,7 +463,9 @@ export function fetchFromProvider(provider: ProxyProvider): Promise<BembyProxy[]
     case "subscription":
       return fetchSubscription(provider);
     default:
-      return Promise.reject(new Error(`Unknown provider type "${provider.type}"`));
+      return Promise.reject(
+        new Error(`Unknown provider type "${provider.type}"`),
+      );
   }
 }
 
@@ -444,7 +487,9 @@ export const cfMaxCandidates = () => cfTuning().maxPoolCandidates;
 function readCfWins(): Record<string, string> {
   try {
     const parsed = JSON.parse(readSetting(CF_WINS_KEY) ?? "{}");
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, string>)
+      : {};
   } catch {
     return {};
   }
@@ -475,7 +520,9 @@ export const CF_GEO_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 function readCfGeo(): Record<string, CfExitGeo> {
   try {
     const parsed = JSON.parse(readSetting(CF_GEO_KEY) ?? "{}");
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, CfExitGeo>) : {};
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, CfExitGeo>)
+      : {};
   } catch {
     return {};
   }
@@ -569,7 +616,10 @@ export function parseProxyChoice(raw: string | null | undefined): ProxyChoice {
 }
 
 /** The supplier a proxy belongs to: the provider that imported it, or "" when none did. */
-export function providerIdForProxy(proxyId: string, providerIds: Iterable<string>): string {
+export function providerIdForProxy(
+  proxyId: string,
+  providerIds: Iterable<string>,
+): string {
   for (const id of providerIds) {
     if (proxyId.startsWith(`${IMPORTED_ID_PREFIX}${id}:`)) return id;
   }
@@ -589,7 +639,9 @@ export function randomProxyPool(poolIds?: string[]): BembyProxy[] {
   const inPool = (): BembyProxy[] => {
     if (!poolIds?.length) return usable.filter((p) => p.autoPool !== false);
 
-    const wanted = new Set(poolIds.filter((id) => !id.startsWith(POOL_PROVIDER_PREFIX)));
+    const wanted = new Set(
+      poolIds.filter((id) => !id.startsWith(POOL_PROVIDER_PREFIX)),
+    );
     const suppliers = new Set(
       poolIds
         .filter((id) => id.startsWith(POOL_PROVIDER_PREFIX))
@@ -601,7 +653,9 @@ export function randomProxyPool(poolIds?: string[]): BembyProxy[] {
     // picker shows it, so the two agree on what a supplier tick covers
     const providerIds = readProviders().map((p) => p.id);
     return usable.filter(
-      (p) => wanted.has(p.id) || suppliers.has(providerIdForProxy(p.id, providerIds)),
+      (p) =>
+        wanted.has(p.id) ||
+        suppliers.has(providerIdForProxy(p.id, providerIds)),
     );
   };
 
@@ -639,13 +693,31 @@ export function proxyById(id: string): BembyProxy | undefined {
 /** One proxy drawn from that pool, or undefined when the pool holds none. */
 export function pickRandomProxy(poolIds?: string[]): BembyProxy | undefined {
   const pool = randomProxyPool(poolIds);
-  return pool.length ? pool[Math.floor(Math.random() * pool.length)] : undefined;
+  return pool.length
+    ? pool[Math.floor(Math.random() * pool.length)]
+    : undefined;
 }
 
 /**
  * The exit url a picker's value stands for: an id from the proxy list, `random` for a draw
  * from `poolIds`, and no url at all for `direct`, a blank, or an id that has since gone.
  */
+/**
+ * What to say when an id names an exit that is no longer in the list.
+ *
+ * A deleted proxy leaves its id behind on whatever pointed at it -- accounts, jobs,
+ * templates -- and every lookup here answers "no url" for it, which is the same answer as
+ * "no proxy set". Resolvers have to tell the two apart, or a connection meant to leave by
+ * an exit quietly leaves by the server's own address instead; the wording is shared so it
+ * reads the same wherever that is caught.
+ */
+export function missingProxyMessage(proxyId: string): string {
+  return (
+    `The proxy set here (${proxyId}) is no longer in the proxy list -- it was deleted, or a ` +
+    `sync dropped it. Pick a current proxy, or clear it to connect directly.`
+  );
+}
+
 export function proxyUrlFor(
   proxyId: string | null | undefined,
   poolIds?: string[],
@@ -661,7 +733,9 @@ export function proxyUrlFor(
  */
 export function proxyLabelForUrl(url: string | undefined): string {
   if (!url) return "direct";
-  const named = readProxies().find((p) => p.url === url)?.name?.trim();
+  const named = readProxies()
+    .find((p) => p.url === url)
+    ?.name?.trim();
   if (named) return named;
   try {
     const u = new URL(url);
@@ -709,14 +783,23 @@ export function cfProxyCandidatesFor(opts: {
   /** Ids of exits already tried; each proxy is offered once. */
   exclude?: Iterable<string>;
 }): ProxyCandidate[] {
-  const { primaryUrl, host, proxyId, tryAll = true, max = candidateCount() } = opts;
+  const {
+    primaryUrl,
+    host,
+    proxyId,
+    tryAll = true,
+    max = candidateCount(),
+  } = opts;
   const pool = readProxies();
   const tried = new Set(opts.exclude ?? []);
   const cap = Math.max(1, Math.min(max, cfMaxCandidates()));
 
   // A draw with nothing to draw from (no proxies, or a pool naming only proxies that have
   // since gone) falls through to the job's own exit rather than failing the action
-  const drawn = proxyId === CF_PROXY_RANDOM ? shuffled(randomProxyPool(opts.proxyPool)) : [];
+  const drawn =
+    proxyId === CF_PROXY_RANDOM
+      ? shuffled(randomProxyPool(opts.proxyPool))
+      : [];
   if (drawn.length) {
     const offered = drawn
       .filter((p) => !tried.has(p.id))
@@ -724,14 +807,21 @@ export function cfProxyCandidatesFor(opts: {
     return dedupeByExit(tryAll ? offered : offered.slice(0, 1)).slice(0, cap);
   }
 
-  const pinned = proxyId && proxyId !== CF_PROXY_DIRECT ? pool.find((p) => p.id === proxyId) : undefined;
+  const pinned =
+    proxyId && proxyId !== CF_PROXY_DIRECT
+      ? pool.find((p) => p.id === proxyId)
+      : undefined;
   const primary: ProxyCandidate = pinned
     ? { id: pinned.id, label: pinned.name, url: pinned.url }
     : proxyId === CF_PROXY_DIRECT
       ? { id: CF_PROXY_DIRECT, label: "direct", url: undefined }
       : {
-          id: pool.find((p) => p.url === primaryUrl)?.id ?? (primaryUrl ? "job" : "direct"),
-          label: pool.find((p) => p.url === primaryUrl)?.name ?? (primaryUrl ? "job proxy" : "direct"),
+          id:
+            pool.find((p) => p.url === primaryUrl)?.id ??
+            (primaryUrl ? "job" : "direct"),
+          label:
+            pool.find((p) => p.url === primaryUrl)?.name ??
+            (primaryUrl ? "job proxy" : "direct"),
           url: primaryUrl,
         };
 
@@ -758,7 +848,11 @@ export function cfProxyCandidatesFor(opts: {
   const head = tried.has(primary.id) ? [] : [primary];
   const ordered =
     winnerIndex >= 0
-      ? [rest[winnerIndex], ...head, ...rest.filter((_, i) => i !== winnerIndex)]
+      ? [
+          rest[winnerIndex],
+          ...head,
+          ...rest.filter((_, i) => i !== winnerIndex),
+        ]
       : [...head, ...rest];
 
   return dedupeByExit(ordered).slice(0, cap);
@@ -808,7 +902,9 @@ export function recordProxyTestResults(
       status: (r.ok ? "ok" : "failed") as ProxyStatus,
       testedAt: Date.now(),
       testMs: r.ms,
-      ...(r.ok ? { testError: undefined } : { testError: r.error ?? "Connection failed" }),
+      ...(r.ok
+        ? { testError: undefined }
+        : { testError: r.error ?? "Connection failed" }),
     };
   });
 
@@ -879,12 +975,16 @@ function rematchByName(
  * A provider that fails leaves its previously imported proxies in place -- a transient
  * API outage should not strip the pool a job is about to use.
  */
-export async function syncProviders(onlyProviderId?: string): Promise<SyncResult> {
-  const providers = readProviders().filter(
-    (p) => (onlyProviderId ? p.id === onlyProviderId : p.enabled !== false),
+export async function syncProviders(
+  onlyProviderId?: string,
+): Promise<SyncResult> {
+  const providers = readProviders().filter((p) =>
+    onlyProviderId ? p.id === onlyProviderId : p.enabled !== false,
   );
   if (!providers.length) {
-    throw new Error(onlyProviderId ? "Provider not found" : "No proxy providers configured");
+    throw new Error(
+      onlyProviderId ? "Provider not found" : "No proxy providers configured",
+    );
   }
 
   const results: ProviderSyncResult[] = [];
@@ -896,7 +996,12 @@ export async function syncProviders(onlyProviderId?: string): Promise<SyncResult
       const list = await fetchFromProvider(provider);
       fetched.push(...list);
       syncedIds.push(provider.id);
-      results.push({ providerId: provider.id, name: provider.name, ok: true, fetched: list.length });
+      results.push({
+        providerId: provider.id,
+        name: provider.name,
+        ok: true,
+        fetched: list.length,
+      });
     } catch (err: any) {
       results.push({
         providerId: provider.id,
@@ -910,10 +1015,13 @@ export async function syncProviders(onlyProviderId?: string): Promise<SyncResult
   const existing = readProxies();
   const replacedPrefixes = syncedIds.map(importedByProvider);
   // Sweep up entries imported by the pre-provider build when Webshare is refreshed
-  if (providers.some((p) => syncedIds.includes(p.id) && p.type === "webshare")) {
+  if (
+    providers.some((p) => syncedIds.includes(p.id) && p.type === "webshare")
+  ) {
     replacedPrefixes.push(LEGACY_WEBSHARE_PREFIX);
   }
-  const isReplaced = (p: BembyProxy) => replacedPrefixes.some((prefix) => p.id.startsWith(prefix));
+  const isReplaced = (p: BembyProxy) =>
+    replacedPrefixes.some((prefix) => p.id.startsWith(prefix));
 
   const kept = existing.filter((p) => !isReplaced(p));
   const previous = new Map(existing.filter(isReplaced).map((p) => [p.id, p]));
@@ -932,7 +1040,12 @@ export async function syncProviders(onlyProviderId?: string): Promise<SyncResult
     if (!prev) added++;
     // A rematched entry counts as updated whatever its url reads as: what changed is the
     // node behind the name, which the url of a tunnelled node does not show
-    else if (rematchedIds.has(p.id) || prev.url !== p.url || prev.name !== p.name) updated++;
+    else if (
+      rematchedIds.has(p.id) ||
+      prev.url !== p.url ||
+      prev.name !== p.name
+    )
+      updated++;
 
     // What a test made of the exit carries over only while it is the same exit. A new
     // address behind the entry is untested, so a re-issued proxy gets its chance rather
@@ -945,7 +1058,9 @@ export async function syncProviders(onlyProviderId?: string): Promise<SyncResult
     }
   }
   const fetchedIds = new Set(fetched.map((p) => p.id));
-  const removed = [...previous.keys()].filter((id) => !fetchedIds.has(id)).length;
+  const removed = [...previous.keys()].filter(
+    (id) => !fetchedIds.has(id),
+  ).length;
 
   const merged = [...kept, ...fetched];
   writeSetting("proxies", JSON.stringify(merged));

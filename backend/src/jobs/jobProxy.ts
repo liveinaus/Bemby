@@ -46,12 +46,13 @@ export function makeJobProxyResolver(): (row: JobProxyRow) => JobProxy {
   const templateConfigs = new Map<number, string | null>();
   const poolSizes = new Map<string, number>();
 
-  const exitName = (id: string): string => {
+  const exitName = (id: string): { label: string; missing: boolean } => {
     if (!proxies) proxies = new Map(listProxies().map((p) => [p.id, p]));
     const proxy = proxies.get(id);
-    // A pin to an exit that has since gone still says which one, so it can be put back
-    if (!proxy) return id;
-    return proxy.name?.trim() || hostPort(proxy.url);
+    // A pin to an exit that has since gone still says which one, so it can be put back --
+    // flagged, because the id reads like a name and the row would otherwise look configured
+    if (!proxy) return { label: id, missing: true };
+    return { label: proxy.name?.trim() || hostPort(proxy.url), missing: false };
   };
 
   const providerName = (id: string): string => {
@@ -83,8 +84,17 @@ export function makeJobProxyResolver(): (row: JobProxyRow) => JobProxy {
 
   const describe = (choice: ProxyChoice, source: JobProxySource): JobProxy => {
     const id = choice.proxyId;
-    if (!id || id === CF_PROXY_DIRECT) return { kind: "direct", label: "", source };
-    if (id !== CF_PROXY_RANDOM) return { kind: "proxy", label: exitName(id), source };
+    if (!id || id === CF_PROXY_DIRECT)
+      return { kind: "direct", label: "", source };
+    if (id !== CF_PROXY_RANDOM) {
+      const exit = exitName(id);
+      return {
+        kind: "proxy",
+        label: exit.label,
+        source,
+        ...(exit.missing ? { missing: true } : {}),
+      };
+    }
 
     const pool = choice.pool ?? [];
     const suppliers = pool
@@ -113,13 +123,21 @@ export function makeJobProxyResolver(): (row: JobProxyRow) => JobProxy {
       : row.template_id
         ? parseProxyChoice(templateConfig(row.template_id))
         : null;
-    const override = fromJob.proxyId ? fromJob : fromTemplate?.proxyId ? fromTemplate : null;
+    const override = fromJob.proxyId
+      ? fromJob
+      : fromTemplate?.proxyId
+        ? fromTemplate
+        : null;
     if (!override) return describe({ proxyId: accountProxyId }, "account");
 
     const resolved = describe(override, fromJob.proxyId ? "job" : "template");
     // Telegram stays on the account's exit; naming it here is what keeps that visible
     if (accountProxyId && accountProxyId !== override.proxyId) {
-      resolved.tgLabel = describe({ proxyId: accountProxyId }, "account").label;
+      const tg = describe({ proxyId: accountProxyId }, "account");
+      resolved.tgLabel = tg.label;
+      // Flagged apart from the job's own pick: it is the account's exit that has gone, and
+      // the two are separate settings on separate pages
+      if (tg.missing) resolved.tgMissing = true;
     }
     return resolved;
   };

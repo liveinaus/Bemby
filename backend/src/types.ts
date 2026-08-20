@@ -57,6 +57,13 @@ export type JobProxy = {
    * so a differing pick is worth showing rather than leaving to be found in a log.
    */
   tgLabel?: string;
+  /**
+   * Set when the pick names an exit that is no longer in the proxy list. Its label is then
+   * the bare id, which reads like a name and is not one, so the page has to say so.
+   */
+  missing?: boolean;
+  /** The same, for the account's exit named in `tgLabel`. */
+  tgMissing?: boolean;
 };
 
 export type Job = {
@@ -113,268 +120,342 @@ export type JobTemplate = {
   icon?: string | null;
 };
 
-export type CustomAction =
-  | { type: "send_command"; content: string; maxRetries?: number }
-  | {
-      // Send a message/command to a specific contact (bot/group/user), rather than the
-      // job's configured bot. Supports the same {aiInput} and command expansion as send_command.
-      type: "send_contact_message";
-      contact: string;
-      content: string;
-      maxRetries?: number;
-    }
-  // `scope` limits which messages an action considers, relative to the last
-  // message we sent (the anchor). 0 (default) = only replies newer than the
-  // anchor; -N = also the N most recent incoming messages before the anchor.
-  | {
-      type: "wait_reply";
-      maxWaitMs: number;
-      successContains?: string;
-      failContains?: string;
-      maxRetries?: number;
-      scope?: number;
-    }
-  | { type: "delay"; waitMs: number }
-  | {
-      type: "click_button";
-      button: string;
-      maxRetries: number;
-      maxWaitMs: number;
-      successContains?: string;
-      failContains?: string;
-      scope?: number;
-    }
-  | {
-      // Click a button on the latest message from a specific contact (bot/group/user),
-      // rather than from the job's configured bot. Seeds from the contact's last received
-      // message and otherwise waits up to maxWaitMs for an incoming one with buttons.
-      type: "click_message_button";
-      contact: string;
-      button: string;
-      maxRetries: number;
-      maxWaitMs: number;
-      successContains?: string;
-      failContains?: string;
-      scope?: number;
-    }
-  | {
-      // AI selects and clicks multiple buttons in order. The AI returns a JSON array of
-      // exact button texts; each is clicked in sequence with `gapMs` between clicks.
-      // `contact` empty/undefined targets the job's bot chat; otherwise that peer.
-      type: "ai_multiple_btn";
-      contact?: string;
-      hint?: string;
-      /**
-       * Only a buttons message whose text contains this string is picked, so a
-       * stale or unrelated menu in the same chat is never clicked. Blank takes
-       * the most recent in-scope buttons message.
-       */
-      messageContains?: string;
-      gapMs: number;
-      maxRetries: number;
-      maxWaitMs: number;
-      successContains?: string;
-      failContains?: string;
-      scope?: number;
-    }
-  | {
-      type: "enter_captcha";
-      maxWaitMs: number;
-      captchaLength?: number;
-      maxRetries?: number;
-    }
-  | {
-      type: "join_group";
-      groupId: string;
-      checkMembership?: boolean;
-      // When set, after joining, wait for an in-group verification message and click the
-      // button whose text contains this string (bot-gated groups). verifyWaitMs bounds the wait.
-      verifyButton?: string;
-      verifyWaitMs?: number;
-      /**
-       * Bounds the whole verification, not just the wait for the prompt: a button that
-       * hands verification to a private chat with the bot leads to more steps, and those
-       * bots ban on their own deadline. Defaults to verifyWaitMs + 60s.
-       */
-      verifyMaxWaitMs?: number;
-      /**
-       * Click only a prompt that names this account (@username, a text mention, or its
-       * numeric id), so a group verifying several joiners at once never has someone
-       * else's prompt clicked. Prompts for other people are waited past.
-       */
-      verifyMentionsMe?: boolean;
-      /**
-       * Also treat a prompt that masks the name ("阿**2" -- first and last character kept)
-       * as ours. Welcome bots that mask never @-mention, so verifyMentionsMe cannot see them.
-       */
-      verifyMaskedName?: boolean;
-    }
-  | {
-      // Open a Mini App button's page in the installed browser (passing Cloudflare on
-      // the way) and press a control inside the app, which is where such bots put the
-      // actual checkin. `contact` empty/undefined targets the job's bot chat.
-      type: "open_mini_app";
-      contact?: string;
-      /** Inline button that opens the Mini App; blank takes the most recent one. */
-      button?: string;
-      /**
-       * Steps to run inside the app, in order: a control's visible text, `css:<selector>`,
-       * `delay(2500)`, `scroll(x, y)` to reach something below the fold, `{turnstile}` to
-       * tick a Cloudflare checkbox where one is shown, or an `{aiBtn}` / `{input}` /
-       * `{aiInput}` placeholder. Blank auto-detects a checkin-worded control.
-       */
-      appButtons?: string[];
-      successContains?: string;
-      failContains?: string;
-      maxRetries?: number;
-      /**
-       * Budget for the browser part of this action, across every proxy tried.
-       * Blank/0 uses the built-in default (5 minutes).
-       */
-      maxWaitMs?: number;
-      /** Proxy the browser exits through: a proxy list id, "direct" for none, or "random" for a draw from `proxyPool`. Blank uses the job's. */
-      proxyId?: string;
-      /** Ids a "random" pick draws from. Empty draws from the whole proxy list. */
-      proxyPool?: string[];
-      /** Work through the rest of the proxy list when an exit is refused. Defaults to true. */
-      tryAllProxies?: boolean;
-      /**
-       * Which browser profile to run on, and so whose cookies this shares. A name built from
-       * `{ip}` (the exit), `{jobId}`, `{templateId}`, `{tgId}` (the account) and any text you
-       * like: `{ip}` pools one profile per exit, `{ip}-{jobId}` gives this job its own,
-       * `{tgId}` follows the account across its jobs, `user1-{ip}` is a name of your own.
-       * Blank takes the default from Settings.
-       */
-      profileId?: string;
-      /**
-       * Keep whatever the app itself stored in the profile last run. Off by default: the
-       * signed URL names this account, but an app that kept its own login in localStorage
-       * (or a cookie) reads that instead and shows whoever signed in first -- which is what
-       * several accounts sharing an `{ip}` profile all end up looking like. Cleared before
-       * the page loads, Cloudflare's own cookies excepted, so the app has nothing to go on
-       * but the init data. Tick this only for an app whose stored state is worth keeping.
-       */
-      keepAppSession?: boolean;
-    }
-  | {
-      // Same as `open_mini_app`, but the address is given rather than hunted from a button
-      // in the chat. Telegram still signs it for the job's own account, so the app sees
-      // that user -- which is what makes one template usable across many accounts.
-      type: "open_mini_app_url";
-      /** Mini App address, or a t.me/<bot>/<app> link, which names its own bot. */
-      url: string;
-      /** Bot that owns the app, used to sign the URL. Blank uses the job's bot. */
-      contact?: string;
-      /**
-       * Steps to run inside the app, in order, same vocabulary as `open_mini_app`
-       * (control text, `css:`, `delay()`, `scroll()`, `{turnstile}`, `{aiBtn}`, `{input}`,
-       * `{aiInput}`). Blank auto-detects a checkin control.
-       */
-      appButtons?: string[];
-      successContains?: string;
-      failContains?: string;
-      maxRetries?: number;
-      /** Budget for the browser part of this action. Blank/0 uses the default. */
-      maxWaitMs?: number;
-      /** Proxy the browser exits through: a proxy list id, "direct" for none, or "random" for a draw from `proxyPool`. Blank uses the job's. */
-      proxyId?: string;
-      /** Ids a "random" pick draws from. Empty draws from the whole proxy list. */
-      proxyPool?: string[];
-      /** Work through the rest of the proxy list when an exit is refused. Defaults to true. */
-      tryAllProxies?: boolean;
-      /**
-       * Which browser profile to run on, and so whose cookies this shares. A name built from
-       * `{ip}` (the exit), `{jobId}`, `{templateId}`, `{tgId}` (the account) and any text you
-       * like: `{ip}` pools one profile per exit, `{ip}-{jobId}` gives this job its own,
-       * `{tgId}` follows the account across its jobs, `user1-{ip}` is a name of your own.
-       * Blank takes the default from Settings.
-       */
-      profileId?: string;
-      /**
-       * Keep whatever the app itself stored in the profile last run. Off by default: the
-       * signed URL names this account, but an app that kept its own login in localStorage
-       * (or a cookie) reads that instead and shows whoever signed in first -- which is what
-       * several accounts sharing an `{ip}` profile all end up looking like. Cleared before
-       * the page loads, Cloudflare's own cookies excepted, so the app has nothing to go on
-       * but the init data. Tick this only for an app whose stored state is worth keeping.
-       */
-      keepAppSession?: boolean;
-    }
-  | {
-      // Open the Mini App a bot pins beside the composer -- the button at the bottom left
-      // of its chat, next to the attachment clip. It belongs to the bot rather than to any
-      // message, so nothing in the chat history points at it and no address needs typing:
-      // the bot is asked what its button is, and Telegram signs it for this account.
-      type: "open_bot_menu_app";
-      /** Bot whose menu button to open. Blank uses the job's bot. */
-      contact?: string;
-      /**
-       * Steps to run inside the app, in order, same vocabulary as `open_mini_app`
-       * (control text, `css:`, `delay()`, `scroll()`, `{turnstile}`, `{aiBtn}`, `{input}`,
-       * `{aiInput}`). Blank auto-detects a checkin control.
-       */
-      appButtons?: string[];
-      successContains?: string;
-      failContains?: string;
-      maxRetries?: number;
-      /** Budget for the browser part of this action. Blank/0 uses the default. */
-      maxWaitMs?: number;
-      /** Proxy the browser exits through: a proxy list id, "direct" for none, or "random" for a draw from `proxyPool`. Blank uses the job's. */
-      proxyId?: string;
-      /** Ids a "random" pick draws from. Empty draws from the whole proxy list. */
-      proxyPool?: string[];
-      /** Work through the rest of the proxy list when an exit is refused. Defaults to true. */
-      tryAllProxies?: boolean;
-      /**
-       * Which browser profile to run on, and so whose cookies this shares. A name built from
-       * `{ip}` (the exit), `{jobId}`, `{templateId}`, `{tgId}` (the account) and any text you
-       * like: `{ip}` pools one profile per exit, `{ip}-{jobId}` gives this job its own,
-       * `{tgId}` follows the account across its jobs, `user1-{ip}` is a name of your own.
-       * Blank takes the default from Settings.
-       */
-      profileId?: string;
-      /**
-       * Keep whatever the app itself stored in the profile last run. Off by default: the
-       * signed URL names this account, but an app that kept its own login in localStorage
-       * (or a cookie) reads that instead and shows whoever signed in first -- which is what
-       * several accounts sharing an `{ip}` profile all end up looking like. Cleared before
-       * the page loads, Cloudflare's own cookies excepted, so the app has nothing to go on
-       * but the init data. Tick this only for an app whose stored state is worth keeping.
-       */
-      keepAppSession?: boolean;
-    }
-  | {
-      // Open a plain web page in the installed browser, passing any Cloudflare challenge,
-      // and drive it with the sub-steps below. Nothing about this action goes through
-      // Telegram: the URL is opened directly.
-      type: "open_url";
-      url: string;
-      /** Sub-steps run on the page once it is up, in order. */
-      steps?: WebStep[];
-      successContains?: string;
-      failContains?: string;
-      maxRetries?: number;
-      /**
-       * Budget for the browser part of this action, across every proxy tried.
-       * Blank/0 uses the built-in default (5 minutes).
-       */
-      maxWaitMs?: number;
-      /** Proxy the browser exits through: a proxy list id, "direct" for none, or "random" for a draw from `proxyPool`. Blank uses the job's. */
-      proxyId?: string;
-      /** Ids a "random" pick draws from. Empty draws from the whole proxy list. */
-      proxyPool?: string[];
-      /** Work through the rest of the proxy list when an exit is refused. Defaults to true. */
-      tryAllProxies?: boolean;
-      /**
-       * Which browser profile to run on, and so whose cookies this shares. A name built from
-       * `{ip}` (the exit), `{jobId}`, `{templateId}`, `{tgId}` (the account) and any text you
-       * like: `{ip}` pools one profile per exit, `{ip}-{jobId}` gives this job its own,
-       * `{tgId}` follows the account across its jobs, `user1-{ip}` is a name of your own.
-       * Blank takes the default from Settings.
-       */
-      profileId?: string;
-    }
-  | { type: "subscribe_channel"; channelId: string; checkMembership?: boolean };
+/**
+ * What an `if_check` asks. `reply_text` reads the chat -- what is already in view, or, when
+ * given a wait, whatever arrives before it runs out. `last_action` asks how the action before
+ * the check came out, which is what makes a `continueOnError` step worth having: let the
+ * flaky one fail, then decide here whether the run is actually in trouble.
+ */
+export type CustomCondition = {
+  check: "reply_text" | "last_action";
+  /** Words to look for, for `reply_text`. `|` separates alternatives, as elsewhere. */
+  text?: string;
+  /** Which outcome counts as met, for `last_action`. Defaults to `failed`. */
+  outcome?: "succeeded" | "failed";
+  /** Take this arm when the condition is *not* met, e.g. "if the reply does not say so". */
+  negate?: boolean;
+  /**
+   * How long to give a reply that has yet to arrive, for `reply_text`. Blank/0 reads only
+   * what is already in view, which is what a check straight after a `wait_reply` wants.
+   */
+  waitMs?: number;
+  /** Messages considered, relative to the last one sent. Same meaning as `wait_reply`. */
+  scope?: number;
+  /** Whose chat to read, for `reply_text`. Blank reads the job's bot. */
+  contact?: string;
+};
+
+/** One `else if` arm: a condition of its own and the actions it runs. */
+export type CustomConditionArm = CustomCondition & { then?: CustomAction[] };
+
+/** What every action carries, whatever its type. */
+type CustomActionCommon = {
+  /**
+   * Carry on with the next action when this one fails, rather than failing the job attempt.
+   * What a flaky step needs: a site that only sometimes prints its success wording is left
+   * to fail here, and an `if_check` after it decides what that failure was really worth.
+   */
+  continueOnError?: boolean;
+};
+
+export type CustomAction = CustomActionCommon &
+  (
+    | { type: "send_command"; content: string; maxRetries?: number }
+    | {
+        // Send a message/command to a specific contact (bot/group/user), rather than the
+        // job's configured bot. Supports the same {aiInput} and command expansion as send_command.
+        type: "send_contact_message";
+        contact: string;
+        content: string;
+        maxRetries?: number;
+      }
+    // `scope` limits which messages an action considers, relative to the last
+    // message we sent (the anchor). 0 (default) = only replies newer than the
+    // anchor; -N = also the N most recent incoming messages before the anchor.
+    | {
+        type: "wait_reply";
+        maxWaitMs: number;
+        successContains?: string;
+        failContains?: string;
+        maxRetries?: number;
+        scope?: number;
+      }
+    | { type: "delay"; waitMs: number }
+    | {
+        type: "click_button";
+        button: string;
+        maxRetries: number;
+        maxWaitMs: number;
+        successContains?: string;
+        failContains?: string;
+        scope?: number;
+      }
+    | {
+        // Click a button on the latest message from a specific contact (bot/group/user),
+        // rather than from the job's configured bot. Seeds from the contact's last received
+        // message and otherwise waits up to maxWaitMs for an incoming one with buttons.
+        type: "click_message_button";
+        contact: string;
+        button: string;
+        maxRetries: number;
+        maxWaitMs: number;
+        successContains?: string;
+        failContains?: string;
+        scope?: number;
+      }
+    | {
+        // AI selects and clicks multiple buttons in order. The AI returns a JSON array of
+        // exact button texts; each is clicked in sequence with `gapMs` between clicks.
+        // `contact` empty/undefined targets the job's bot chat; otherwise that peer.
+        type: "ai_multiple_btn";
+        contact?: string;
+        hint?: string;
+        /**
+         * Only a buttons message whose text contains this string is picked, so a
+         * stale or unrelated menu in the same chat is never clicked. Blank takes
+         * the most recent in-scope buttons message.
+         */
+        messageContains?: string;
+        gapMs: number;
+        maxRetries: number;
+        maxWaitMs: number;
+        successContains?: string;
+        failContains?: string;
+        scope?: number;
+      }
+    | {
+        type: "enter_captcha";
+        maxWaitMs: number;
+        captchaLength?: number;
+        maxRetries?: number;
+      }
+    | {
+        type: "join_group";
+        groupId: string;
+        checkMembership?: boolean;
+        // When set, after joining, wait for an in-group verification message and click the
+        // button whose text contains this string (bot-gated groups). verifyWaitMs bounds the wait.
+        verifyButton?: string;
+        verifyWaitMs?: number;
+        /**
+         * Bounds the whole verification, not just the wait for the prompt: a button that
+         * hands verification to a private chat with the bot leads to more steps, and those
+         * bots ban on their own deadline. Defaults to verifyWaitMs + 60s.
+         */
+        verifyMaxWaitMs?: number;
+        /**
+         * Click only a prompt that names this account (@username, a text mention, or its
+         * numeric id), so a group verifying several joiners at once never has someone
+         * else's prompt clicked. Prompts for other people are waited past.
+         */
+        verifyMentionsMe?: boolean;
+        /**
+         * Also treat a prompt that masks the name ("阿**2" -- first and last character kept)
+         * as ours. Welcome bots that mask never @-mention, so verifyMentionsMe cannot see them.
+         */
+        verifyMaskedName?: boolean;
+      }
+    | {
+        // Open a Mini App button's page in the installed browser (passing Cloudflare on
+        // the way) and press a control inside the app, which is where such bots put the
+        // actual checkin. `contact` empty/undefined targets the job's bot chat.
+        type: "open_mini_app";
+        contact?: string;
+        /** Inline button that opens the Mini App; blank takes the most recent one. */
+        button?: string;
+        /**
+         * Steps to run inside the app, in order: a control's visible text, `css:<selector>`,
+         * `delay(2500)`, `scroll(x, y)` to reach something below the fold, `{turnstile}` to
+         * tick a Cloudflare checkbox where one is shown, or an `{aiBtn}` / `{input}` /
+         * `{aiInput}` placeholder. Blank auto-detects a checkin-worded control.
+         */
+        appButtons?: string[];
+        successContains?: string;
+        failContains?: string;
+        maxRetries?: number;
+        /**
+         * Budget for the browser part of this action, across every proxy tried.
+         * Blank/0 uses the built-in default (5 minutes).
+         */
+        maxWaitMs?: number;
+        /** Proxy the browser exits through: a proxy list id, "direct" for none, or "random" for a draw from `proxyPool`. Blank uses the job's. */
+        proxyId?: string;
+        /** Ids a "random" pick draws from. Empty draws from the whole proxy list. */
+        proxyPool?: string[];
+        /** Work through the rest of the proxy list when an exit is refused. Defaults to true. */
+        tryAllProxies?: boolean;
+        /**
+         * Which browser profile to run on, and so whose cookies this shares. A name built from
+         * `{ip}` (the exit), `{jobId}`, `{templateId}`, `{tgId}` (the account) and any text you
+         * like: `{ip}` pools one profile per exit, `{ip}-{jobId}` gives this job its own,
+         * `{tgId}` follows the account across its jobs, `user1-{ip}` is a name of your own.
+         * Blank takes the default from Settings.
+         */
+        profileId?: string;
+        /**
+         * Keep whatever the app itself stored in the profile last run. Off by default: the
+         * signed URL names this account, but an app that kept its own login in localStorage
+         * (or a cookie) reads that instead and shows whoever signed in first -- which is what
+         * several accounts sharing an `{ip}` profile all end up looking like. Cleared before
+         * the page loads, Cloudflare's own cookies excepted, so the app has nothing to go on
+         * but the init data. Tick this only for an app whose stored state is worth keeping.
+         */
+        keepAppSession?: boolean;
+      }
+    | {
+        // Same as `open_mini_app`, but the address is given rather than hunted from a button
+        // in the chat. Telegram still signs it for the job's own account, so the app sees
+        // that user -- which is what makes one template usable across many accounts.
+        type: "open_mini_app_url";
+        /** Mini App address, or a t.me/<bot>/<app> link, which names its own bot. */
+        url: string;
+        /** Bot that owns the app, used to sign the URL. Blank uses the job's bot. */
+        contact?: string;
+        /**
+         * Steps to run inside the app, in order, same vocabulary as `open_mini_app`
+         * (control text, `css:`, `delay()`, `scroll()`, `{turnstile}`, `{aiBtn}`, `{input}`,
+         * `{aiInput}`). Blank auto-detects a checkin control.
+         */
+        appButtons?: string[];
+        successContains?: string;
+        failContains?: string;
+        maxRetries?: number;
+        /** Budget for the browser part of this action. Blank/0 uses the default. */
+        maxWaitMs?: number;
+        /** Proxy the browser exits through: a proxy list id, "direct" for none, or "random" for a draw from `proxyPool`. Blank uses the job's. */
+        proxyId?: string;
+        /** Ids a "random" pick draws from. Empty draws from the whole proxy list. */
+        proxyPool?: string[];
+        /** Work through the rest of the proxy list when an exit is refused. Defaults to true. */
+        tryAllProxies?: boolean;
+        /**
+         * Which browser profile to run on, and so whose cookies this shares. A name built from
+         * `{ip}` (the exit), `{jobId}`, `{templateId}`, `{tgId}` (the account) and any text you
+         * like: `{ip}` pools one profile per exit, `{ip}-{jobId}` gives this job its own,
+         * `{tgId}` follows the account across its jobs, `user1-{ip}` is a name of your own.
+         * Blank takes the default from Settings.
+         */
+        profileId?: string;
+        /**
+         * Keep whatever the app itself stored in the profile last run. Off by default: the
+         * signed URL names this account, but an app that kept its own login in localStorage
+         * (or a cookie) reads that instead and shows whoever signed in first -- which is what
+         * several accounts sharing an `{ip}` profile all end up looking like. Cleared before
+         * the page loads, Cloudflare's own cookies excepted, so the app has nothing to go on
+         * but the init data. Tick this only for an app whose stored state is worth keeping.
+         */
+        keepAppSession?: boolean;
+      }
+    | {
+        // Open the Mini App a bot pins beside the composer -- the button at the bottom left
+        // of its chat, next to the attachment clip. It belongs to the bot rather than to any
+        // message, so nothing in the chat history points at it and no address needs typing:
+        // the bot is asked what its button is, and Telegram signs it for this account.
+        type: "open_bot_menu_app";
+        /** Bot whose menu button to open. Blank uses the job's bot. */
+        contact?: string;
+        /**
+         * Steps to run inside the app, in order, same vocabulary as `open_mini_app`
+         * (control text, `css:`, `delay()`, `scroll()`, `{turnstile}`, `{aiBtn}`, `{input}`,
+         * `{aiInput}`). Blank auto-detects a checkin control.
+         */
+        appButtons?: string[];
+        successContains?: string;
+        failContains?: string;
+        maxRetries?: number;
+        /** Budget for the browser part of this action. Blank/0 uses the default. */
+        maxWaitMs?: number;
+        /** Proxy the browser exits through: a proxy list id, "direct" for none, or "random" for a draw from `proxyPool`. Blank uses the job's. */
+        proxyId?: string;
+        /** Ids a "random" pick draws from. Empty draws from the whole proxy list. */
+        proxyPool?: string[];
+        /** Work through the rest of the proxy list when an exit is refused. Defaults to true. */
+        tryAllProxies?: boolean;
+        /**
+         * Which browser profile to run on, and so whose cookies this shares. A name built from
+         * `{ip}` (the exit), `{jobId}`, `{templateId}`, `{tgId}` (the account) and any text you
+         * like: `{ip}` pools one profile per exit, `{ip}-{jobId}` gives this job its own,
+         * `{tgId}` follows the account across its jobs, `user1-{ip}` is a name of your own.
+         * Blank takes the default from Settings.
+         */
+        profileId?: string;
+        /**
+         * Keep whatever the app itself stored in the profile last run. Off by default: the
+         * signed URL names this account, but an app that kept its own login in localStorage
+         * (or a cookie) reads that instead and shows whoever signed in first -- which is what
+         * several accounts sharing an `{ip}` profile all end up looking like. Cleared before
+         * the page loads, Cloudflare's own cookies excepted, so the app has nothing to go on
+         * but the init data. Tick this only for an app whose stored state is worth keeping.
+         */
+        keepAppSession?: boolean;
+      }
+    | {
+        // Open a plain web page in the installed browser, passing any Cloudflare challenge,
+        // and drive it with the sub-steps below. Nothing about this action goes through
+        // Telegram: the URL is opened directly.
+        type: "open_url";
+        url: string;
+        /** Sub-steps run on the page once it is up, in order. */
+        steps?: WebStep[];
+        successContains?: string;
+        failContains?: string;
+        maxRetries?: number;
+        /**
+         * Budget for the browser part of this action, across every proxy tried.
+         * Blank/0 uses the built-in default (5 minutes).
+         */
+        maxWaitMs?: number;
+        /** Proxy the browser exits through: a proxy list id, "direct" for none, or "random" for a draw from `proxyPool`. Blank uses the job's. */
+        proxyId?: string;
+        /** Ids a "random" pick draws from. Empty draws from the whole proxy list. */
+        proxyPool?: string[];
+        /** Work through the rest of the proxy list when an exit is refused. Defaults to true. */
+        tryAllProxies?: boolean;
+        /**
+         * Which browser profile to run on, and so whose cookies this shares. A name built from
+         * `{ip}` (the exit), `{jobId}`, `{templateId}`, `{tgId}` (the account) and any text you
+         * like: `{ip}` pools one profile per exit, `{ip}-{jobId}` gives this job its own,
+         * `{tgId}` follows the account across its jobs, `user1-{ip}` is a name of your own.
+         * Blank takes the default from Settings.
+         */
+        profileId?: string;
+      }
+    | {
+        type: "subscribe_channel";
+        channelId: string;
+        checkMembership?: boolean;
+      }
+    | ({
+        /**
+         * Run one set of actions or another, going on what the run has just seen. The case it
+         * exists for: a site that only sometimes prints its success wording, where a plain
+         * retry then meets "already done today" and calls that a failure too. Leave the flaky
+         * action on `continueOnError` and let a check afterwards prove which it was.
+         */
+        type: "if_check";
+        /** Actions run when the condition holds. */
+        then?: CustomAction[];
+        /** Further conditions tried in order when it does not, each with actions of its own. */
+        elseIfs?: CustomConditionArm[];
+        /** Actions run when neither the condition nor any of `elseIfs` held. */
+        otherwise?: CustomAction[];
+      } & CustomCondition)
+    | {
+        /**
+         * Stop the chain here and call the run a success, whatever actions come after it. The
+         * `then` arm of a check that proved the work was already done.
+         */
+        type: "end_job";
+        /** What to write in the log. Blank simply says the chain ended early. */
+        reason?: string;
+      }
+    | {
+        /** Stop the chain here and fail the attempt, retried like any other failure. */
+        type: "fail_job";
+        /** Why, which becomes the run's error. */
+        reason?: string;
+      }
+  );
 
 /**
  * One sub-step of `open_url`, run against the loaded page.
@@ -1262,6 +1343,10 @@ export type CustomStepLog = {
   step: number;
   actionType: string;
   label: string;
+  /** How many `if_check` branches this action sat inside; absent at the top level. */
+  depth?: number;
+  /** The action failed but was marked to carry on, so the chain went past it. */
+  continued?: boolean;
   /** For click_button: the bot message we clicked on, when we had to wait for it */
   preClickHtml?: string;
   preClickImage?: string;
@@ -1395,9 +1480,9 @@ export type EmbywatchConfig = {
  */
 export type RealWatchNote =
   /** No direct-play, direct-stream or transcode URL the server would serve. */
-  | 'no-stream-url'
+  | "no-stream-url"
   /** A stream URL resolved, but every ranged read failed. */
-  | 'stream-failed';
+  | "stream-failed";
 
 // One played item within a run (a single episode/movie segment).
 export type EmbywatchEpisode = {
@@ -1436,4 +1521,3 @@ export type TgProxy = {
   username?: string;
   password?: string;
 };
-

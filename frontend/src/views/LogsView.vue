@@ -516,10 +516,11 @@
                         :key="sIdx"
                         class="custom-step"
                         :class="
-                          s.error && !retriedStepNums.has(s.step)
+                          s.error && !s.continued && !retriedStepNums.has(s.step)
                             ? 'custom-step-error'
                             : ''
                         "
+                        :style="s.depth ? { marginLeft: s.depth * 14 + 'px' } : undefined"
                       >
                         <div class="custom-step-header">
                           <span class="custom-step-num">{{ s.step }}</span>
@@ -536,6 +537,12 @@
                             class="badge badge-orange"
                             style="font-size: 10px"
                             >retried</span
+                          >
+                          <span
+                            v-else-if="s.error && s.continued"
+                            class="badge badge-orange"
+                            style="font-size: 10px"
+                            >carried on</span
                           >
                           <span
                             v-else-if="s.error"

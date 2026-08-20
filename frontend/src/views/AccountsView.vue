@@ -206,15 +206,32 @@
                 <span
                   v-if="a.proxyId"
                   class="badge"
-                  :class="accountProxyUsable(a.proxyId) ? 'badge-purple' : 'badge-red'"
-                  :title="accountProxyUsable(a.proxyId) ? undefined : t('accounts.proxyNoTelegramHint')"
+                  :class="
+                    accountProxyMissing(a.proxyId) || !accountProxyUsable(a.proxyId)
+                      ? 'badge-red'
+                      : 'badge-purple'
+                  "
+                  :title="
+                    accountProxyMissing(a.proxyId)
+                      ? t('accounts.proxyMissingHint')
+                      : accountProxyUsable(a.proxyId)
+                        ? undefined
+                        : t('accounts.proxyNoTelegramHint')
+                  "
                   style="margin-left: 4px; font-size: 10px"
                   ><i
-                    class="fa-solid fa-shield-halved"
+                    class="fa-solid"
+                    :class="
+                      accountProxyMissing(a.proxyId)
+                        ? 'fa-triangle-exclamation'
+                        : 'fa-shield-halved'
+                    "
                     style="margin-right: 3px"
                   ></i
                   >{{
-                    proxiesList.find((p) => p.id === a.proxyId)?.name ?? "Proxy"
+                    accountProxyMissing(a.proxyId)
+                      ? t("accounts.proxyMissing").replace("{id}", a.proxyId)
+                      : proxiesList.find((p) => p.id === a.proxyId)!.name
                   }}</span
                 >
                 <div
@@ -762,6 +779,15 @@
             <label class="form-label">{{ t("accounts.labelProxy") }}</label>
             <select v-model="form.proxyId" class="form-select">
               <option value="">{{ t("accounts.proxyNone") }}</option>
+              <!--
+                An id whose proxy has been deleted matches no option below, and a select with
+                no matching option renders blank -- so the account looked as though it had no
+                proxy while still carrying one. Kept as an option of its own so it shows as
+                selected, says what is wrong, and can be changed.
+              -->
+              <option v-if="formProxyMissing" :value="form.proxyId">
+                {{ t("accounts.proxyMissing").replace("{id}", form.proxyId) }}
+              </option>
               <option
                 v-for="p in proxiesList"
                 :key="p.id"
@@ -776,6 +802,9 @@
                 }}
               </option>
             </select>
+            <div v-if="formProxyMissing" class="form-hint form-hint-error">
+              {{ t("accounts.proxyMissingHint") }}
+            </div>
             <div v-if="hasNonTgProxies" class="form-hint">
               {{ t("accounts.proxyNoTelegramHint") }}
             </div>
@@ -3504,6 +3533,19 @@ const tgProxiesList = computed(() =>
 const hasNonTgProxies = computed(
   () => tgProxiesList.value.length < proxiesList.value.length,
 );
+/**
+ * Whether an account names a proxy that has since been deleted.
+ *
+ * Worth its own answer everywhere a proxy is shown: the id left behind reads like a name,
+ * and a run does not quietly fall back to a direct connection for it -- it fails.
+ */
+const accountProxyMissing = (proxyId: string): boolean =>
+  Boolean(proxyId) && !proxiesList.value.some((p) => p.id === proxyId);
+
+const formProxyMissing = computed(
+  () => Boolean(form.proxyId) && accountProxyMissing(form.proxyId),
+);
+
 const accountProxyUsable = (proxyId: string): boolean => {
   const p = proxiesList.value.find((x) => x.id === proxyId);
   // An id with no matching entry says nothing about the scheme; don't cry wolf

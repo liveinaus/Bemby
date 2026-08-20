@@ -8,6 +8,7 @@ import { db, getDefaultTgApiCredentials } from "../db/database";
 import { decryptAccountRow } from "../db/secretColumns";
 import { escapeHtml as escHtml, safeHref } from "./htmlEscape";
 import { parseTgProxy } from "../jobs/runner";
+import { missingProxyMessage } from "./proxyProviders";
 import { resolveAppClientParams } from "./appClient";
 import { parseMiniAppLink, withClientLaunchParams } from "./miniApp";
 import { displayPeerId } from "./peerTarget";
@@ -34,13 +35,7 @@ export type TgButton = {
 
 /** Media a quoted message carries, so the UI can word a quote with no text of its own. */
 export type TgMediaKind =
-  | "photo"
-  | "video"
-  | "sticker"
-  | "voice"
-  | "audio"
-  | "document"
-  | "contact";
+  "photo" | "video" | "sticker" | "voice" | "audio" | "document" | "contact";
 
 /** Membership and housekeeping events Telegram reports as service messages. */
 export type TgServiceKind =
@@ -200,7 +195,9 @@ function evictSurplusClients(keepId?: number): void {
     if (liveClients.size <= LIVE_CLIENT_MAX) return;
     liveClients.delete(accountId);
     entry.client.destroy().catch(() => {});
-    console.log(`[tg] Evicted idle live client for account ${accountId} (over LIVE_CLIENT_MAX)`);
+    console.log(
+      `[tg] Evicted idle live client for account ${accountId} (over LIVE_CLIENT_MAX)`,
+    );
   }
 }
 
@@ -268,7 +265,6 @@ function chatIdToPeer(chatId: string): Api.TypePeer | null {
   }
   return null;
 }
-
 
 // Converts Telegram message entities to safe HTML. Returns null when there are
 // no formatting entities (plain text can be rendered directly).
@@ -431,11 +427,16 @@ function contactMediaText(
   const phone = c.phoneNumber?.startsWith("+")
     ? c.phoneNumber
     : `+${c.phoneNumber ?? ""}`;
-  return [name, phone].filter((s) => s && s !== "+").join(" ").trim();
+  return [name, phone]
+    .filter((s) => s && s !== "+")
+    .join(" ")
+    .trim();
 }
 
 /** Message text as shown in the UI, with a stand-in for text-less media. */
-function displayText(msg: Api.Message | { message?: string; media?: any }): string {
+function displayText(
+  msg: Api.Message | { message?: string; media?: any },
+): string {
   return (msg as any).message || contactMediaText((msg as any).media);
 }
 
@@ -477,18 +478,41 @@ function docFileName(
   return attr?.fileName ?? null;
 }
 
+/**
+ * The exit this account's Telegram connection leaves by.
+ *
+ * An account that names an exit it cannot use is an error, not a quiet fall back to the
+ * server's own address. A session authorised through a proxy that then reconnects from a
+ * different IP is two addresses on one session, which is what Telegram answers with
+ * AUTH_KEY_DUPLICATED -- it kills the session, and nothing about the cause would be visible
+ * afterwards. Going direct is only right when the account asks for it by naming no proxy at
+ * all. Same rule as resolveAccountExit in jobs/accountOps, which cannot be imported here
+ * without a cycle.
+ */
 function resolveProxy(proxyId: string | null) {
   if (!proxyId) return undefined;
+
+  let url: string | undefined;
   try {
     const row = db
       .prepare("SELECT value FROM settings WHERE key = ?")
       .get("proxies") as { value: string } | undefined;
-    if (!row?.value) return undefined;
-    const list: Array<{ id: string; url: string }> = JSON.parse(row.value);
-    return parseTgProxy(list.find((p) => p.id === proxyId)?.url);
+    const list: Array<{ id: string; url: string }> = row?.value
+      ? JSON.parse(row.value)
+      : [];
+    url = list.find((p) => p.id === proxyId)?.url;
   } catch {
-    return undefined;
+    url = undefined;
   }
+
+  if (!url) throw new Error(missingProxyMessage(proxyId));
+
+  const proxy = parseTgProxy(url);
+  if (!proxy)
+    throw new Error(
+      "The account's proxy cannot carry Telegram (an account proxy must be socks5:// or socks4://)",
+    );
+  return proxy;
 }
 
 export async function reconnectClient(accountId: number): Promise<void> {
@@ -969,9 +993,7 @@ async function resolveEntityNames(
     if (!peer) continue;
     try {
       const entity = (await entry.client.getEntity(peer)) as
-        | Api.User
-        | Api.Chat
-        | Api.Channel;
+        Api.User | Api.Chat | Api.Channel;
       if (entity) {
         entry.entityCache.set(id, entity);
         names.set(id, entityName(entity));
@@ -1076,7 +1098,10 @@ export async function getMessages(
       if (m instanceof Api.Message) msgs.push(m);
       else if (
         m instanceof Api.MessageService &&
-        describeServiceAction(m.action, m.fromId ? peerToChatId(m.fromId) : null)
+        describeServiceAction(
+          m.action,
+          m.fromId ? peerToChatId(m.fromId) : null,
+        )
       )
         msgs.push(m);
     }
@@ -1086,7 +1111,9 @@ export async function getMessages(
 
   const serviceInfo = await serviceInfoForPage(
     entry,
-    msgs.filter((m): m is Api.MessageService => m instanceof Api.MessageService),
+    msgs.filter(
+      (m): m is Api.MessageService => m instanceof Api.MessageService,
+    ),
   );
 
   // Batch-fetch reply-to message texts for quote display
@@ -1288,7 +1315,8 @@ export async function sharePhoneNumber(
     if (!normalised) throw new Error("Not a valid phone number");
     phone = normalised;
   } else {
-    if (!me?.phone) throw new Error("This account has no phone number to share");
+    if (!me?.phone)
+      throw new Error("This account has no phone number to share");
     phone = me.phone;
   }
 
@@ -1347,7 +1375,12 @@ export async function sendFile(
     forceDocument?: boolean;
     replyToMsgId?: number;
   },
-): Promise<{ id: number; date: number; hasPhoto: boolean; hasDocument: boolean }> {
+): Promise<{
+  id: number;
+  date: number;
+  hasPhoto: boolean;
+  hasDocument: boolean;
+}> {
   await ensureEntityCached(entry, chatId);
   const entity = entry.entityCache.get(chatId);
   if (!entity) throw new Error("Chat not found");
@@ -1572,7 +1605,9 @@ export async function searchPeers(
 
     const msgs = ((result as any).messages ?? []) as Api.TypeMessage[];
     const entities = new Map<string, Api.User | Api.Chat | Api.Channel>();
-    for (const c of ((result as any).chats ?? []) as (Api.Chat | Api.Channel)[]) {
+    for (const c of ((result as any).chats ?? []) as (
+      Api.Chat | Api.Channel
+    )[]) {
       entities.set(entityToChatId(c), c);
     }
     for (const u of ((result as any).users ?? []) as Api.User[]) {
@@ -2261,8 +2296,10 @@ export async function clickButton(
   const entity = entry.entityCache.get(chatId);
   if (!entity) throw new Error("Chat not found");
   const dataBytes = Buffer.from(data, "base64");
-  if (process.env.DEBUG === '1') {
-    console.log(`[button] chatId=${chatId} msgId=${msgId} data_hex=${dataBytes.toString('hex')}`);
+  if (process.env.DEBUG === "1") {
+    console.log(
+      `[button] chatId=${chatId} msgId=${msgId} data_hex=${dataBytes.toString("hex")}`,
+    );
   }
   const result = await client.invoke(
     new Api.messages.GetBotCallbackAnswer({
@@ -2272,11 +2309,16 @@ export async function clickButton(
       game: false,
     }),
   );
-  if (process.env.DEBUG === '1') {
+  if (process.env.DEBUG === "1") {
     const safeUrl = result.url
-      ? result.url.replace(/([?&](?:token|hash|tgaddr)=)[^&]*/gi, '$1[REDACTED]')
-      : 'null';
-    console.log(`[button] alert=${result.alert} msg=${JSON.stringify(result.message)} url=${safeUrl}`);
+      ? result.url.replace(
+          /([?&](?:token|hash|tgaddr)=)[^&]*/gi,
+          "$1[REDACTED]",
+        )
+      : "null";
+    console.log(
+      `[button] alert=${result.alert} msg=${JSON.stringify(result.message)} url=${safeUrl}`,
+    );
   }
   return {
     alert: result.alert ?? false,
@@ -2541,7 +2583,10 @@ export async function resolveWebApp(
           writeAllowed: true,
         }),
       )) as any;
-      return { url: withClientLaunchParams(result.url as string), resolved: true };
+      return {
+        url: withClientLaunchParams(result.url as string),
+        resolved: true,
+      };
     }
 
     const result = (await entry.client.invoke(
@@ -2552,7 +2597,10 @@ export async function resolveWebApp(
         startParam,
       }),
     )) as any;
-    return { url: withClientLaunchParams(result.url as string), resolved: true };
+    return {
+      url: withClientLaunchParams(result.url as string),
+      resolved: true,
+    };
   }
 
   // Direct web app URL with a known bot
@@ -2582,7 +2630,10 @@ export async function resolveWebApp(
               ...(fromBotMenu ? { fromBotMenu: true } : {}),
             } as any),
           )) as any;
-          return { url: withClientLaunchParams(result.url as string), resolved: true };
+          return {
+            url: withClientLaunchParams(result.url as string),
+            resolved: true,
+          };
         } catch {
           const result = (await entry.client.invoke(
             new Api.messages.RequestSimpleWebView({
@@ -2591,7 +2642,10 @@ export async function resolveWebApp(
               platform: "web",
             } as any),
           )) as any;
-          return { url: withClientLaunchParams(result.url as string), resolved: true };
+          return {
+            url: withClientLaunchParams(result.url as string),
+            resolved: true,
+          };
         }
       }
     } catch {
@@ -3114,9 +3168,7 @@ export function clearAccountCache(accountId: number): void {
   db.prepare("DELETE FROM tg_message_cache WHERE account_id = ?").run(
     accountId,
   );
-  db.prepare("DELETE FROM tg_dialog_cache WHERE account_id = ?").run(
-    accountId,
-  );
+  db.prepare("DELETE FROM tg_dialog_cache WHERE account_id = ?").run(accountId);
   const entry = liveClients.get(accountId);
   if (entry) {
     entry.entityCache.clear();
@@ -3133,10 +3185,7 @@ export function removeCachedDialog(accountId: number, chatId: string): void {
 
 // Removes cached rows for chats no longer in a full dialog load
 // (deleted chats, left groups). Upserts alone never drop them.
-function pruneCachedDialogs(
-  accountId: number,
-  dialogs: TgDialogItem[],
-): void {
+function pruneCachedDialogs(accountId: number, dialogs: TgDialogItem[]): void {
   if (!dialogs.length) return;
   const keep = new Set(dialogs.map((d) => d.chatId));
   const rows = db

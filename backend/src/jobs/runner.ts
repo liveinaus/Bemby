@@ -16,7 +16,12 @@ import { runCustom, CustomJobError, type CustomJobLog } from "./custom";
 import { runAutoreg, AutoregJobError, type AutoregJobLog } from "./autoreg";
 import { db } from "../db/database";
 import { resolveAppClientParams } from "../tg/appClient";
-import { parseProxyChoice, proxyUrlFor, type ProxyChoice } from "../tg/proxyProviders";
+import {
+  missingProxyMessage,
+  parseProxyChoice,
+  proxyUrlFor,
+  type ProxyChoice,
+} from "../tg/proxyProviders";
 import { checkedProxyUrl } from "../tg/proxyHealth";
 
 /**
@@ -57,7 +62,12 @@ function resolveTgProxyUrl(
         `route Telegram through it.`,
     );
   }
-  return proxyUrlFor(accountProxyId);
+  if (!accountProxyId) return undefined;
+  const url = proxyUrlFor(accountProxyId);
+  // Same rule as resolveAccountExit: an exit that has gone is an error, not a silent direct
+  // connection from the server's own address.
+  if (!url) throw new Error(missingProxyMessage(accountProxyId));
+  return url;
 }
 
 /**
@@ -88,7 +98,9 @@ export function resolveCheckedWebProxyUrl(
   job: Job,
 ): Promise<string | undefined> {
   const choice = configProxyChoice(job.config, job.templateId);
-  return checkedProxyUrl(choice.proxyId ? choice : { proxyId: accountProxyId ?? undefined });
+  return checkedProxyUrl(
+    choice.proxyId ? choice : { proxyId: accountProxyId ?? undefined },
+  );
 }
 
 export function parseTgProxy(
@@ -113,10 +125,7 @@ export function parseTgProxy(
 }
 
 export type JobDetailLog =
-  | CheckinAttemptLog
-  | EmbywatchLog
-  | CustomJobLog
-  | AutoregJobLog;
+  CheckinAttemptLog | EmbywatchLog | CustomJobLog | AutoregJobLog;
 
 const RETRY_DELAY_MS = 5_000;
 
@@ -165,183 +174,206 @@ export async function runJob(
   signal?.addEventListener("abort", stopBrowsers, { once: true });
 
   try {
-
-  for (let attempt = 1; attempt <= job.retryMax; attempt++) {
-    if (signal?.aborted) throw new Error("Job cancelled");
-    try {
-      switch (job.jobType) {
-        case "checkin": {
-          if (!account) throw new Error("No account linked to this job");
-          if (!account.sessionString)
-            throw new Error("Account has no session -- authenticate first");
-          if (!account.apiId || !account.apiHash)
-            throw new Error("No API credentials available for this account");
-          // Telegram follows the account's exit; the browser may use the job's
-          const checkinProxy = parseTgProxy(resolveTgProxyUrl(account.proxyId, job));
-          const checkinProxyUrl = await resolveCheckedWebProxyUrl(account.proxyId, job);
-          const checkinDevice = resolveAppClientParams(account.id, account.appClientId);
-          let checkinCfg: CheckinConfig = {};
-          try {
-            // For template-linked jobs, use template config as base then overlay job config
-            if (job.templateId) {
-              const tplRow = db
-                .prepare("SELECT config FROM job_templates WHERE id = ?")
-                .get(job.templateId) as { config: string | null } | undefined;
-              if (tplRow?.config) {
-                let t = JSON.parse(tplRow.config);
-                if (typeof t === "string") t = JSON.parse(t);
-                checkinCfg = { ...checkinCfg, ...t };
-              }
-            }
-            if (job.config) {
-              let c = JSON.parse(job.config);
-              if (typeof c === "string") c = JSON.parse(c);
-              checkinCfg = { ...checkinCfg, ...c };
-            }
-          } catch {
-            /* ignore */
-          }
-          const log = await runCheckin(
-            account.apiId,
-            account.apiHash,
-            account.sessionString,
-            job.botUsername,
-            job.replyTimeoutMs,
-            job.startCommand,
-            job.checkinButton,
-            attempt,
-            job.retryMax,
-            signal,
-            checkinProxy,
-            checkinDevice,
-            checkinCfg.successContains,
-            checkinCfg.failContains,
-            checkinProxyUrl,
-          );
-          detailLogs?.push(log);
-          break;
-        }
-        case "embywatch": {
-          let jobCfg: Partial<EmbywatchConfig> = JSON.parse(job.config ?? "{}");
-          if (typeof jobCfg === "string")
-            jobCfg = JSON.parse(jobCfg as unknown as string);
-          let config: EmbywatchConfig = jobCfg as EmbywatchConfig;
-          // Template-linked jobs: merge template config (settings) with job config (credentials)
-          if (job.templateId) {
-            const tplRow = db
-              .prepare("SELECT config FROM job_templates WHERE id = ?")
-              .get(job.templateId) as { config: string | null } | undefined;
-            if (tplRow?.config) {
-              let tplCfg = JSON.parse(tplRow.config);
-              if (typeof tplCfg === "string") tplCfg = JSON.parse(tplCfg);
-              config = { ...tplCfg, ...jobCfg } as EmbywatchConfig;
-            }
-          }
-          if (!config.username || !config.password)
-            throw new Error("Emby username and password are required");
-          const log = await runEmbywatch(job.botUsername, config, signal);
-          detailLogs?.push(log);
-          break;
-        }
-        case "custom": {
-          if (!account) throw new Error("No account linked to this job");
-          if (!account.sessionString)
-            throw new Error("Account has no session -- authenticate first");
-          if (!account.apiId || !account.apiHash)
-            throw new Error("No API credentials available for this account");
-          const rawCfg = JSON.parse(job.config ?? '{"actions":[]}');
-          // Telegram follows the account's exit; the browser may use the job's
-          const customProxy = parseTgProxy(resolveTgProxyUrl(account.proxyId, job));
-          const customProxyUrl = await resolveCheckedWebProxyUrl(account.proxyId, job);
-          const customDevice = resolveAppClientParams(account.id, account.appClientId);
-          const customLog = await runCustom(
-            account.apiId,
-            account.apiHash,
-            account.sessionString,
-            job.botUsername,
-            rawCfg,
-            signal,
-            customProxy,
-            customDevice,
-            customProxyUrl,
-            cfRun,
-            configProxyChoice(job.config, job.templateId),
-            { id: account.id, name: account.name, phoneNumber: account.phoneNumber },
-          );
-          detailLogs?.push(customLog);
-          break;
-        }
-        case "autoreg": {
-          if (!account) throw new Error("No account linked to this job");
-          if (!account.sessionString)
-            throw new Error("Account has no session -- authenticate first");
-          if (!account.apiId || !account.apiHash)
-            throw new Error("No API credentials available for this account");
-          let autoregCfg: Record<string, unknown> = {};
-          try {
-            // Template-linked jobs: template config as base, job config overlaid
-            if (job.templateId) {
-              const tplRow = db
-                .prepare("SELECT config FROM job_templates WHERE id = ?")
-                .get(job.templateId) as { config: string | null } | undefined;
-              if (tplRow?.config) {
-                let t = JSON.parse(tplRow.config);
-                if (typeof t === "string") t = JSON.parse(t);
-                autoregCfg = { ...autoregCfg, ...t };
-              }
-            }
-            if (job.config) {
-              let c = JSON.parse(job.config);
-              if (typeof c === "string") c = JSON.parse(c);
-              autoregCfg = { ...autoregCfg, ...c };
-            }
-          } catch {
-            /* ignore */
-          }
-          const autoregProxy = parseTgProxy(resolveTgProxyUrl(account.proxyId, job));
-          const autoregDevice = resolveAppClientParams(
-            account.id,
-            account.appClientId,
-          );
-          const autoregLog = await runAutoreg(
-            account.apiId,
-            account.apiHash,
-            account.sessionString,
-            job.botUsername,
-            job.startCommand,
-            autoregCfg as unknown as AutoregConfig,
-            signal,
-            autoregProxy,
-            autoregDevice,
-            job.replyTimeoutMs,
-          );
-          detailLogs?.push(autoregLog);
-          break;
-        }
-        default:
-          throw new Error(`Unknown job type: ${job.jobType}`);
-      }
-      return;
-    } catch (err) {
-      if (err instanceof CheckinError) detailLogs?.push(err.log);
-      if (err instanceof CustomJobError) detailLogs?.push(err.log);
-      if (err instanceof AutoregJobError) detailLogs?.push(err.log);
-      lastError = err;
-      // A cancelled job must not be retried, and must report as cancelled even
-      // if the underlying failure surfaced as something else.
+    for (let attempt = 1; attempt <= job.retryMax; attempt++) {
       if (signal?.aborted) throw new Error("Job cancelled");
-      console.error(
-        `[runner] Job "${job.name}" attempt ${attempt}/${job.retryMax} failed:`,
-        err,
-      );
-      if (attempt < job.retryMax && signal) {
-        await delayAbortable(RETRY_DELAY_MS, signal).catch(() => {
-          throw lastError;
-        });
-      } else if (attempt < job.retryMax) {
-        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      try {
+        switch (job.jobType) {
+          case "checkin": {
+            if (!account) throw new Error("No account linked to this job");
+            if (!account.sessionString)
+              throw new Error("Account has no session -- authenticate first");
+            if (!account.apiId || !account.apiHash)
+              throw new Error("No API credentials available for this account");
+            // Telegram follows the account's exit; the browser may use the job's
+            const checkinProxy = parseTgProxy(
+              resolveTgProxyUrl(account.proxyId, job),
+            );
+            const checkinProxyUrl = await resolveCheckedWebProxyUrl(
+              account.proxyId,
+              job,
+            );
+            const checkinDevice = resolveAppClientParams(
+              account.id,
+              account.appClientId,
+            );
+            let checkinCfg: CheckinConfig = {};
+            try {
+              // For template-linked jobs, use template config as base then overlay job config
+              if (job.templateId) {
+                const tplRow = db
+                  .prepare("SELECT config FROM job_templates WHERE id = ?")
+                  .get(job.templateId) as { config: string | null } | undefined;
+                if (tplRow?.config) {
+                  let t = JSON.parse(tplRow.config);
+                  if (typeof t === "string") t = JSON.parse(t);
+                  checkinCfg = { ...checkinCfg, ...t };
+                }
+              }
+              if (job.config) {
+                let c = JSON.parse(job.config);
+                if (typeof c === "string") c = JSON.parse(c);
+                checkinCfg = { ...checkinCfg, ...c };
+              }
+            } catch {
+              /* ignore */
+            }
+            const log = await runCheckin(
+              account.apiId,
+              account.apiHash,
+              account.sessionString,
+              job.botUsername,
+              job.replyTimeoutMs,
+              job.startCommand,
+              job.checkinButton,
+              attempt,
+              job.retryMax,
+              signal,
+              checkinProxy,
+              checkinDevice,
+              checkinCfg.successContains,
+              checkinCfg.failContains,
+              checkinProxyUrl,
+            );
+            detailLogs?.push(log);
+            break;
+          }
+          case "embywatch": {
+            let jobCfg: Partial<EmbywatchConfig> = JSON.parse(
+              job.config ?? "{}",
+            );
+            if (typeof jobCfg === "string")
+              jobCfg = JSON.parse(jobCfg as unknown as string);
+            let config: EmbywatchConfig = jobCfg as EmbywatchConfig;
+            // Template-linked jobs: merge template config (settings) with job config (credentials)
+            if (job.templateId) {
+              const tplRow = db
+                .prepare("SELECT config FROM job_templates WHERE id = ?")
+                .get(job.templateId) as { config: string | null } | undefined;
+              if (tplRow?.config) {
+                let tplCfg = JSON.parse(tplRow.config);
+                if (typeof tplCfg === "string") tplCfg = JSON.parse(tplCfg);
+                config = { ...tplCfg, ...jobCfg } as EmbywatchConfig;
+              }
+            }
+            if (!config.username || !config.password)
+              throw new Error("Emby username and password are required");
+            const log = await runEmbywatch(job.botUsername, config, signal);
+            detailLogs?.push(log);
+            break;
+          }
+          case "custom": {
+            if (!account) throw new Error("No account linked to this job");
+            if (!account.sessionString)
+              throw new Error("Account has no session -- authenticate first");
+            if (!account.apiId || !account.apiHash)
+              throw new Error("No API credentials available for this account");
+            const rawCfg = JSON.parse(job.config ?? '{"actions":[]}');
+            // Telegram follows the account's exit; the browser may use the job's
+            const customProxy = parseTgProxy(
+              resolveTgProxyUrl(account.proxyId, job),
+            );
+            const customProxyUrl = await resolveCheckedWebProxyUrl(
+              account.proxyId,
+              job,
+            );
+            const customDevice = resolveAppClientParams(
+              account.id,
+              account.appClientId,
+            );
+            const customLog = await runCustom(
+              account.apiId,
+              account.apiHash,
+              account.sessionString,
+              job.botUsername,
+              rawCfg,
+              signal,
+              customProxy,
+              customDevice,
+              customProxyUrl,
+              cfRun,
+              configProxyChoice(job.config, job.templateId),
+              {
+                id: account.id,
+                name: account.name,
+                phoneNumber: account.phoneNumber,
+              },
+            );
+            detailLogs?.push(customLog);
+            break;
+          }
+          case "autoreg": {
+            if (!account) throw new Error("No account linked to this job");
+            if (!account.sessionString)
+              throw new Error("Account has no session -- authenticate first");
+            if (!account.apiId || !account.apiHash)
+              throw new Error("No API credentials available for this account");
+            let autoregCfg: Record<string, unknown> = {};
+            try {
+              // Template-linked jobs: template config as base, job config overlaid
+              if (job.templateId) {
+                const tplRow = db
+                  .prepare("SELECT config FROM job_templates WHERE id = ?")
+                  .get(job.templateId) as { config: string | null } | undefined;
+                if (tplRow?.config) {
+                  let t = JSON.parse(tplRow.config);
+                  if (typeof t === "string") t = JSON.parse(t);
+                  autoregCfg = { ...autoregCfg, ...t };
+                }
+              }
+              if (job.config) {
+                let c = JSON.parse(job.config);
+                if (typeof c === "string") c = JSON.parse(c);
+                autoregCfg = { ...autoregCfg, ...c };
+              }
+            } catch {
+              /* ignore */
+            }
+            const autoregProxy = parseTgProxy(
+              resolveTgProxyUrl(account.proxyId, job),
+            );
+            const autoregDevice = resolveAppClientParams(
+              account.id,
+              account.appClientId,
+            );
+            const autoregLog = await runAutoreg(
+              account.apiId,
+              account.apiHash,
+              account.sessionString,
+              job.botUsername,
+              job.startCommand,
+              autoregCfg as unknown as AutoregConfig,
+              signal,
+              autoregProxy,
+              autoregDevice,
+              job.replyTimeoutMs,
+            );
+            detailLogs?.push(autoregLog);
+            break;
+          }
+          default:
+            throw new Error(`Unknown job type: ${job.jobType}`);
+        }
+        return;
+      } catch (err) {
+        if (err instanceof CheckinError) detailLogs?.push(err.log);
+        if (err instanceof CustomJobError) detailLogs?.push(err.log);
+        if (err instanceof AutoregJobError) detailLogs?.push(err.log);
+        lastError = err;
+        // A cancelled job must not be retried, and must report as cancelled even
+        // if the underlying failure surfaced as something else.
+        if (signal?.aborted) throw new Error("Job cancelled");
+        console.error(
+          `[runner] Job "${job.name}" attempt ${attempt}/${job.retryMax} failed:`,
+          err,
+        );
+        if (attempt < job.retryMax && signal) {
+          await delayAbortable(RETRY_DELAY_MS, signal).catch(() => {
+            throw lastError;
+          });
+        } else if (attempt < job.retryMax) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+        }
       }
-    }
     }
 
     throw lastError;
