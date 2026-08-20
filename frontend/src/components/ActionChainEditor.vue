@@ -134,6 +134,7 @@
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelMaxWait') }}</label>
         <input v-model.number="action.maxWaitMs" class="form-input" type="number" min="1000" step="1000" />
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.maxWaitTotalHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelScope') }}</label>
@@ -184,6 +185,7 @@
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelMaxWait') }}</label>
         <input v-model.number="action.maxWaitMs" class="form-input" type="number" min="1000" step="1000" />
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.maxWaitTotalHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelScope') }}</label>
@@ -443,6 +445,7 @@
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelMaxWait') }}</label>
         <input v-model.number="action.maxWaitMs" class="form-input" type="number" min="1000" step="1000" />
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.maxWaitTotalHintEach') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelScope') }}</label>

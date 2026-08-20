@@ -304,7 +304,7 @@ type AiInputResult = { text: string; prompt: string; response: string };
 /** Builds the captcha recognition prompt so callers can log it before the fetch. */
 export function buildCaptchaPrompt(length?: number): string {
   const lengthHint = length ? ` The captcha is exactly ${length} characters.` : '';
-  return `Read this captcha image.${lengthHint} Reply with ONLY the captcha characters, nothing else.`;
+  return `Read this captcha image.${lengthHint} Reply with ONLY the captcha characters(no space), nothing else.`;
 }
 
 /** Sends captcha image(s) to the AI and returns the recognised text only. */

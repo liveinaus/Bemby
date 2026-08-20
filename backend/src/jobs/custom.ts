@@ -380,6 +380,18 @@ async function waitForButtonsInChat(
   });
 }
 
+// An action's maxWaitMs is the wall-clock budget for the whole action, not per wait:
+// locating the button and waiting for the bot's response both draw from the same clock.
+// Returns how much is left, never 0 -- a spent budget still gets one short look.
+const DEFAULT_ACTION_WAIT_MS = 10_000;
+const MIN_WAIT_SLICE_MS = 1_000;
+
+function waitBudget(maxWaitMs?: number): () => number {
+  const deadline =
+    Date.now() + (maxWaitMs && maxWaitMs > 0 ? maxWaitMs : DEFAULT_ACTION_WAIT_MS);
+  return () => Math.max(MIN_WAIT_SLICE_MS, deadline - Date.now());
+}
+
 // Waits for the next new message arriving in a specific chat. Never rejects -- resolves null
 // on timeout or abort.
 async function waitForNewMessageInChat(
@@ -1517,6 +1529,7 @@ export async function runCustom(
 
               case "click_button": {
                 step.label = `Click button "${action.button}"`;
+                const waitLeft = waitBudget(action.maxWaitMs);
 
                 const minId = await resolveScopeFloor(
                   client,
@@ -1548,7 +1561,7 @@ export async function runCustom(
                   const msgs = await waitForButtonsMessage(
                     client,
                     botUsername,
-                    action.maxWaitMs,
+                    waitLeft(),
                     signal,
                     minId,
                   );
@@ -1672,7 +1685,7 @@ export async function runCustom(
                         await waitForButtonsMessage(
                           client,
                           botUsername,
-                          action.maxWaitMs,
+                          waitLeft(),
                           signal,
                           minId,
                           buttonsMsg?.id,
@@ -1759,14 +1772,14 @@ export async function runCustom(
                       const editPromise = waitForBotMessageEdit(
                         client,
                         buttonsMsg!.id,
-                        10_000,
+                        waitLeft(),
                         clickAbort.signal,
                         botPeerId,
                       );
                       const newMsgPromise = waitForNewBotMessage(
                         client,
                         botUsername,
-                        10_000,
+                        waitLeft(),
                         clickAbort.signal,
                       );
 
@@ -1925,6 +1938,7 @@ export async function runCustom(
               case "click_message_button": {
                 const contact = action.contact.trim();
                 step.label = `Click button "${action.button}" from ${contact}`;
+                const waitLeft = waitBudget(action.maxWaitMs);
 
                 const entity = await resolvePeerTarget(client, contact);
                 const peer = await client.getInputEntity(entity);
@@ -1949,7 +1963,7 @@ export async function runCustom(
                   const msgs = await waitForButtonsInChat(
                     client,
                     entity,
-                    action.maxWaitMs,
+                    waitLeft(),
                     signal,
                     minId,
                   );
@@ -2055,7 +2069,7 @@ export async function runCustom(
                       const msgs = await waitForButtonsInChat(
                         client,
                         entity,
-                        action.maxWaitMs,
+                        waitLeft(),
                         signal,
                         minId,
                       ).catch(() => null);
@@ -2131,14 +2145,14 @@ export async function runCustom(
                       const editPromise = waitForBotMessageEdit(
                         client,
                         buttonsMsg!.id,
-                        10_000,
+                        waitLeft(),
                         clickAbort.signal,
                         chatPeerId,
                       );
                       const newMsgPromise = waitForNewMessageInChat(
                         client,
                         entity,
-                        10_000,
+                        waitLeft(),
                         clickAbort.signal,
                       );
 
@@ -2324,6 +2338,7 @@ export async function runCustom(
                     .getMessages(target, { ids: [id] })
                     .then((r) => (r as Api.Message[])?.[0] ?? null)
                     .catch(() => null);
+                let waitLeft = waitBudget(action.maxWaitMs);
                 const waitButtons = (
                   excludeId?: number,
                 ): Promise<Api.Message[]> =>
@@ -2331,7 +2346,7 @@ export async function runCustom(
                     ? waitForButtonsMessage(
                         client,
                         botUsername,
-                        action.maxWaitMs,
+                        waitLeft(),
                         signal,
                         minId,
                         excludeId,
@@ -2340,7 +2355,7 @@ export async function runCustom(
                     : waitForButtonsInChat(
                         client,
                         target,
-                        action.maxWaitMs,
+                        waitLeft(),
                         signal,
                         minId,
                         buttonsFilter,
@@ -2454,6 +2469,8 @@ export async function runCustom(
                 const clickTarget = async (
                   targetText: string,
                 ): Promise<{ clickedText: string; responseText: string }> => {
+                  // Each button in the sequence gets its own budget.
+                  waitLeft = waitBudget(action.maxWaitMs);
                   let clicked = false;
                   let retryCount = 0;
                   let clickedText = "";
@@ -2519,11 +2536,11 @@ export async function runCustom(
                         const editPromise = waitForBotMessageEdit(
                           client,
                           buttonsMsg!.id,
-                          10_000,
+                          waitLeft(),
                           clickAbort.signal,
                           editPeerId,
                         );
-                        const newMsgPromise = waitNewMsg(10_000);
+                        const newMsgPromise = waitNewMsg(waitLeft());
 
                         const callbackData = (btn as Api.KeyboardButtonCallback)
                           .data;

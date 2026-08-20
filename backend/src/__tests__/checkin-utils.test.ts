@@ -284,7 +284,7 @@ describe("buildCaptchaPrompt", () => {
   it("builds a generic prompt when no length is given", () => {
     const prompt = buildCaptchaPrompt();
     expect(prompt).toBe(
-      "Read this captcha image. Reply with ONLY the captcha characters, nothing else.",
+      "Read this captcha image. Reply with ONLY the captcha characters(no space), nothing else.",
     );
   });
 

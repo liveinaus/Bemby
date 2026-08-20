@@ -928,6 +928,10 @@ const zh = {
       labelContent: "消息/命令",
       contentHint: "支持占位符：{word:N} {WORD:N} {num:N} {num:1-30} {alpha:N} {uuid} {randomFirstName} {randomLastName}",
       labelMaxWait: "最长等待（毫秒）",
+      maxWaitTotalHint:
+        "该动作的总时长上限：等待按钮出现与等待点击后的回复共用这一预算，从动作开始计时。",
+      maxWaitTotalHintEach:
+        "每个按钮的总时长上限：等待按钮出现与等待点击后的回复共用这一预算。",
       labelWaitMs: "等待时长（毫秒）",
       labelButton: "按钮文字",
       buttonHint:
@@ -3308,6 +3312,10 @@ const en: typeof zh = {
       contentHint:
         "Supports placeholders: {word:N} {WORD:N} {num:N} {num:1-30} {alpha:N} {uuid} {randomFirstName} {randomLastName}",
       labelMaxWait: "Max wait (ms)",
+      maxWaitTotalHint:
+        "Total budget for this action, timed from when it starts: finding the button and waiting for the reply share it.",
+      maxWaitTotalHintEach:
+        "Total budget per button: finding the button and waiting for the reply share it.",
       labelWaitMs: "Wait duration (ms)",
       labelButton: "Button text",
       buttonHint: "Special values: {anyBtn} random, {aiBtn} AI pick",
