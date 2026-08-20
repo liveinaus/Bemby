@@ -1898,31 +1898,33 @@ watch(jobs, () => {
   lastJobSelectedIdx = null;
 });
 
+// One request each, whatever the selection: a request per job meant the scheduler was
+// rebuilt once per job as well, which is what made a couple of hundred of them so slow.
 async function bulkEnableJobs() {
-  await Promise.all(selectedJobIds.value.map(id => jobsApi.update(id, { enabled: true })));
+  await jobsApi.bulkUpdate(selectedJobIds.value, { enabled: true });
   await Promise.all([loadJobs(), loadStatus()]);
   selectedJobIds.value = [];
 }
 
 async function executeBulkDisableJobs() {
-  await Promise.all(selectedJobIds.value.map(id => jobsApi.update(id, { enabled: false })));
+  await jobsApi.bulkUpdate(selectedJobIds.value, { enabled: false });
   await Promise.all([loadJobs(), loadStatus()]);
   confirmBulkDisableJobs.value = false;
   selectedJobIds.value = [];
 }
 
 async function executeBulkRetireJobs() {
-  await Promise.all(selectedJobIds.value.map(id => jobsApi.delete(id)));
+  await jobsApi.bulkRetire(selectedJobIds.value);
   await loadJobs();
   confirmBulkRetireJobs.value = false;
   selectedJobIds.value = [];
 }
 
 async function executeBulkChangeWindow() {
-  await Promise.all(selectedJobIds.value.map(id => jobsApi.update(id, {
+  await jobsApi.bulkUpdate(selectedJobIds.value, {
     scheduleWindowStart: bulkWindowStart.value,
     scheduleWindowEnd: bulkWindowEnd.value,
-  })));
+  });
   await Promise.all([loadJobs(), loadStatus()]);
   showBulkWindowModal.value = false;
   selectedJobIds.value = [];

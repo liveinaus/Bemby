@@ -250,6 +250,93 @@ router.post("/", (req, res) => {
   res.status(201).json(rowToJob(row));
 });
 
+/**
+ * Ids a bulk route was handed, or null when the body carries nothing usable. A selection of
+ * a couple of hundred is the point of these routes, so the whole list is taken at once
+ * rather than being walked a request at a time.
+ */
+function bulkIds(body: unknown): number[] | null {
+  const raw = (body as { ids?: unknown } | null)?.ids;
+  if (!Array.isArray(raw) || !raw.length) return null;
+  const ids = raw.map(Number).filter((id) => Number.isInteger(id) && id > 0);
+  return ids.length ? ids : null;
+}
+
+/**
+ * PUT /bulk -- one patch applied to many jobs in a single statement each, inside one
+ * transaction, with the scheduler rebuilt once at the end. The per-job route rebuilds it on
+ * every call, which is what made enabling two hundred jobs from the panel so heavy.
+ *
+ * Registered before "/:id" so express does not read the literal path as an id.
+ */
+router.put("/bulk", (req, res) => {
+  const ids = bulkIds(req.body);
+  if (!ids) {
+    res.status(400).json({ error: "ids array required" });
+    return;
+  }
+
+  const { enabled, scheduleWindowStart, scheduleWindowEnd } = req.body as Record<string, any>;
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  if (enabled !== undefined) {
+    sets.push("enabled = ?");
+    values.push(enabled ? 1 : 0);
+  }
+  for (const [field, column] of [
+    [scheduleWindowStart, "schedule_window_start"],
+    [scheduleWindowEnd, "schedule_window_end"],
+  ] as const) {
+    if (field === undefined) continue;
+    const value = Number(field);
+    if (!Number.isFinite(value)) {
+      res.status(400).json({ error: `${column} must be a number` });
+      return;
+    }
+    sets.push(`${column} = ?`);
+    values.push(value);
+  }
+  if (!sets.length) {
+    res.status(400).json({ error: "nothing to update" });
+    return;
+  }
+
+  // Retired jobs are out of the panel's reach, so a stale selection cannot bring one back
+  const update = db.prepare(
+    `UPDATE jobs SET ${sets.join(", ")} WHERE id = ? AND retired IS NULL`,
+  );
+  const apply = db.transaction((list: number[]) => {
+    let changed = 0;
+    for (const id of list) changed += update.run(...values, id).changes;
+    return changed;
+  });
+  const updated = apply(ids);
+
+  refreshScheduler();
+  res.json({ updated });
+});
+
+/** POST /bulk-retire -- retire many jobs at once, the bulk twin of DELETE /:id. */
+router.post("/bulk-retire", (req, res) => {
+  const ids = bulkIds(req.body);
+  if (!ids) {
+    res.status(400).json({ error: "ids array required" });
+    return;
+  }
+  const update = db.prepare(
+    "UPDATE jobs SET retired = datetime('now') WHERE id = ? AND retired IS NULL",
+  );
+  const apply = db.transaction((list: number[]) => {
+    let changed = 0;
+    for (const id of list) changed += update.run(id).changes;
+    return changed;
+  });
+  const retired = apply(ids);
+
+  refreshScheduler();
+  res.json({ retired });
+});
+
 router.put("/:id", (req, res) => {
   const existing = db
     .prepare("SELECT * FROM jobs WHERE id = ?")

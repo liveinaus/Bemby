@@ -1584,6 +1584,25 @@ export const jobsApi = {
   update: (id: number, data: Partial<Job>) =>
     api.put<Job>(`/jobs/${id}`, data).then((r) => r.data),
   delete: (id: number) => api.delete(`/jobs/${id}`),
+  /**
+   * One patch, many jobs, one request. The per-job route rebuilds the scheduler on every
+   * call, so a selection of a couple of hundred has to go in a single trip.
+   */
+  bulkUpdate: (
+    ids: number[],
+    patch: {
+      enabled?: boolean;
+      scheduleWindowStart?: number;
+      scheduleWindowEnd?: number;
+    },
+  ) =>
+    api
+      .put<{ updated: number }>("/jobs/bulk", { ids, ...patch })
+      .then((r) => r.data),
+  bulkRetire: (ids: number[]) =>
+    api
+      .post<{ retired: number }>("/jobs/bulk-retire", { ids })
+      .then((r) => r.data),
   run: (id: number) =>
     api
       .post<{ message: string; logId: number }>(`/jobs/${id}/run`)
