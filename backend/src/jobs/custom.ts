@@ -3547,6 +3547,16 @@ export async function runCustom(
                 }
                 break;
               }
+
+              default:
+                // An action this build has no case for. Silence here is the dangerous
+                // answer: the step would fall past the switch, be counted a success and
+                // leave a blank line in the log -- which is exactly what a config saved by
+                // a newer panel than the running server looks like.
+                throw new Error(
+                  `This build does not know the "${(action as CustomAction).type}" action. ` +
+                    "The server is likely older than the panel that saved this job.",
+                );
             }
 
             actionSucceeded = true;
