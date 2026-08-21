@@ -559,6 +559,8 @@ const zh = {
       storeValueFormat: "记录值格式",
       storeHint: "文件夹不存在时自动创建。键重复会覆盖，建议包含 {id} 与 {account}。",
       start: "开始提取",
+      resetForm: "清空表单",
+      savedHint: "本表单的填写会记在本浏览器中，下次打开自动带出。",
       resultSummary: "{matched}/{scanned} 条命中，产生 {lines} 行",
       resultStored: "写入 {n} 条记录",
       resultTruncated: "（已达上限，可能未读完）",
@@ -2929,6 +2931,9 @@ const en: typeof zh = {
       storeHint:
         "The folder is created if it is not there. A repeated key overwrites, so keep {id} and {account} in it.",
       start: "Start Extracting",
+      resetForm: "Clear form",
+      savedHint:
+        "What you type here is kept in this browser and filled back in next time.",
       resultSummary: "{matched} of {scanned} messages matched, {lines} line(s)",
       resultStored: "{n} record(s) written",
       resultTruncated: "(hit the ceiling -- the history may not be exhausted)",

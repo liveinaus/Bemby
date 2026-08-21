@@ -2799,6 +2799,9 @@
                 )
               }}
             </p>
+            <p class="bulk-add-hint">
+              {{ t("accounts.bulkExtract.savedHint") }}
+            </p>
 
             <div class="form-group">
               <label class="form-label">
@@ -2972,6 +2975,14 @@
             </div>
           </template>
           <div class="modal-footer">
+            <button
+              v-if="bulkExtractTargets.length"
+              class="btn btn-ghost"
+              @click="resetBulkExtractForm"
+            >
+              <i class="fa-solid fa-eraser"></i>
+              {{ t("accounts.bulkExtract.resetForm") }}
+            </button>
             <button class="btn btn-ghost" @click="closeBulkExtract">
               <i class="fa-solid fa-xmark"></i> {{ t("common.cancel") }}
             </button>
@@ -3352,7 +3363,10 @@ import {
   type ExtractLine,
 } from "../api/client";
 import { t, locale } from "../i18n";
-import { usePersistedRef } from "../composables/usePersistedRef";
+import {
+  usePersistedRef,
+  usePersistedReactive,
+} from "../composables/usePersistedRef";
 import { phoneCountry } from "../utils/phoneCountry";
 import { proxyScheme, proxySupportsTelegram } from "../utils/proxy";
 import { debounce } from "../composables/useDebounce";
@@ -5083,12 +5097,34 @@ const EXTRACT_PREVIEW_LINES = 500;
 
 const showBulkExtract = ref(false);
 const bulkExtractTargets = ref<Account[]>([]);
-const bulkExtractGapSeconds = ref(10);
-const bulkExtractStoreOn = ref(false);
 const bulkExtractTaskId = ref<string | null>(null);
 const bulkExtractTask = computed(() => taskById(bulkExtractTaskId.value));
 
-const bulkExtract = reactive({
+// The whole form is remembered between visits: these reads are usually repeated with
+// the same chat, regex and formats, so re-typing them every time is pure friction.
+const bulkExtractGapSeconds = usePersistedRef<number>(
+  "bemby:accounts:bulkExtract:gap",
+  10,
+);
+const bulkExtractStoreOn = usePersistedRef<boolean>(
+  "bemby:accounts:bulkExtract:storeOn",
+  false,
+);
+
+type BulkExtractForm = {
+  target: string;
+  after: string;
+  maxMessages: number;
+  search: string;
+  pattern: string;
+  keepUnmatched: boolean;
+  lineFormat: string;
+  storeFolder: string;
+  storeKeyFormat: string;
+  storeValueFormat: string;
+};
+
+const BULK_EXTRACT_DEFAULTS: BulkExtractForm = {
   target: "",
   after: "",
   maxMessages: 1000,
@@ -5099,7 +5135,16 @@ const bulkExtract = reactive({
   storeFolder: "",
   storeKeyFormat: "{account}-{id}",
   storeValueFormat: "{value}",
-});
+};
+
+const bulkExtract = usePersistedReactive<BulkExtractForm>(
+  "bemby:accounts:bulkExtract:form",
+  { ...BULK_EXTRACT_DEFAULTS },
+);
+
+function resetBulkExtractForm() {
+  Object.assign(bulkExtract, BULK_EXTRACT_DEFAULTS);
+}
 
 const EXTRACT_PLACEHOLDERS = [
   "value",
