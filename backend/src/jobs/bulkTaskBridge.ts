@@ -1,8 +1,16 @@
-import { cancelBulkAdd, clearBulkAdd, getBulkAddStatus } from "./bulkAdd";
+import {
+  cancelBulkAdd,
+  clearBulkAdd,
+  getBulkAddStatus,
+  pauseBulkAdd,
+  resumeBulkAdd,
+} from "./bulkAdd";
 import {
   cancelBulkProfile,
   clearBulkProfile,
   getBulkProfileStatus,
+  pauseBulkProfile,
+  resumeBulkProfile,
 } from "./bulkProfile";
 import type { BulkTask, BulkTaskItem, BulkTaskItemStatus } from "./bulkTasks";
 
@@ -14,6 +22,7 @@ import type { BulkTask, BulkTaskItem, BulkTaskItemStatus } from "./bulkTasks";
 const ITEM_STATUS: Record<string, BulkTaskItemStatus> = {
   pending: "pending",
   waiting: "waiting",
+  paused: "paused",
   done: "done",
   failed: "failed",
   // A created-but-unauthenticated account and an already-authenticated one are
@@ -54,6 +63,7 @@ function adapt(
     createdAt: string;
     running: boolean;
     cancelled: boolean;
+    paused: boolean;
     total: number;
     items: LegacyItem[];
   } | null,
@@ -70,6 +80,7 @@ function adapt(
     finishedAt: batch.running ? null : batch.createdAt,
     state: batch.running ? "running" : batch.cancelled ? "cancelled" : "completed",
     cancelRequested: batch.cancelled,
+    paused: batch.paused,
     gapSeconds: 0,
     total: batch.total,
     items: adaptItems(batch.items),
@@ -88,6 +99,20 @@ export function legacyBulkTasks(): BulkTask[] {
 export function cancelLegacyBulkTask(id: string): boolean {
   if (getBulkAddStatus()?.id === id) return cancelBulkAdd();
   if (getBulkProfileStatus()?.id === id) return cancelBulkProfile();
+  return false;
+}
+
+/** True when the id belonged to a running legacy batch and it was asked to hold. */
+export function pauseLegacyBulkTask(id: string): boolean {
+  if (getBulkAddStatus()?.id === id) return pauseBulkAdd();
+  if (getBulkProfileStatus()?.id === id) return pauseBulkProfile();
+  return false;
+}
+
+/** True when the id belonged to a paused legacy batch and it was let go on. */
+export function resumeLegacyBulkTask(id: string): boolean {
+  if (getBulkAddStatus()?.id === id) return resumeBulkAdd();
+  if (getBulkProfileStatus()?.id === id) return resumeBulkProfile();
   return false;
 }
 

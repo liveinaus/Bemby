@@ -121,6 +121,21 @@ async function waitForState(id: string, state: string, timeoutMs = 3000) {
   throw new Error(`task never reached ${state}`);
 }
 
+async function waitForItemStatus(
+  id: string,
+  index: number,
+  status: string,
+  timeoutMs = 3000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { body } = await getJson(`/bulk-tasks/${id}`);
+    if (body.items?.[index]?.status === status) return body;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error(`item ${index} never reached ${status}`);
+}
+
 beforeAll(async () => {
   testDb = new Database(":memory:");
   testDb.exec(SCHEMA);
@@ -210,6 +225,47 @@ describe("bulk task endpoints", () => {
     // Terminating a task that already stopped is a no-op, not an error
     const again = await postJson(`/bulk-tasks/${started.body.id}/cancel`);
     expect(again.body.cancelled).toBe(false);
+  });
+
+  it("pauses a running task between items and resumes it", async () => {
+    const ids = [insertAccount("A_1"), insertAccount("A_2")];
+    cleanAccount.mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () => resolve({ left: 0, deleted: 0, contacts: 0, folders: 0, failed: [] }),
+            100,
+          ),
+        ),
+    );
+
+    const started = await postJson("/bulk-tasks/clean", { ids, gapSeconds: 0 });
+    expect(started.status).toBe(201);
+
+    // Lands while the first account is in flight, so the hold takes effect after it
+    const paused = await postJson(`/bulk-tasks/${started.body.id}/pause`);
+    expect(paused.body.paused).toBe(true);
+
+    const held = await waitForItemStatus(started.body.id, 1, "paused");
+    expect(held.paused).toBe(true);
+    expect(held.state).toBe("running");
+    expect(held.items[0].status).toBe("done");
+
+    const resumed = await postJson(`/bulk-tasks/${started.body.id}/resume`);
+    expect(resumed.body.resumed).toBe(true);
+
+    const finished = await waitForState(started.body.id, "completed");
+    expect(finished.items.map((i: any) => i.status)).toEqual(["done", "done"]);
+    expect(finished.paused).toBe(false);
+    expect(cleanAccount).toHaveBeenCalledTimes(2);
+
+    // Nothing to pause or resume once it has stopped
+    expect((await postJson(`/bulk-tasks/${started.body.id}/pause`)).body.paused).toBe(
+      false,
+    );
+    expect(
+      (await postJson(`/bulk-tasks/${started.body.id}/resume`)).body.resumed,
+    ).toBe(false);
   });
 
   it("only dismisses finished tasks", async () => {

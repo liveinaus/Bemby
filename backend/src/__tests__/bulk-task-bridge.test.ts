@@ -6,21 +6,29 @@ const mocks = vi.hoisted(() => ({
   getBulkAddStatus: vi.fn(),
   cancelBulkAdd: vi.fn(() => true),
   clearBulkAdd: vi.fn(() => true),
+  pauseBulkAdd: vi.fn(() => true),
+  resumeBulkAdd: vi.fn(() => true),
   getBulkProfileStatus: vi.fn(),
   cancelBulkProfile: vi.fn(() => true),
   clearBulkProfile: vi.fn(() => true),
+  pauseBulkProfile: vi.fn(() => true),
+  resumeBulkProfile: vi.fn(() => true),
 }));
 
 vi.mock("../jobs/bulkAdd", () => ({
   getBulkAddStatus: mocks.getBulkAddStatus,
   cancelBulkAdd: mocks.cancelBulkAdd,
   clearBulkAdd: mocks.clearBulkAdd,
+  pauseBulkAdd: mocks.pauseBulkAdd,
+  resumeBulkAdd: mocks.resumeBulkAdd,
   isBulkAccountManagementEnabled: () => true,
 }));
 vi.mock("../jobs/bulkProfile", () => ({
   getBulkProfileStatus: mocks.getBulkProfileStatus,
   cancelBulkProfile: mocks.cancelBulkProfile,
   clearBulkProfile: mocks.clearBulkProfile,
+  pauseBulkProfile: mocks.pauseBulkProfile,
+  resumeBulkProfile: mocks.resumeBulkProfile,
 }));
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -28,6 +36,8 @@ import {
   cancelLegacyBulkTask,
   dismissLegacyBulkTask,
   legacyBulkTasks,
+  pauseLegacyBulkTask,
+  resumeLegacyBulkTask,
 } from "../jobs/bulkTaskBridge";
 
 const addBatch = {
@@ -35,6 +45,7 @@ const addBatch = {
   createdAt: "2026-08-05T00:00:00.000Z",
   running: true,
   cancelled: false,
+  paused: false,
   total: 5,
   items: [
     { index: 0, phoneNumber: "+1", accountId: 7, accountName: "A_7", status: "done", message: "Authenticated", error: null },
@@ -50,6 +61,7 @@ const profileBatch = {
   createdAt: "2026-08-05T01:00:00.000Z",
   running: false,
   cancelled: true,
+  paused: false,
   total: 2,
   items: [
     { index: 0, accountId: 1, accountName: "A_1", status: "done", message: "Profile updated", error: null },
@@ -117,6 +129,30 @@ describe("legacyBulkTasks", () => {
     mocks.getBulkAddStatus.mockReturnValue(addBatch);
     mocks.getBulkProfileStatus.mockReturnValue(profileBatch);
     expect(legacyBulkTasks().map((t) => t.kind)).toEqual(["add", "profile"]);
+  });
+});
+
+describe("pauseLegacyBulkTask / resumeLegacyBulkTask", () => {
+  it("holds and releases the batch the id belongs to, and only that one", () => {
+    mocks.getBulkAddStatus.mockReturnValue(addBatch);
+    mocks.getBulkProfileStatus.mockReturnValue(profileBatch);
+
+    expect(pauseLegacyBulkTask("add-1")).toBe(true);
+    expect(mocks.pauseBulkAdd).toHaveBeenCalledTimes(1);
+    expect(mocks.pauseBulkProfile).not.toHaveBeenCalled();
+
+    expect(resumeLegacyBulkTask("profile-1")).toBe(true);
+    expect(mocks.resumeBulkProfile).toHaveBeenCalledTimes(1);
+    expect(mocks.resumeBulkAdd).not.toHaveBeenCalled();
+
+    // An id belonging to neither is left for the generic tasks
+    expect(pauseLegacyBulkTask("some-generic-task")).toBe(false);
+    expect(resumeLegacyBulkTask("some-generic-task")).toBe(false);
+  });
+
+  it("carries the held flag through to the task shape", () => {
+    mocks.getBulkAddStatus.mockReturnValue({ ...addBatch, paused: true });
+    expect(legacyBulkTasks()[0].paused).toBe(true);
   });
 });
 

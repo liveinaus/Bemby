@@ -4,8 +4,10 @@ import {
   dismissBulkTask,
   getBulkTask,
   listBulkTasks,
+  pauseBulkTask,
   queuedRefIds,
   resetBulkTasks,
+  resumeBulkTask,
   runningTaskOfKind,
   startBulkTask,
 } from "../jobs/bulkTasks";
@@ -48,6 +50,77 @@ describe("bulk task registry", () => {
     expect(started.task.items.map((i) => i.status)).toEqual(["done", "done"]);
     expect(started.task.items[0].message).toBe("checked 1");
     expect(started.task.items[0].data).toEqual({ spamStatus: "free" });
+  });
+
+  it("holds between items while paused, then carries on from where it was", async () => {
+    const seen: number[] = [];
+    let openGate = () => {};
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const started = startBulkTask({
+      kind: "clean",
+      entries,
+      handler: async (item) => {
+        seen.push(item.refId);
+        // The first item stays in flight until the test lets it go
+        if (item.refId === 1) await gate;
+        return "cleaned";
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    const task = started.task;
+
+    await flush();
+    expect(seen).toEqual([1]);
+    expect(pauseBulkTask(task.id)).toBe(true);
+    openGate();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // The item in flight finished; the queue is held before the next one
+    expect(task.items[0].status).toBe("done");
+    expect(task.items[1].status).toBe("paused");
+    expect(task.state).toBe("running");
+    expect(seen).toEqual([1]);
+
+    expect(resumeBulkTask(task.id)).toBe(true);
+    await waitForFinish(task.id);
+    expect(seen).toEqual([1, 2]);
+    expect(task.state).toBe("completed");
+    expect(task.items.map((i) => i.status)).toEqual(["done", "done"]);
+  });
+
+  it("terminates a paused queue, and refuses to pause a finished one", async () => {
+    let openGate = () => {};
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
+    const started = startBulkTask({
+      kind: "clean",
+      entries,
+      handler: async (item) => {
+        if (item.refId === 1) await gate;
+        return "cleaned";
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    const task = started.task;
+
+    await flush();
+    expect(pauseBulkTask(task.id)).toBe(true);
+    openGate();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(task.items[1].status).toBe("paused");
+
+    expect(cancelBulkTask(task.id)).toBe(true);
+    await waitForFinish(task.id);
+    expect(task.state).toBe("cancelled");
+    expect(task.paused).toBe(false);
+    expect(task.items[1].status).toBe("cancelled");
+    expect(pauseBulkTask(task.id)).toBe(false);
+    expect(resumeBulkTask(task.id)).toBe(false);
   });
 
   it("keeps going after an item fails and records the reason", async () => {

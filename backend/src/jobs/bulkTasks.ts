@@ -24,6 +24,7 @@ export type BulkTaskKind =
 export type BulkTaskItemStatus =
   | "pending"
   | "waiting"
+  | "paused"
   | "working"
   | "done"
   | "failed"
@@ -58,6 +59,12 @@ export type BulkTask = {
   finishedAt: string | null;
   state: BulkTaskState;
   cancelRequested: boolean;
+  /**
+   * Held between items: the item in flight finishes, then the queue waits here until it
+   * is resumed or terminated. A paused queue still holds its scope, so nothing else can
+   * start on the same accounts or templates behind its back.
+   */
+  paused: boolean;
   gapSeconds: number;
   total: number;
   items: BulkTaskItem[];
@@ -161,6 +168,20 @@ function sleep(ms: number, task: BulkTask): Promise<void> {
   });
 }
 
+// Resolves once a paused task is resumed, or terminated.
+function holdWhilePaused(task: BulkTask): Promise<void> {
+  return new Promise((resolve) => {
+    const tick = () => {
+      if (!task.paused || task.cancelRequested) {
+        resolve();
+        return;
+      }
+      setTimeout(tick, 250);
+    };
+    tick();
+  });
+}
+
 /**
  * Awaits one item under two bounds it cannot talk its way out of: the task being terminated,
  * and a wall-clock ceiling.
@@ -250,7 +271,12 @@ export function queuedRefIds(kind: BulkTaskKind): Set<number> {
   const ids = new Set<number>();
   for (const task of runningTasksOfKind(kind)) {
     for (const item of task.items) {
-      if (item.status === "pending" || item.status === "waiting" || item.status === "working") {
+      if (
+        item.status === "pending" ||
+        item.status === "waiting" ||
+        item.status === "paused" ||
+        item.status === "working"
+      ) {
         ids.add(item.refId);
       }
     }
@@ -284,6 +310,24 @@ export function cancelBulkTask(id: string): boolean {
   const task = tasks.get(id);
   if (!task || task.state !== "running") return false;
   task.cancelRequested = true;
+  // Otherwise a queue terminated while held would read as paused on the way out.
+  task.paused = false;
+  return true;
+}
+
+/** Holds a running task once the item in flight is done; false if it had finished. */
+export function pauseBulkTask(id: string): boolean {
+  const task = tasks.get(id);
+  if (!task || task.state !== "running" || task.cancelRequested) return false;
+  task.paused = true;
+  return true;
+}
+
+/** Lets a held task carry on; false if it was not paused. */
+export function resumeBulkTask(id: string): boolean {
+  const task = tasks.get(id);
+  if (!task || task.state !== "running" || !task.paused) return false;
+  task.paused = false;
   return true;
 }
 
@@ -316,6 +360,15 @@ async function runTask(
         item.status = "waiting";
         item.message = `Waiting ${Math.round(gapMs / 1000)}s`;
         await sleep(gapMs, task);
+        if (task.cancelRequested) break;
+      }
+
+      // A pause asked for while an item was in flight (or during the gap) takes hold
+      // here, between two items: whatever was running finishes, nothing new starts.
+      if (task.paused) {
+        item.status = "paused";
+        item.message = "Paused";
+        await holdWhilePaused(task);
         if (task.cancelRequested) break;
       }
       processedAny = true;
@@ -394,6 +447,7 @@ export function startBulkTask(input: StartBulkTaskInput): StartBulkTaskResult {
     finishedAt: null,
     state: "running",
     cancelRequested: false,
+    paused: false,
     gapSeconds: normaliseGap(input.gapSeconds, 0),
     total: input.entries.length,
     items: input.entries.map((entry, index) => ({

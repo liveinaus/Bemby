@@ -112,11 +112,109 @@ function isBlockedIpv6(ip: string): boolean {
   return false;
 }
 
+/** An address as bytes, plus the IPv4 it carries when it is a mapped or NAT64 form. */
+function ipForms(ip: string): { bytes: Uint8Array; v4: boolean }[] {
+  if (net.isIPv4(ip)) {
+    return [{ bytes: new Uint8Array(ip.split(".").map(Number)), v4: true }];
+  }
+  const b = ipv6Bytes(ip);
+  if (!b) return [];
+  const forms = [{ bytes: b, v4: false }];
+  const zeroThrough = (n: number): boolean => b.slice(0, n).every((x) => x === 0);
+  const mapped = zeroThrough(10) && b[10] === 0xff && b[11] === 0xff;
+  const nat64 =
+    b[0] === 0x00 && b[1] === 0x64 && b[2] === 0xff && b[3] === 0x9b &&
+    b.slice(4, 12).every((x) => x === 0);
+  if (mapped || nat64) forms.push({ bytes: b.slice(12), v4: true });
+  return forms;
+}
+
+type IpRange = { bytes: Uint8Array; bits: number; v4: boolean };
+
+function parseCidr(text: string): IpRange | null {
+  const slash = text.lastIndexOf("/");
+  const addr = (slash === -1 ? text : text.slice(0, slash)).trim().replace(/^\[|\]$/g, "");
+  const forms = ipForms(addr);
+  if (!forms.length) return null;
+  const { bytes, v4 } = forms[0];
+  const full = v4 ? 32 : 128;
+  if (slash === -1) return { bytes, bits: full, v4 };
+  const bits = Number(text.slice(slash + 1).trim());
+  if (!Number.isInteger(bits) || bits < 0 || bits > full) return null;
+  return { bytes, bits, v4 };
+}
+
+function inRange(bytes: Uint8Array, range: IpRange): boolean {
+  if (bytes.length !== range.bytes.length) return false;
+  const whole = range.bits >> 3;
+  for (let i = 0; i < whole; i++) if (bytes[i] !== range.bytes[i]) return false;
+  const spare = range.bits & 7;
+  if (!spare) return true;
+  const mask = 0xff << (8 - spare);
+  return (bytes[whole] & mask) === (range.bytes[whole] & mask);
+}
+
+/**
+ * Ranges the operator has declared routable, as CIDRs in SSRF_ALLOWED_IP_RANGES.
+ *
+ * Needed where the resolver's answer is not an address at all. A transparent proxy in
+ * fake-ip mode -- Clash and Mihomo hand out 198.18.0.0/15 by default, sing-box 28.0.0.0/8 --
+ * answers every name with a placeholder from a reserved range and routes the connection
+ * itself by that placeholder. The check below then refuses every fetch for pointing at
+ * private space when nothing private is being reached, and the only sign of it is a
+ * "Private IP not allowed" naming an address the operator never chose.
+ *
+ * Opt-in and narrow on purpose: naming a range says this host reaches the internet through
+ * it, and says nothing about the RFC1918 space where the operator's own services live.
+ */
+const allowedRanges: IpRange[] = (process.env.SSRF_ALLOWED_IP_RANGES ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean)
+  .flatMap((entry) => {
+    const range = parseCidr(entry);
+    if (!range) {
+      console.warn(`[fetch] ignoring SSRF_ALLOWED_IP_RANGES entry "${entry}": not a CIDR`);
+      return [];
+    }
+    return [range];
+  });
+
+if (allowedRanges.length) {
+  console.log(
+    `[fetch] treating ${process.env.SSRF_ALLOWED_IP_RANGES?.trim()} as routable ` +
+      `(SSRF_ALLOWED_IP_RANGES)`,
+  );
+}
+
+function isOperatorAllowed(ip: string): boolean {
+  if (!allowedRanges.length) return false;
+  return ipForms(ip).some((form) =>
+    allowedRanges.some((range) => range.v4 === form.v4 && inRange(form.bytes, range)),
+  );
+}
+
 /** Rejects IPs in private/reserved ranges, to prevent SSRF against internal services. */
 export function isBlockedIp(ip: string): boolean {
+  if (isOperatorAllowed(ip)) return false;
   if (net.isIPv4(ip)) return isBlockedIpv4(ip);
   if (net.isIPv6(ip)) return isBlockedIpv6(ip);
   return true; // reject unrecognised formats
+}
+
+/**
+ * Says which address was objected to, and where it came from. Without the address the
+ * operator is told their resolver's answer is private and has no way to see what it was --
+ * a sinkholed name, a fake-ip placeholder and a poisoned reply all read the same.
+ */
+function blockedMessage(hostname: string, addresses: dns.LookupAddress[]): string {
+  const seen = addresses.map((a) => a.address).join(", ") || "nothing";
+  return (
+    `Private IP not allowed: ${hostname} resolves to ${seen} on this host. ` +
+    `If that is a placeholder from a transparent proxy rather than a real address, ` +
+    `name its range in SSRF_ALLOWED_IP_RANGES; otherwise point this server at a resolver ` +
+    `that answers for ${hostname} correctly.`
+  );
 }
 
 /**
@@ -139,7 +237,7 @@ const ssrfLookup = ((
     }
     const allowed = (addresses as dns.LookupAddress[]).filter((a) => !isBlockedIp(a.address));
     if (!allowed.length) {
-      cb(new Error("Private IP not allowed"));
+      cb(new Error(blockedMessage(hostname, addresses as dns.LookupAddress[])));
       return;
     }
     if (opts.all) cb(null, allowed);
@@ -157,12 +255,17 @@ export async function assertPublicUrl(rawUrl: string): Promise<void> {
   const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
   if (net.isIP(hostname)) {
     // A literal address never reaches the resolver hook below, so this is its only check
-    if (isBlockedIp(hostname)) throw new Error("Private IP not allowed");
+    if (isBlockedIp(hostname)) throw new Error(`Private IP not allowed: ${hostname}`);
     return;
   }
   const addresses = await dns.promises.lookup(hostname, { all: true });
-  if (!addresses.length || addresses.some((a) => isBlockedIp(a.address))) {
-    throw new Error("Private IP not allowed");
+  // Refused only when nothing usable came back, which is the same rule the socket applies:
+  // it dials one of the addresses that pass, so a name answering with both a public and a
+  // private one connects to the public one. Rejecting the whole name for a single bad answer
+  // instead turned one poisoned record -- an AAAA a local resolver sinkholes, say -- into a
+  // host Bemby could not fetch at all, while the connection it would have made was fine.
+  if (!addresses.length || addresses.every((a) => isBlockedIp(a.address))) {
+    throw new Error(blockedMessage(hostname, addresses));
   }
 }
 

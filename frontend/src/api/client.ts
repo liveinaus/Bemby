@@ -153,6 +153,7 @@ export type BulkAddItemStatus =
   | "submitting_code"
   | "submitting_2fa"
   | "waiting"
+  | "paused"
   | "created"
   | "skipped"
   | "retrying"
@@ -196,6 +197,7 @@ export type BulkAddBatch = {
   createdAt: string;
   running: boolean;
   cancelled: boolean;
+  paused: boolean;
   total: number;
   items: BulkAddItem[];
 };
@@ -204,6 +206,7 @@ export type BulkProfileItemStatus =
   | "pending"
   | "updating"
   | "waiting"
+  | "paused"
   | "retrying"
   | "done"
   | "failed";
@@ -255,6 +258,7 @@ export type BulkProfileBatch = {
   createdAt: string;
   running: boolean;
   cancelled: boolean;
+  paused: boolean;
   total: number;
   items: BulkProfileItem[];
 };
@@ -3164,6 +3168,7 @@ export type PrivacyLevel = "nobody" | "contacts" | "everybody";
 export type BulkTaskItemStatus =
   | "pending"
   | "waiting"
+  | "paused"
   | "working"
   | "done"
   | "failed"
@@ -3194,6 +3199,8 @@ export type BulkTask = {
   finishedAt: string | null;
   state: BulkTaskState;
   cancelRequested: boolean;
+  /** Held between items -- the queue keeps its place and its scope until resumed. */
+  paused: boolean;
   gapSeconds: number;
   total: number;
   items: BulkTaskItem[];
@@ -3263,6 +3270,14 @@ export const bulkTasksApi = {
   cancel: (id: string) =>
     api
       .post<{ cancelled: boolean }>(`/bulk-tasks/${id}/cancel`)
+      .then((r) => r.data),
+  pause: (id: string) =>
+    api
+      .post<{ paused: boolean }>(`/bulk-tasks/${id}/pause`)
+      .then((r) => r.data),
+  resume: (id: string) =>
+    api
+      .post<{ resumed: boolean }>(`/bulk-tasks/${id}/resume`)
       .then((r) => r.data),
   dismiss: (id: string) =>
     api.delete<{ dismissed: boolean }>(`/bulk-tasks/${id}`).then((r) => r.data),

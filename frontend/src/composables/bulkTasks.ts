@@ -140,6 +140,22 @@ export async function cancelBulkTask(id: string): Promise<void> {
   pokeBulkTasks();
 }
 
+/** Holds a queue after the item in flight; the card flips over before the next poll. */
+export async function pauseBulkTask(id: string): Promise<void> {
+  await bulkTasksApi.pause(id);
+  setPaused(id, true);
+}
+
+export async function resumeBulkTask(id: string): Promise<void> {
+  await bulkTasksApi.resume(id);
+  setPaused(id, false);
+}
+
+function setPaused(id: string, paused: boolean): void {
+  tasks.value = tasks.value.map((t) => (t.id === id ? { ...t, paused } : t));
+  pokeBulkTasks();
+}
+
 export async function dismissBulkTask(id: string): Promise<void> {
   await bulkTasksApi.dismiss(id);
   tasks.value = tasks.value.filter((t) => t.id !== id);

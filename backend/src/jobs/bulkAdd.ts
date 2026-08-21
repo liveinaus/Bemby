@@ -22,6 +22,7 @@ export type BulkAddItemStatus =
   | "submitting_code"
   | "submitting_2fa"
   | "waiting"
+  | "paused"
   | "created"
   | "skipped"
   | "retrying"
@@ -48,6 +49,8 @@ export type BulkAddBatch = {
   createdAt: string;
   running: boolean;
   cancelled: boolean;
+  /** Held between accounts: the one in flight finishes, then the batch waits. */
+  paused: boolean;
   total: number;
   items: BulkAddItem[];
 };
@@ -257,6 +260,21 @@ export function getBulkAddStatus(): BulkAddBatch | null {
 export function cancelBulkAdd(): boolean {
   if (!current || !current.running) return false;
   current.cancelled = true;
+  current.paused = false;
+  return true;
+}
+
+/** Holds the batch once the account in flight is done; false if it had finished. */
+export function pauseBulkAdd(): boolean {
+  if (!current || !current.running || current.cancelled) return false;
+  current.paused = true;
+  return true;
+}
+
+/** Lets a held batch carry on; false if it was not paused. */
+export function resumeBulkAdd(): boolean {
+  if (!current || !current.running || !current.paused) return false;
+  current.paused = false;
   return true;
 }
 
@@ -305,6 +323,19 @@ function sleep(ms: number, batch: BulkAddBatch): Promise<void> {
     };
     tick();
   });
+}
+
+// Held between accounts, so nothing new is started while the batch is paused. A pause
+// asked for during a gap or cooldown takes hold once that wait runs out.
+async function holdWhilePaused(
+  batch: BulkAddBatch,
+  item: BulkAddItem,
+): Promise<void> {
+  while (batch.paused && !batch.cancelled) {
+    item.status = "paused";
+    item.message = "Paused";
+    await sleep(250, batch);
+  }
 }
 
 async function fetchApiCredentials(
@@ -509,6 +540,9 @@ async function runBatch(
         if (batch.cancelled) break;
       }
 
+      await holdWhilePaused(batch, item);
+      if (batch.cancelled) break;
+
       item.attempts++;
       try {
         await authenticateAccount(batch, item, config);
@@ -698,6 +732,7 @@ export function startBulkAdd(
     createdAt: new Date().toISOString(),
     running: true,
     cancelled: false,
+    paused: false,
     total: items.length,
     items,
   };

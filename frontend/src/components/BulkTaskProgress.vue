@@ -5,7 +5,14 @@
         {{ t("bulkTasks.progressLabel") }}: {{ taskDoneCount(task) }} /
         {{ task.total }}
       </span>
-      <span v-if="task.state === 'running'" class="bulk-task-running">
+      <span
+        v-if="task.state === 'running' && task.paused"
+        class="bulk-task-paused"
+      >
+        <i class="fa-solid fa-circle-pause"></i>
+        {{ t("bulkTasks.state.paused") }}
+      </span>
+      <span v-else-if="task.state === 'running'" class="bulk-task-running">
         <i class="fa-solid fa-spinner fa-spin"></i>
         {{ t("bulkTasks.state.running") }}
       </span>
@@ -42,6 +49,15 @@
     <div class="modal-footer">
       <button
         v-if="task.state === 'running'"
+        class="btn btn-ghost"
+        :disabled="task.cancelRequested || pausing"
+        @click="togglePause"
+      >
+        <i :class="task.paused ? 'fa-solid fa-play' : 'fa-solid fa-pause'"></i>
+        {{ task.paused ? t("bulkTasks.resume") : t("bulkTasks.pause") }}
+      </button>
+      <button
+        v-if="task.state === 'running'"
         class="btn btn-danger"
         :disabled="task.cancelRequested || terminating"
         @click="terminate"
@@ -64,7 +80,12 @@
 import { ref } from "vue";
 import { t } from "../i18n";
 import type { BulkTask } from "../api/client";
-import { cancelBulkTask, taskDoneCount } from "../composables/bulkTasks";
+import {
+  cancelBulkTask,
+  pauseBulkTask,
+  resumeBulkTask,
+  taskDoneCount,
+} from "../composables/bulkTasks";
 import { bulkTaskItemText } from "../composables/bulkTaskText";
 
 // Progress view for one background bulk task, shared by every bulk modal. The
@@ -74,6 +95,17 @@ const props = defineProps<{ task: BulkTask }>();
 const emit = defineEmits<{ (e: "close"): void }>();
 
 const terminating = ref(false);
+const pausing = ref(false);
+
+async function togglePause() {
+  pausing.value = true;
+  try {
+    if (props.task.paused) await resumeBulkTask(props.task.id);
+    else await pauseBulkTask(props.task.id);
+  } finally {
+    pausing.value = false;
+  }
+}
 
 async function terminate() {
   terminating.value = true;
@@ -101,6 +133,10 @@ async function terminate() {
 
 .bulk-task-finished {
   color: var(--success);
+}
+
+.bulk-task-paused {
+  color: var(--warning);
 }
 
 .bulk-task-note {
@@ -146,6 +182,10 @@ async function terminate() {
 
 .bulk-task-dot.status-cancelled {
   background: var(--bg-track);
+}
+
+.bulk-task-dot.status-paused {
+  background: var(--warning-solid);
 }
 
 .bulk-task-dot.status-working,

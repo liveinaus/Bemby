@@ -5,12 +5,16 @@ import {
   dismissBulkTask,
   getBulkTask,
   listBulkTasks,
+  pauseBulkTask,
+  resumeBulkTask,
   type StartBulkTaskResult,
 } from "../jobs/bulkTasks";
 import {
   cancelLegacyBulkTask,
   dismissLegacyBulkTask,
   legacyBulkTasks,
+  pauseLegacyBulkTask,
+  resumeLegacyBulkTask,
 } from "../jobs/bulkTaskBridge";
 import {
   startBulkClean,
@@ -93,6 +97,20 @@ router.post("/:id/cancel", (req, res) => {
   const cancelled =
     cancelBulkTask(req.params.id) || cancelLegacyBulkTask(req.params.id);
   res.json({ cancelled });
+});
+
+// POST /:id/pause -- hold the queue once the item in flight is done
+router.post("/:id/pause", (req, res) => {
+  const paused =
+    pauseBulkTask(req.params.id) || pauseLegacyBulkTask(req.params.id);
+  res.json({ paused });
+});
+
+// POST /:id/resume -- carry on from where a paused queue left off
+router.post("/:id/resume", (req, res) => {
+  const resumed =
+    resumeBulkTask(req.params.id) || resumeLegacyBulkTask(req.params.id);
+  res.json({ resumed });
 });
 
 // DELETE /:id -- drop a finished task from the list

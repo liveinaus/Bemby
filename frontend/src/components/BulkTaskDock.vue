@@ -1,13 +1,7 @@
 <template>
   <div v-if="visible" class="task-dock">
     <button class="task-dock-pill" @click="expanded = !expanded">
-      <i
-        :class="
-          running.length
-            ? 'fa-solid fa-spinner fa-spin'
-            : 'fa-solid fa-circle-check'
-        "
-      ></i>
+      <i :class="pillIcon"></i>
       <span>{{ pillLabel }}</span>
       <i
         :class="expanded ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-up'"
@@ -26,14 +20,14 @@
             {{ bulkTaskTitle(task.kind) }}
             <span v-if="task.label" class="task-card-scope">{{ task.label }}</span>
           </span>
-          <span class="task-card-state" :class="`state-${task.state}`">
-            {{ t(`bulkTasks.state.${task.state}`) }}
+          <span class="task-card-state" :class="`state-${stateKey(task)}`">
+            {{ t(`bulkTasks.state.${stateKey(task)}`) }}
           </span>
         </div>
         <div class="task-bar">
           <div
             class="task-bar-fill"
-            :class="`state-${task.state}`"
+            :class="`state-${stateKey(task)}`"
             :style="{ width: `${taskProgress(task)}%` }"
           ></div>
         </div>
@@ -83,6 +77,17 @@
         <div class="task-card-actions">
           <button
             v-if="task.state === 'running'"
+            class="btn btn-ghost btn-sm"
+            :disabled="task.cancelRequested || busy === task.id"
+            @click="togglePause(task)"
+          >
+            <i
+              :class="task.paused ? 'fa-solid fa-play' : 'fa-solid fa-pause'"
+            ></i>
+            {{ task.paused ? t("bulkTasks.resume") : t("bulkTasks.pause") }}
+          </button>
+          <button
+            v-if="task.state === 'running'"
             class="btn btn-danger btn-sm"
             :disabled="task.cancelRequested || busy === task.id"
             @click="terminate(task)"
@@ -116,6 +121,8 @@ import {
   bulkTasks,
   cancelBulkTask,
   dismissBulkTask,
+  pauseBulkTask,
+  resumeBulkTask,
   runningTasks,
   startBulkTaskPolling,
   taskDoneCount,
@@ -138,11 +145,25 @@ const pillLabel = computed(() =>
     : t("bulkTasks.pillIdle").replace("{n}", String(tasks.value.length)),
 );
 
+// Nothing is turning while every queue is held, so the pill says so rather than spinning
+const pillIcon = computed(() => {
+  if (!running.value.length) return "fa-solid fa-circle-check";
+  return running.value.every((task) => task.paused)
+    ? "fa-solid fa-circle-pause"
+    : "fa-solid fa-spinner fa-spin";
+});
+
+/** A held queue is still running, but reads as paused in the card and the bar. */
+function stateKey(task: BulkTask): string {
+  return task.state === "running" && task.paused ? "paused" : task.state;
+}
+
 /** The item a running task is on, for the one-line summary. */
 function currentItem(task: BulkTask) {
   return (
     task.items.find((i) => i.status === "working") ??
     task.items.find((i) => i.status === "waiting") ??
+    task.items.find((i) => i.status === "paused") ??
     null
   );
 }
@@ -160,6 +181,16 @@ async function terminate(task: BulkTask) {
   busy.value = task.id;
   try {
     await cancelBulkTask(task.id);
+  } finally {
+    busy.value = null;
+  }
+}
+
+async function togglePause(task: BulkTask) {
+  busy.value = task.id;
+  try {
+    if (task.paused) await resumeBulkTask(task.id);
+    else await pauseBulkTask(task.id);
   } finally {
     busy.value = null;
   }
@@ -277,6 +308,10 @@ onMounted(() => startBulkTaskPolling());
   color: var(--warning);
 }
 
+.task-card-state.state-paused {
+  color: var(--warning);
+}
+
 .task-bar {
   height: 6px;
   margin: 8px 0 6px;
@@ -295,7 +330,8 @@ onMounted(() => startBulkTaskPolling());
   background: var(--success);
 }
 
-.task-bar-fill.state-cancelled {
+.task-bar-fill.state-cancelled,
+.task-bar-fill.state-paused {
   background: var(--warning-solid);
 }
 
@@ -365,6 +401,10 @@ onMounted(() => startBulkTaskPolling());
   background: var(--bg-track);
 }
 
+.task-dot.status-paused {
+  background: var(--warning-solid);
+}
+
 .task-dot.status-working,
 .task-dot.status-waiting {
   background: var(--info);
@@ -411,6 +451,7 @@ onMounted(() => startBulkTaskPolling());
 .task-card-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
   margin-top: 8px;
 }
 </style>

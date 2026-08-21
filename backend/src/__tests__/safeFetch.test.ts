@@ -2,8 +2,15 @@
 // refuses are a security boundary rather than a detail. Every case here is one that reaches
 // something internal if it is let through.
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { isBlockedIp, assertPublicUrl, headersAllowFraming } from "../tg/safeFetch";
+
+/** The allowlist is read once at import, so each case needs its own module instance. */
+async function withAllowedRanges(value: string) {
+  vi.resetModules();
+  process.env.SSRF_ALLOWED_IP_RANGES = value;
+  return await import("../tg/safeFetch");
+}
 
 describe("isBlockedIp -- IPv4", () => {
   it("blocks loopback, RFC1918 and link-local", () => {
@@ -106,6 +113,63 @@ describe("assertPublicUrl", () => {
   it("refuses a name that resolves to loopback", async () => {
     // localhost resolves to 127.0.0.1 and/or ::1 on every platform this runs on
     await expect(assertPublicUrl("http://localhost:3000/")).rejects.toThrow(/private/i);
+  });
+
+  it("names the host and what it resolved to, so the operator can see why", async () => {
+    await expect(assertPublicUrl("http://localhost:3000/")).rejects.toThrow(/localhost resolves to/);
+    await expect(assertPublicUrl("http://127.0.0.1/")).rejects.toThrow(/127\.0\.0\.1/);
+  });
+});
+
+// A transparent proxy in fake-ip mode answers every name with a placeholder from a reserved
+// range, so the guard's premise -- that the resolved address is where the bytes go -- does
+// not hold and the operator has to be able to say so.
+describe("SSRF_ALLOWED_IP_RANGES", () => {
+  const original = process.env.SSRF_ALLOWED_IP_RANGES;
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.SSRF_ALLOWED_IP_RANGES;
+    else process.env.SSRF_ALLOWED_IP_RANGES = original;
+    vi.resetModules();
+  });
+
+  it("allows a named range, and nothing outside it", async () => {
+    const mod = await withAllowedRanges("198.18.0.0/15");
+    expect(mod.isBlockedIp("198.18.0.5")).toBe(false);
+    expect(mod.isBlockedIp("198.19.255.254")).toBe(false);
+    // The private space that naming a range must not open up
+    expect(mod.isBlockedIp("127.0.0.1")).toBe(true);
+    expect(mod.isBlockedIp("192.168.1.1")).toBe(true);
+    expect(mod.isBlockedIp("169.254.169.254")).toBe(true);
+    expect(mod.isBlockedIp("198.51.100.1")).toBe(true);
+  });
+
+  it("stops at the prefix, on a range whose neighbours are blocked either way", async () => {
+    // Loopback only because it is the one place a mask can be seen working: an address just
+    // outside a /24 stays blocked. Not a range anyone should actually name.
+    const mod = await withAllowedRanges("127.0.0.0/24");
+    expect(mod.isBlockedIp("127.0.0.9")).toBe(false);
+    expect(mod.isBlockedIp("127.0.1.9")).toBe(true);
+  });
+
+  it("reads an IPv4-mapped form as the IPv4 it carries", async () => {
+    const mod = await withAllowedRanges("28.0.0.0/8");
+    expect(mod.isBlockedIp("28.1.2.3")).toBe(false);
+    expect(mod.isBlockedIp("::ffff:28.1.2.3")).toBe(false);
+    expect(mod.isBlockedIp("::ffff:127.0.0.1")).toBe(true);
+  });
+
+  it("takes several ranges, and ignores an entry that is not a CIDR", async () => {
+    const mod = await withAllowedRanges("198.18.0.0/15, fd00::/8, not-an-address");
+    expect(mod.isBlockedIp("198.18.0.5")).toBe(false);
+    expect(mod.isBlockedIp("fd12::1")).toBe(false);
+    expect(mod.isBlockedIp("fe80::1")).toBe(true);
+  });
+
+  it("changes nothing when unset", async () => {
+    const mod = await withAllowedRanges("");
+    expect(mod.isBlockedIp("198.18.0.5")).toBe(true);
+    expect(mod.isBlockedIp("1.1.1.1")).toBe(false);
   });
 });
 

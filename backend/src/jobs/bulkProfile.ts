@@ -21,6 +21,7 @@ export type BulkProfileItemStatus =
   | "pending"
   | "updating"
   | "waiting"
+  | "paused"
   | "retrying"
   | "done"
   | "failed";
@@ -47,6 +48,8 @@ export type BulkProfileBatch = {
   createdAt: string;
   running: boolean;
   cancelled: boolean;
+  /** Held between accounts: the one in flight finishes, then the batch waits. */
+  paused: boolean;
   total: number;
   items: BulkProfileItem[];
 };
@@ -119,6 +122,21 @@ export function getBulkProfileStatus(): BulkProfileBatch | null {
 export function cancelBulkProfile(): boolean {
   if (!current || !current.running) return false;
   current.cancelled = true;
+  current.paused = false;
+  return true;
+}
+
+/** Holds the batch once the account in flight is done; false if it had finished. */
+export function pauseBulkProfile(): boolean {
+  if (!current || !current.running || current.cancelled) return false;
+  current.paused = true;
+  return true;
+}
+
+/** Lets a held batch carry on; false if it was not paused. */
+export function resumeBulkProfile(): boolean {
+  if (!current || !current.running || !current.paused) return false;
+  current.paused = false;
   return true;
 }
 
@@ -157,6 +175,19 @@ function sleep(ms: number, batch: BulkProfileBatch): Promise<void> {
     };
     tick();
   });
+}
+
+// Held between accounts, so nothing new is started while the batch is paused. A pause
+// asked for during a gap or cooldown takes hold once that wait runs out.
+async function holdWhilePaused(
+  batch: BulkProfileBatch,
+  item: BulkProfileItem,
+): Promise<void> {
+  while (batch.paused && !batch.cancelled) {
+    item.status = "paused";
+    item.message = "Paused";
+    await sleep(250, batch);
+  }
 }
 
 type AccountRow = {
@@ -310,6 +341,9 @@ async function runBatch(
         if (batch.cancelled) break;
       }
 
+      await holdWhilePaused(batch, item);
+      if (batch.cancelled) break;
+
       item.attempts++;
       item.status = "updating";
       item.message = item.firstName ? "Updating profile" : "Applying changes";
@@ -405,6 +439,7 @@ export function startBulkProfile(
     createdAt: new Date().toISOString(),
     running: true,
     cancelled: false,
+    paused: false,
     total: items.length,
     items,
   };
