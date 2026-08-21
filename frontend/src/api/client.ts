@@ -1822,12 +1822,17 @@ export type Settings = {
    * left with no proxy.
    */
   proxy_sync_match_by_name?: string;
+  /**
+   * Minutes between automatic provider refreshes, which re-fetch each enabled provider's list
+   * and test what came back. "0" leaves refreshing to the operator.
+   */
+  proxy_provider_sync_interval_minutes?: string;
   /** "true" makes a proxy test also require the exit to reach challenges.cloudflare.com. */
   proxy_test_cf?: string;
   /** One more https URL a proxy test must fetch through the exit. Blank for none. */
   proxy_test_extra_url?: string;
-  /** Hours between automatic proxy tests. "0" leaves testing to the operator. */
-  proxy_test_interval_hours?: string;
+  /** Minutes between automatic proxy tests. "0" leaves testing to the operator. */
+  proxy_test_interval_minutes?: string;
   /** "true" makes a run verify its exit before going out through it. */
   proxy_check_before_use?: string;
   /** "true" turns on the data store: its menu entry, its API and its job steps. */

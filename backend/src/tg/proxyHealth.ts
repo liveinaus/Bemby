@@ -50,8 +50,8 @@ function readSetting(key: string): string | undefined {
 export const PROXY_TEST_CF_KEY = "proxy_test_cf";
 /** One more URL the exit must fetch, for a host that matters to this deployment. */
 export const PROXY_TEST_EXTRA_URL_KEY = "proxy_test_extra_url";
-/** How often the whole list is re-tested on its own, in hours. 0 turns it off. */
-export const PROXY_TEST_INTERVAL_KEY = "proxy_test_interval_hours";
+/** How often the whole list is re-tested on its own, in minutes. 0 turns it off. */
+export const PROXY_TEST_INTERVAL_KEY = "proxy_test_interval_minutes";
 /** Check the exit answers immediately before a run goes out through it. */
 export const PROXY_CHECK_BEFORE_USE_KEY = "proxy_check_before_use";
 
@@ -368,10 +368,15 @@ export async function testStoredProxies(
   return results;
 }
 
-/** Hours between automatic tests, as configured. 0 (the default) leaves them to the operator. */
-export function proxyTestIntervalHours(): number {
-  const hours = Number(readSetting(PROXY_TEST_INTERVAL_KEY) ?? 0);
-  return Number.isFinite(hours) && hours > 0 ? Math.min(hours, 24 * 7) : 0;
+/** Longest interval accepted, in minutes: a week, past which an interval is not a schedule. */
+const MAX_INTERVAL_MINUTES = 7 * 24 * 60;
+
+/** Minutes between automatic tests, as configured. 0 (the default) leaves them to the operator. */
+export function proxyTestIntervalMinutes(): number {
+  const minutes = Math.floor(Number(readSetting(PROXY_TEST_INTERVAL_KEY) ?? 0));
+  return Number.isFinite(minutes) && minutes > 0
+    ? Math.min(minutes, MAX_INTERVAL_MINUTES)
+    : 0;
 }
 
 let healthTimer: ReturnType<typeof setInterval> | undefined;
@@ -391,19 +396,26 @@ const FIRST_RUN_DELAY_MS = 2 * 60 * 1000;
  */
 export function startProxyHealthChecks(): void {
   stopProxyHealthChecks();
-  const hours = proxyTestIntervalHours();
-  if (!hours) return;
+  const minutes = proxyTestIntervalMinutes();
+  if (!minutes) return;
 
   const run = () => {
     testStoredProxies().catch((err) =>
       console.error(`[proxy] health check failed: ${err?.message ?? err}`),
     );
   };
-  firstRunTimer = setTimeout(run, FIRST_RUN_DELAY_MS);
+  const period = minutes * 60 * 1000;
+  // The repeat is armed by the first run rather than alongside it: an interval shorter than
+  // the boot delay would otherwise have its first tick land on the same instant as that run
+  // and test twice. The delay is there to let the tunnels and the network settle, so a short
+  // interval starts sooner than it.
+  firstRunTimer = setTimeout(() => {
+    run();
+    healthTimer = setInterval(run, period);
+    healthTimer.unref();
+  }, Math.min(FIRST_RUN_DELAY_MS, period));
   firstRunTimer.unref();
-  healthTimer = setInterval(run, hours * 60 * 60 * 1000);
-  healthTimer.unref();
-  console.log(`[proxy] health checks every ${hours}h`);
+  console.log(`[proxy] health checks every ${minutes}m`);
 }
 
 export function stopProxyHealthChecks(): void {

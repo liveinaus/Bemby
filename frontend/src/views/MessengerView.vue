@@ -3289,6 +3289,18 @@ async function handleMiniAppMessage(e: MessageEvent) {
   }
 }
 
+/**
+ * An http viewer origin under an https panel is blocked by the browser as mixed content, and
+ * the frame is simply blank -- nothing reaches the server, so no log says why. Said here
+ * instead, since only the page knows the scheme it was itself loaded over.
+ */
+function viewerBlockedAsInsecure(proxyUrl: string): boolean {
+  if (window.location.protocol !== "https:") return false;
+  if (!/^http:\/\//i.test(proxyUrl)) return false;
+  showToast(t("tgc.openLink.viewerInsecure"));
+  return true;
+}
+
 async function openMiniApp(
   url: string,
   title: string,
@@ -3324,6 +3336,10 @@ async function openMiniApp(
     // proxied copy: same page, served from here with those headers dropped, sandboxed into
     // an opaque origin and reached with a ticket that is good for that site alone.
     const { proxyUrl, isolated } = await tgClientApi.webviewTicket(webAppUrl, "app");
+    if (viewerBlockedAsInsecure(proxyUrl)) {
+      if (!window.open(webAppUrl, "_blank", "noopener")) askOpenLink(webAppUrl);
+      return;
+    }
     webViewPanel.value = { url: proxyUrl, title, proxied: true, isolated };
   } catch {
     if (!window.open(url, "_blank", "noopener")) askOpenLink(url);
@@ -3360,6 +3376,10 @@ async function openLinkInBemby() {
   // token, which would hand the page the whole API.
   try {
     const { proxyUrl, isolated } = await tgClientApi.webviewTicket(url, "page");
+    if (viewerBlockedAsInsecure(proxyUrl)) {
+      window.open(url, "_blank", "noopener");
+      return;
+    }
     webViewPanel.value = { url: proxyUrl, title, proxied: true, isolated };
   } catch {
     if (!window.open(url, "_blank", "noopener")) askOpenLink(url);
@@ -3509,19 +3529,10 @@ async function submitGoUrl() {
     return;
   }
 
-  // Mini app URLs → resolve authenticated URL then open in messenger webview,
-  // falling back to the external browser when the site refuses framing
+  // Mini app URLs → the same path as the chat header and bot menu buttons, so a link to an
+  // app that refuses framing is proxied here rather than handed to the browser
   if (isMiniAppUrl(url)) {
-    try {
-      const res = await tgClientApi.webviewResolve(selectedAccountId.value, url);
-      if (res.frameable) {
-        webViewPanel.value = { url: res.webAppUrl, title: "Mini App" };
-        return;
-      }
-      window.open(res.webAppUrl, "_blank", "noopener");
-    } catch {
-      window.open(url, "_blank", "noopener");
-    }
+    await openMiniApp(url, "Mini App");
     return;
   }
 

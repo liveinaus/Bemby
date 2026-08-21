@@ -28,13 +28,18 @@ import jobIconsRouter from "./routes/job-icons";
 import tgClientRouter, { mediaRouter as tgClientMediaRouter } from "./routes/tgClient";
 import webviewProxyRouter from "./routes/webviewProxy";
 import webviewSiteRouter from "./routes/webviewSite";
-import { isWebviewHost, webviewPublicOrigin } from "./tg/webviewTickets";
+import {
+  isWebviewHost,
+  webviewPublicOrigin,
+  WEBVIEW_CLAIM_PATH,
+} from "./tg/webviewTickets";
 import { requireAuth, getJwtSecret } from "./middleware/auth";
 import { startScheduler } from "./scheduler";
 import { createPanelWss } from "./tg/wsHandler";
 import { createVncWss } from "./tg/vncBridge";
 import { startVlessTunnels, stopVlessTunnels } from "./tg/vlessTunnel";
 import { startProxyHealthChecks } from "./tg/proxyHealth";
+import { startProxyProviderSync } from "./tg/proxySync";
 import { startMemoryMonitor, markCleanShutdown } from "./monitor/memory";
 import { claimInstanceLock, releaseInstanceLock } from "./instanceLock";
 
@@ -78,9 +83,24 @@ const allowedOrigins = corsOrigins.length
 const viewerOrigin = webviewPublicOrigin();
 if (viewerOrigin) {
   console.log(`[webview] serving framed pages on ${viewerOrigin}`);
-  app.use((req, res, next) =>
-    isWebviewHost(req.headers.host, viewerOrigin) ? webviewSiteRouter(req, res, next) : next(),
-  );
+  app.use((req, res, next) => {
+    if (isWebviewHost(req.headers.host, viewerOrigin)) {
+      webviewSiteRouter(req, res, next);
+      return;
+    }
+    // The claim path is only ever asked for on the viewer origin, so seeing one here means
+    // the Host arriving is not the one configured -- typically a reverse proxy sending its
+    // upstream's name (nginx's proxy_pass default) rather than passing the client's through.
+    // Unsaid, the claim quietly falls through to the panel and the frame shows Bemby.
+    if (req.path === WEBVIEW_CLAIM_PATH) {
+      console.warn(
+        `[webview] claim arrived with Host "${req.headers.host ?? "(none)"}", not ${
+          new URL(viewerOrigin).host
+        } -- have the reverse proxy pass the original Host header through`,
+      );
+    }
+    next();
+  });
 }
 
 // The messenger's page viewer, mounted ahead of everything else on purpose. It authenticates
@@ -239,6 +259,9 @@ server.listen(PORT, BIND_HOST, () => {
   startScheduler();
   // After the tunnels, so their listeners are up before the first test judges them
   startProxyHealthChecks();
+  // Keeps the imported lists current: a subscription that rotates its nodes is picked up
+  // without anybody pressing refresh
+  startProxyProviderSync();
 });
 
 // An OOM kill is SIGKILL and cannot be trapped, which is the point: a clean stop leaves

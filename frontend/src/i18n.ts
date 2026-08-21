@@ -1775,6 +1775,9 @@ const zh = {
     proxySyncMatchByNameHint:
       "订阅节点更换地址后会得到新的标识，若直接删除再新增，原先绑定该代理的任务就会失去代理。开启后按名称匹配并原地更新，保留原有绑定；关闭则按标识处理，视为移除并新增。",
     providerSyncFailed: "导入失败",
+    providerSyncInterval: "自动导入间隔（分钟）",
+    providerSyncIntervalHint:
+      "0 表示关闭。开启后按此间隔自动重新拉取全部已启用服务商的列表，并测试新导入的代理，订阅节点变动（新增、更换地址）无需手动刷新。最长 10080（7 天）。启动后最多 5 分钟先执行一次，之后按间隔重复。",
     addProxy: "添加",
     addProxyTitle: "手动添加代理",
     proxyListTitle: "代理列表",
@@ -1806,9 +1809,9 @@ const zh = {
     proxyCheckBeforeUse: "使用前先检查代理",
     proxyCheckBeforeUseHint:
       "任务运行前先测试将要使用的代理：若为随机池，按抽取顺序依次检查并使用第一个可用的（最多 5 个）；若只有一个代理（指定代理，或池内已无其他可用代理），检查失败则任务直接失败，而不会改用本机 IP 出网。检查结果同样会写入状态，失败的代理会被停用。注意：每次运行会因此多一次连接测试。",
-    proxyTestInterval: "自动测试间隔（小时）",
+    proxyTestInterval: "自动测试间隔（分钟）",
     proxyTestIntervalHint:
-      "0 表示关闭。开启后按此间隔自动测试全部代理，供应商列表变化或代理失效时无需手动处理：失效的自动停用，恢复的自动启用。",
+      "0 表示关闭。开启后按此间隔自动测试全部代理，供应商列表变化或代理失效时无需手动处理：失效的自动停用，恢复的自动启用。最长 10080（7 天）；代理较多时间隔过短会频繁占用连接。",
     appClientsSection: "TG 应用客户端",
     appClientsHint:
       "自定义 Telegram 登录时的设备信息，不同账户可使用不同客户端环境。",
@@ -2325,6 +2328,8 @@ const zh = {
       checking: "检查中...",
       proxiedNote:
         "该网站禁止内嵌，已通过 Bemby 代理加载。登录及部分交互功能可能不可用。",
+      viewerInsecure:
+        "WEBVIEW_PUBLIC_ORIGIN 是 http，而本面板是 https，浏览器会拦截该内嵌页面。请把它改成 https 后重启。",
     },
     clean: {
       btnTitle: "清理账户",
@@ -4184,6 +4189,9 @@ const en: typeof zh = {
     proxySyncMatchByNameHint:
       "A subscription node that changes address comes back under a new identity. Dropping it and importing it afresh leaves every job pinned to it with no proxy; matching on the name updates the entry in place and keeps the pin. Turn this off to go by identity alone, which reads as a removal and an addition.",
     providerSyncFailed: "Import failed",
+    providerSyncInterval: "Automatic import every (minutes)",
+    providerSyncIntervalHint:
+      "0 turns it off. Otherwise every enabled provider's list is fetched again on this interval and the freshly imported exits are tested, so a subscription that gains a node or rotates its addresses is picked up without a refresh by hand. Up to 10080 (7 days). The first run is at most 5 minutes after startup, then on the interval.",
     addProxy: "Add",
     addProxyTitle: "Add a proxy by hand",
     proxyListTitle: "Proxy list",
@@ -4218,9 +4226,9 @@ const en: typeof zh = {
     proxyCheckBeforeUse: "Check the exit before a run uses it",
     proxyCheckBeforeUseHint:
       "A run tests the exit it is about to use. A random pool is checked in draw order and the first that answers is the one used, up to five tries; a single exit -- a pinned proxy, or a pool with nothing else left -- fails the run instead of letting it out through the host's own address. The outcome is recorded like any other test, so a refusal disables that exit for later draws. Costs one connect per run.",
-    proxyTestInterval: "Automatic test every (hours)",
+    proxyTestInterval: "Automatic test every (minutes)",
     proxyTestIntervalHint:
-      "0 turns it off. Otherwise the whole list is tested on this interval, so a supplier's pool keeps itself current: exits that stop answering drop out of every draw, and ones that come back are picked up again.",
+      "0 turns it off. Otherwise the whole list is tested on this interval, so a supplier's pool keeps itself current: exits that stop answering drop out of every draw, and ones that come back are picked up again. Up to 10080 (7 days); a short interval over a large list spends a connect per exit each time.",
     appClientsSection: "TG App Clients",
     appClientsHint:
       "Customise the device fingerprint Telegram sees per account to reduce the risk of bans.",
@@ -4752,6 +4760,8 @@ const en: typeof zh = {
       checking: "Checking...",
       proxiedNote:
         "This site blocks embedding, so it was loaded via the Bemby proxy. Sign-ins and some interactive features may not work.",
+      viewerInsecure:
+        "WEBVIEW_PUBLIC_ORIGIN is http while this panel is https, so the browser blocks the framed page. Set it to https and restart.",
     },
     clean: {
       btnTitle: "Clean account",

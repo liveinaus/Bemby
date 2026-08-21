@@ -14,3 +14,17 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to a long random string, e.g. openssl rand -hex 32}
       # Optional: set a timezone, e.g. TZ=Australia/Sydney (defaults to UTC)
       # TZ: ${TZ:-UTC}
+      # Second hostname pointing at this same container, which is what lets Mini Apps open
+      # in the panel instead of a browser tab (see env.example). Listed here because only
+      # the variables named in this block reach the container -- one sitting in .env alone
+      # is read by Compose for interpolation and then goes nowhere.
+      #
+      # Must match the panel's scheme: an http origin cannot be framed by an https panel.
+      # Keep it on the panel's domain, and have the reverse proxy pass the Host header
+      # through unchanged -- nginx's proxy_pass sends the upstream's name by default, and
+      # the container answers on this hostname only when it sees it.
+      WEBVIEW_PUBLIC_ORIGIN: ${WEBVIEW_PUBLIC_ORIGIN:-}
+      # Reverse proxy hops in front of this container: 1 for nginx/Caddy/Traefik, 2 for
+      # Cloudflare in front of one of those. Needed for rate limiting and for the viewer
+      # to know it is being served over https.
+      TRUST_PROXY: ${TRUST_PROXY:-0}

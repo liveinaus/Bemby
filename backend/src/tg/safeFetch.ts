@@ -221,19 +221,34 @@ export function headersAllowFraming(headers: Headers): boolean {
   return true;
 }
 
-/** Probes a URL to see whether it can be shown in the messenger's webview iframe. */
+/**
+ * Probes a URL to see whether it can be shown in the messenger's webview iframe.
+ *
+ * The answer decides whether the page is framed at its own address or served through the
+ * viewer proxy, and it is drawn from the server's view of the site. A server that cannot
+ * reach the site -- a poisoned resolver, a blocked CDN, an outbound firewall -- learns
+ * nothing here, and the browser then frames a page that refuses framing and shows the
+ * "refused to connect" of a site the operator never sees a log line for. So say why.
+ */
 export async function isFrameable(url: string): Promise<boolean> {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 5000);
+  const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
     let resp = await ssrfSafeFetch(url, { method: "HEAD", signal: ctrl.signal });
-    if (resp.status === 405 || resp.status === 501) {
+    // A HEAD is cheap but not always answered like the GET the browser will make: CDNs and
+    // WAFs turn it away with a 403 or a 405, and that response carries none of the site's
+    // own framing headers. Any refusal is worth asking again properly.
+    if (resp.status >= 400) {
       resp = await ssrfSafeFetch(url, { signal: ctrl.signal });
       resp.body?.cancel().catch(() => {});
     }
     return headersAllowFraming(resp.headers);
-  } catch {
+  } catch (err: any) {
     // Unreachable from the backend; let the browser iframe try anyway
+    console.warn(
+      `[webview] framing probe failed for ${url.slice(0, 120)}: ${err?.message ?? err}` +
+        ` -- framing it directly, which the site may refuse`,
+    );
     return true;
   } finally {
     clearTimeout(timer);

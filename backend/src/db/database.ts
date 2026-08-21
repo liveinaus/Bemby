@@ -701,6 +701,26 @@ runOnce("job-proxy-drop-template-copies", () => {
   }
 });
 
+// The proxy intervals were in hours and are now in minutes, so an existing setting would
+// read as a schedule 60 times faster than the one it was given. Carry the value across to
+// the new key rather than dropping it, and clear the old one so it cannot be picked up again.
+runOnce("proxy-intervals-hours-to-minutes", () => {
+  const pairs = [
+    ["proxy_test_interval_hours", "proxy_test_interval_minutes"],
+    ["proxy_provider_sync_interval_hours", "proxy_provider_sync_interval_minutes"],
+  ];
+  const read = db.prepare("SELECT value FROM settings WHERE key = ?");
+  const write = db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)");
+  const drop = db.prepare("DELETE FROM settings WHERE key = ?");
+  for (const [from, to] of pairs) {
+    const hours = Number((read.get(from) as { value?: string } | undefined)?.value);
+    if (Number.isFinite(hours) && hours > 0) {
+      write.run(to, String(Math.min(Math.round(hours * 60), 7 * 24 * 60)));
+    }
+    drop.run(from);
+  }
+});
+
 // With BEMBY_DATA_KEY configured, bring any credential still sitting in plain text up to
 // date. Not a runOnce migration: the key can be turned on at any point, and rows written
 // while it was off have to be caught the next time the app starts with it on. Rows already

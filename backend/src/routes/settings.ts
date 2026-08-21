@@ -58,7 +58,6 @@ import {
   providersForClient,
   PROXY_SYNC_MATCH_BY_NAME_KEY,
   saveProviders,
-  syncProviders,
   type ProxyProvider,
 } from "../tg/proxyProviders";
 import {
@@ -71,6 +70,11 @@ import {
   testStoredProxies,
   type ProxyTestResult,
 } from "../tg/proxyHealth";
+import {
+  PROXY_PROVIDER_SYNC_INTERVAL_KEY,
+  startProxyProviderSync,
+  syncAndTestProviders,
+} from "../tg/proxySync";
 import {
   DEFAULT_MSAPI_POOL_TYPE,
   isMsApiEnabled,
@@ -120,6 +124,7 @@ export const ALLOWED_KEYS = [
   PROXY_TEST_EXTRA_URL_KEY,
   PROXY_TEST_INTERVAL_KEY,
   PROXY_CHECK_BEFORE_USE_KEY,
+  PROXY_PROVIDER_SYNC_INTERVAL_KEY,
   "tg_app_clients",
   "tg_client_mode",
   "default_tg_api_id",
@@ -429,6 +434,9 @@ router.put("/", (req, res) => {
 
   // Re-arm the automatic proxy test on the interval just set, rather than at the next restart
   if (PROXY_TEST_INTERVAL_KEY in updates) startProxyHealthChecks();
+
+  // Same for the automatic provider refresh
+  if (PROXY_PROVIDER_SYNC_INTERVAL_KEY in updates) startProxyProviderSync();
 
   res.json(getClientSettings());
 });
@@ -953,17 +961,10 @@ router.put("/proxy-providers", (req, res) => {
 router.post("/proxy-providers/sync", async (req, res) => {
   const { providerId } = req.body as { providerId?: string };
   try {
-    const result = await syncProviders(providerId?.trim() || undefined);
-    // Tested on the spot: a freshly imported list is of unknown health, and an exit that
-    // does not answer should be disabled before a job draws it rather than after
-    const tested = result.syncedProviderIds.length
-      ? await testStoredProxies({ providerIds: result.syncedProviderIds })
-      : [];
+    const result = await syncAndTestProviders(providerId?.trim() || undefined);
     res.json({
       ok: true,
       ...result,
-      tested: tested.length,
-      reachable: tested.filter((r) => r.ok).length,
       proxies: maskProxies(currentProxiesRaw()),
     });
   } catch (err: any) {

@@ -1653,6 +1653,34 @@
               </p>
             </div>
 
+            <!-- Fetching the lists again on a timer, so a rotated or extended subscription
+                 is picked up without pressing refresh -->
+            <div class="form-group" style="margin-top: 10px">
+              <div class="proxy-row">
+                <span style="font-size: 12px; color: var(--text-body)">
+                  {{ t("settings.providerSyncInterval") }}
+                </span>
+                <input
+                  v-model.number="providerSyncIntervalMinutes"
+                  class="form-input"
+                  style="flex: 0 0 90px"
+                  type="number"
+                  min="0"
+                  max="10080"
+                />
+                <button
+                  class="btn btn-ghost btn-sm"
+                  :disabled="providerSyncIntervalSaving"
+                  @click="saveProviderSyncInterval"
+                >
+                  {{ providerSyncIntervalSaving ? t("common.saving") : t("common.save") }}
+                </button>
+              </div>
+              <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
+                {{ t("settings.providerSyncIntervalHint") }}
+              </p>
+            </div>
+
             <div v-if="providersMsg" class="success-msg" style="margin-top: 8px">{{ providersMsg }}</div>
             <div v-if="providersErrorMsg" class="error-msg" style="margin-top: 8px">{{ providersErrorMsg }}</div>
           </div>
@@ -1691,12 +1719,12 @@
             <div class="proxy-row">
               <span style="font-size: 12px; color: var(--text-body)">{{ t("settings.proxyTestInterval") }}</span>
               <input
-                v-model.number="proxyTestIntervalHours"
+                v-model.number="proxyTestIntervalMinutes"
                 class="form-input"
                 style="flex: 0 0 90px"
                 type="number"
                 min="0"
-                max="168"
+                max="10080"
               />
               <button
                 class="btn btn-ghost btn-sm"
@@ -3751,6 +3779,28 @@ async function saveProxySyncMatchByName() {
   }
 }
 
+// Minutes between automatic refreshes of every enabled provider. 0 keeps it manual.
+const providerSyncIntervalMinutes = ref(0);
+const providerSyncIntervalSaving = ref(false);
+
+async function saveProviderSyncInterval() {
+  providersMsg.value = "";
+  providersErrorMsg.value = "";
+  providerSyncIntervalSaving.value = true;
+  try {
+    await settingsApi.update({
+      proxy_provider_sync_interval_minutes: String(
+        Math.max(0, Math.round(Number(providerSyncIntervalMinutes.value) || 0)),
+      ),
+    });
+    providersMsg.value = t("settings.saved");
+  } catch (err: any) {
+    providersErrorMsg.value = err.response?.data?.error ?? t("settings.saveFailed");
+  } finally {
+    providerSyncIntervalSaving.value = false;
+  }
+}
+
 type ProxyForm = {
   protocol: "socks5" | "socks4";
   host: string;
@@ -4165,7 +4215,7 @@ onMounted(async () => {
     savedProxiesJson.value = JSON.stringify(proxies.value);
     proxyTestCf.value = s.proxy_test_cf === "true";
     proxyTestExtraUrl.value = s.proxy_test_extra_url ?? "";
-    proxyTestIntervalHours.value = Number(s.proxy_test_interval_hours) || 0;
+    proxyTestIntervalMinutes.value = Number(s.proxy_test_interval_minutes) || 0;
     proxyCheckBeforeUse.value = s.proxy_check_before_use === "true";
     try {
       appClients.value = JSON.parse(s.tg_app_clients ?? "[]");
@@ -4183,6 +4233,7 @@ onMounted(async () => {
     updateCheckSetting.value = s.update_check_enabled !== "false";
     // Unset means on: only an explicit "false" turns it off
     proxySyncMatchByName.value = s.proxy_sync_match_by_name !== "false";
+    providerSyncIntervalMinutes.value = Number(s.proxy_provider_sync_interval_minutes) || 0;
     applyDataStoreSetting(s);
     dataStoreSetting.value = dataStoreEnabled.value;
     form.default_play_duration = Number(s.default_play_duration ?? 300);
@@ -4459,7 +4510,7 @@ async function disableProxy(id: string) {
 const proxyTestCf = ref(false);
 const proxyCheckBeforeUse = ref(false);
 const proxyTestExtraUrl = ref("");
-const proxyTestIntervalHours = ref(0);
+const proxyTestIntervalMinutes = ref(0);
 const proxyHealthSaving = ref(false);
 
 async function saveProxyHealth() {
@@ -4470,7 +4521,9 @@ async function saveProxyHealth() {
     await settingsApi.update({
       proxy_test_cf: String(proxyTestCf.value),
       proxy_test_extra_url: proxyTestExtraUrl.value.trim(),
-      proxy_test_interval_hours: String(Math.max(0, Number(proxyTestIntervalHours.value) || 0)),
+      proxy_test_interval_minutes: String(
+        Math.max(0, Math.round(Number(proxyTestIntervalMinutes.value) || 0)),
+      ),
       proxy_check_before_use: String(proxyCheckBeforeUse.value),
     });
     proxiesMsg.value = t("settings.saved");
