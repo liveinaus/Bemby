@@ -620,6 +620,59 @@
               class="card-section-title"
               style="margin-top: 16px; font-size: 11px"
             >
+              小程序打不开（显示"拒绝连接"或空白）
+            </div>
+            <p class="help-para">
+              按后端日志判断，两类原因：
+            </p>
+            <p class="help-para">
+              <strong>一、日志里有 <code>Private IP not allowed</code></strong>，例如
+              <code>[webview] framing probe failed for https://bot.example.com/ ... Private IP
+              not allowed: bot.example.com resolves to 198.18.0.7</code>。
+              Bemby 抓取任何外部地址前会先解析域名并拒绝保留地址，以防服务器被指向内网；
+              而这里解析出来的并不是真实地址。最常见的原因是透明代理开了
+              <strong>fake-ip（假 IP）模式</strong>：Clash / Mihomo 默认发
+              <code>198.18.0.0/15</code>，sing-box 默认 <code>28.0.0.0/8</code>，正好落在保留段里。
+              先确认实际解析结果：
+            </p>
+            <p class="help-para">
+              <code>docker exec bemby node -e "require('dns').promises.lookup('bot.example.com',{all:true}).then(console.log)"</code>
+            </p>
+            <ul class="help-steps">
+              <li>
+                解析到 <code>198.18.x.x</code> / <code>28.x.x.x</code>：确认是否使用 fake-ip 模式，
+                按推荐顺序处理 —— 把代理 DNS 切到 <strong>redir-host（兼容模式）</strong>，让解析返回真实地址；
+                或保留 fake-ip，把这些域名（或 Bemby 所在主机）加入
+                <strong>fake-ip-filter（假 IP 黑名单）</strong>，使其走真实解析；
+                或告诉 Bemby 这段地址可路由：<code>SSRF_ALLOWED_IP_RANGES=198.18.0.0/15</code>
+                （sing-box 填 <code>28.0.0.0/8</code>）。
+                切勿把自己的内网段（<code>10/8</code>、<code>192.168/16</code>、<code>172.16/12</code>）写进去。
+              </li>
+              <li>
+                解析到 <code>0.0.0.0</code> 或 <code>127.0.0.1</code>：是 AdGuard Home、Pi-hole
+                一类的 DNS 拦截（小程序常用的随机域名容易被规则命中）。把域名加白，或给容器换一个干净的 DNS。
+              </li>
+            </ul>
+            <p class="help-note">
+              DNS 没修好之前，即使 <code>WEBVIEW_PUBLIC_ORIGIN</code> 设置正确，代理取页面也会失败（502）：
+              探测和代理走的是同一条解析。
+            </p>
+            <p class="help-para">
+              <strong>二、日志里没有 <code>[webview] serving framed pages on …</code></strong>
+              （启动时打印）：说明 <code>WEBVIEW_PUBLIC_ORIGIN</code> 没有进到后端。Docker 下要在
+              <code>docker-compose.yml</code> 的 <code>environment</code> 里显式写出这一行 ——
+              只写在 <code>.env</code> 里 Compose 不会传进容器。该地址还需与面板<strong>同协议</strong>
+              （面板是 https 时不能填 http，否则被浏览器按混合内容拦掉，画面全白）、
+              <strong>同一主域</strong>（否则内嵌被 frame-ancestors 拒绝，票据 cookie 也跨站失效），
+              并且反向代理要<strong>透传原始 Host 头</strong>（nginx 需
+              <code>proxy_set_header Host $host;</code>，否则内嵌里显示的是 Bemby 面板本身；
+              这种情况日志会打印 <code>[webview] claim arrived with Host …</code>）。
+            </p>
+
+            <div
+              class="card-section-title"
+              style="margin-top: 16px; font-size: 11px"
+            >
               打开网址
             </div>
             <p class="help-para">
@@ -869,6 +922,65 @@
               The <strong>ID</strong> row in the profile panel copies on click (a group's is the
               <code>-100…</code> form). A private group with no username and no invite link left
               can be named by that ID in a job's or template's group or contact field.
+            </p>
+
+            <div
+              class="card-section-title"
+              style="margin-top: 16px; font-size: 11px"
+            >
+              When a Mini App will not open ("refused to connect", or a blank panel)
+            </div>
+            <p class="help-para">
+              The backend log tells the two cases apart:
+            </p>
+            <p class="help-para">
+              <strong>1. The log says <code>Private IP not allowed</code></strong>, e.g.
+              <code>[webview] framing probe failed for https://bot.example.com/ ... Private IP
+              not allowed: bot.example.com resolves to 198.18.0.7</code>.
+              Before fetching any outside address Bemby resolves the name and refuses reserved
+              ranges, which is what stops the server being pointed at its own network -- and what
+              came back here is not a real address. The usual cause is a transparent proxy in
+              <strong>fake-ip mode</strong>: Clash and Mihomo hand out <code>198.18.0.0/15</code>
+              by default, sing-box <code>28.0.0.0/8</code>, both of which are reserved space.
+              Check what the name actually resolves to:
+            </p>
+            <p class="help-para">
+              <code>docker exec bemby node -e "require('dns').promises.lookup('bot.example.com',{all:true}).then(console.log)"</code>
+            </p>
+            <ul class="help-steps">
+              <li>
+                <code>198.18.x.x</code> or <code>28.x.x.x</code> means fake-ip. In order of
+                preference: switch the proxy's DNS to <strong>redir-host</strong> so it answers
+                with real addresses; or keep fake-ip and add these domains (or the host Bemby runs
+                on) to the <strong>fake-ip-filter</strong> so they resolve for real; or tell Bemby
+                the range is routable with <code>SSRF_ALLOWED_IP_RANGES=198.18.0.0/15</code>
+                (<code>28.0.0.0/8</code> for sing-box). Never put your own private space
+                (<code>10/8</code>, <code>192.168/16</code>, <code>172.16/12</code>) in it.
+              </li>
+              <li>
+                <code>0.0.0.0</code> or <code>127.0.0.1</code> means a DNS blocklist -- AdGuard
+                Home, Pi-hole and the like, and the throwaway domains Mini Apps use are easily
+                caught by one. Whitelist the domain, or give the container a clean resolver.
+              </li>
+            </ul>
+            <p class="help-note">
+              Until DNS is fixed the proxy fails too (502) even with
+              <code>WEBVIEW_PUBLIC_ORIGIN</code> set correctly: the probe and the proxy resolve
+              through the same path.
+            </p>
+            <p class="help-para">
+              <strong>2. The log has no <code>[webview] serving framed pages on …</code></strong>
+              line at startup: <code>WEBVIEW_PUBLIC_ORIGIN</code> never reached the backend. Under
+              Docker it has to be named in the <code>environment</code> block of
+              <code>docker-compose.yml</code> -- one sitting in <code>.env</code> alone is read by
+              Compose and never passed into the container. The address also needs the
+              <strong>same scheme</strong> as the panel (an http origin under an https panel is
+              blocked as mixed content and the frame comes up blank), the <strong>same registrable
+              domain</strong> (otherwise framing is refused by frame-ancestors and the ticket
+              cookie is cross-site), and the reverse proxy must <strong>pass the original Host
+              header through</strong> (nginx needs <code>proxy_set_header Host $host;</code>, or
+              the frame shows the Bemby panel itself -- the log prints
+              <code>[webview] claim arrived with Host …</code> when that happens).
             </p>
 
             <div
