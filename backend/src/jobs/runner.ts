@@ -23,6 +23,7 @@ import {
   type ProxyChoice,
 } from "../tg/proxyProviders";
 import { checkedProxyUrl } from "../tg/proxyHealth";
+import { globalTgProxyUrl } from "../tg/globalProxy";
 
 /**
  * The proxy a job or its template picked, if any. The job's own config wins, so a
@@ -62,7 +63,9 @@ function resolveTgProxyUrl(
         `route Telegram through it.`,
     );
   }
-  if (!accountProxyId) return undefined;
+  // No account exit means the global one, which stands in for a direct connection -- but
+  // only when it is SOCKS, since MTProto cannot use anything else
+  if (!accountProxyId) return globalTgProxyUrl();
   const url = proxyUrlFor(accountProxyId);
   // Same rule as resolveAccountExit: an exit that has gone is an error, not a silent direct
   // connection from the server's own address.

@@ -677,6 +677,7 @@ const zh = {
     proxy: {
       direct: "直连",
       random: "随机",
+      globalNote: "这里没有单独设置代理，走的是全局代理",
       drawnPerRun: "每次运行从池中随机抽取一个出口",
       tgNote: "Telegram 连接仍走账户自己的代理：{exit}",
       missing:
@@ -1739,7 +1740,8 @@ const zh = {
     addPreset: "添加",
     uaPresetDeleteTip: "删除",
     proxiesSection: "代理服务器",
-    proxiesHint: "在模板中选择代理，用于无法直连的 Emby 服务器。",
+    proxiesHint:
+      "这里维护代理列表。列表中的代理可用于 Telegram 账户连接（仅 SOCKS）、浏览器侧（Cloudflare 验证 / 小程序），以及在账户、模板和任务中单独指定；下面的「全局代理」可让所有没有单独设置代理的连接都改走某个代理，而不是直连。",
     proxyBrowserOnly: "仅浏览器",
     proxyBrowserOnlyTip:
       "HTTP 代理只能用于浏览器（Cloudflare 验证 / 小程序），无法用于 Telegram 账户连接（MTProto 仅支持 SOCKS）。",
@@ -1808,6 +1810,13 @@ const zh = {
       "能建立连接不代表能过 Cloudflare。此项通过代理请求 challenges.cloudflare.com/cdn-cgi/trace，同时读取出口 IP。隧道节点（VLESS 订阅）会跳过此项：Cloudflare Worker 无法连接 Cloudflare 自己的地址。",
     proxyTestExtraPlaceholder: "额外检查的网址（可选），例如 https://example.com/",
     proxyTestExtraHint: "再增加一个必须能通过代理访问的 HTTPS 地址；返回 4xx/5xx 视为失败。",
+    globalProxy: "全局代理（替代直连）",
+    globalProxyOff: "关闭（直连）",
+    globalProxyHint:
+      "没有单独设置代理的连接（Telegram、通知机器人、GitHub 更新检查、浏览器等）都改走这个出口，而不是服务器自身的 IP。任务、模版或账户上单独设置的代理仍然优先。默认关闭，即保持直连。",
+    globalProxyNoTg: "Telegram 不可用",
+    globalProxyNoTgHint:
+      "该代理不是 SOCKS，Telegram（MTProto）无法使用，未设置代理的账户仍将直连。如需覆盖 Telegram，请选择 socks5:// 或 socks4:// 代理。",
     proxyCheckBeforeUse: "使用前先检查代理",
     proxyCheckBeforeUseHint:
       "任务运行前先测试将要使用的代理：若为随机池，按抽取顺序依次检查并使用第一个可用的（最多 5 个）；若只有一个代理（指定代理，或池内已无其他可用代理），检查失败则任务直接失败，而不会改用本机 IP 出网。检查结果同样会写入状态，失败的代理会被停用。注意：每次运行会因此多一次连接测试。",
@@ -3062,6 +3071,7 @@ const en: typeof zh = {
     proxy: {
       direct: "Direct",
       random: "Random",
+      globalNote: "Nothing was picked here, so this follows the global proxy",
       drawnPerRun: "One exit is drawn from the pool per run",
       tgNote: "The Telegram connection still follows the account's proxy: {exit}",
       missing:
@@ -4159,7 +4169,7 @@ const en: typeof zh = {
     uaPresetDeleteTip: "Delete",
     proxiesSection: "Proxies",
     proxiesHint:
-      "Select a proxy on a template to reach Emby servers that are blocked from direct access.",
+      "The list of exits. A proxy here can carry a Telegram account connection (SOCKS only) or the browser side (Cloudflare checks / Mini Apps), and can be picked on an account, a template or a job; Global proxy below sends everything with no proxy of its own through one of them instead of connecting direct.",
     proxyBrowserOnly: "browser only",
     proxyBrowserOnlyTip:
       "An HTTP proxy serves the browser side only (Cloudflare checks / Mini Apps); it cannot carry a Telegram account connection, since MTProto only speaks SOCKS.",
@@ -4231,6 +4241,13 @@ const en: typeof zh = {
     proxyTestExtraPlaceholder: "One more URL to check (optional), e.g. https://example.com/",
     proxyTestExtraHint:
       "An extra HTTPS address the exit must fetch. A 4xx or 5xx answer counts as a failure.",
+    globalProxy: "Global proxy (stands in for a direct connection)",
+    globalProxyOff: "Off (connect direct)",
+    globalProxyHint:
+      "Every connection with no proxy of its own -- Telegram, the notification bot, the GitHub update check, the browser -- leaves by this exit instead of the server's own address. A proxy picked on a job, a template or an account still wins over it. Off is a direct connection, as before.",
+    globalProxyNoTg: "not usable by Telegram",
+    globalProxyNoTgHint:
+      "This proxy is not SOCKS, so Telegram (MTProto) cannot use it and an account with no proxy of its own still connects direct. Pick a socks5:// or socks4:// exit to cover Telegram too.",
     proxyCheckBeforeUse: "Check the exit before a run uses it",
     proxyCheckBeforeUseHint:
       "A run tests the exit it is about to use. A random pool is checked in draw order and the first that answers is the one used, up to five tries; a single exit -- a pinned proxy, or a pool with nothing else left -- fails the run instead of letting it out through the host's own address. The outcome is recorded like any other test, so a refusal disables that exit for later draws. Costs one connect per run.",

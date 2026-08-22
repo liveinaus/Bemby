@@ -1234,6 +1234,8 @@ onMounted(async () => {
 function proxyText(p?: JobProxy): string {
   if (!p) return t('jobs.proxy.direct');
   if (p.kind === 'direct') return t('jobs.proxy.direct');
+  // Nothing was picked here; the global exit is what stands in for a direct connection
+  if (p.kind === 'global') return p.label;
   if (p.kind === 'proxy') return p.label;
   const size = p.poolSize ? ` (${p.poolSize})` : '';
   return (p.kind === 'provider' ? p.label : t('jobs.proxy.random')) + size;
@@ -1245,6 +1247,8 @@ function proxyIcon(p?: JobProxy): string {
   switch (p?.kind) {
     case 'proxy':
       return 'fa-plug';
+    case 'global':
+      return 'fa-globe';
     case 'provider':
     case 'random':
       return 'fa-shuffle';
@@ -1257,6 +1261,7 @@ function proxyIcon(p?: JobProxy): string {
 function proxyTitle(p?: JobProxy): string {
   if (!p) return '';
   const lines = [t(`jobs.proxy.source.${p.source}`)];
+  if (p.kind === 'global') lines.push(t('jobs.proxy.globalNote'));
   if (p.kind === 'provider' || p.kind === 'random') lines.push(t('jobs.proxy.drawnPerRun'));
   if (p.tgLabel !== undefined) {
     lines.push(

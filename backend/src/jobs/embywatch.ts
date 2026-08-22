@@ -1,9 +1,10 @@
-import { Agent, ProxyAgent, fetch as undiciFetch } from 'undici';
+import { Agent, fetch as undiciFetch, type Dispatcher } from 'undici';
 import { lookup } from 'node:dns';
 import { db } from '../db/database';
 import type { EmbywatchConfig, EmbywatchEpisode, EmbywatchLog, RealWatchNote } from '../types';
 import { expandCommand } from './checkin';
 import { proxyUrlFor } from '../tg/proxyProviders';
+import { proxyDispatcher } from '../tg/globalProxy';
 import { checkedProxyUrl } from '../tg/proxyHealth';
 
 // Per-username cache of the expanded device name. Persisting it keeps random
@@ -60,18 +61,16 @@ const ipv4InsecureAgent = new Agent({ connect: { lookup: ipv4Lookup, rejectUnaut
 // ProxyAgent per request leaves its keep-alive sockets open until they time out, so a long
 // watch session paid a new tunnel handshake every call and dragged RSS up with it. The map is
 // bounded by the number of configured proxies.
-const proxyAgents = new Map<string, ProxyAgent>();
+const proxyAgents = new Map<string, Dispatcher>();
 
-function dispatcherFor(proxyUrl?: string, insecureTls?: boolean): Agent | ProxyAgent {
+function dispatcherFor(proxyUrl?: string, insecureTls?: boolean): Dispatcher {
   if (!proxyUrl) return insecureTls ? ipv4InsecureAgent : ipv4Agent;
   const key = insecureTls ? `${proxyUrl}#insecure` : proxyUrl;
   let agent = proxyAgents.get(key);
   if (!agent) {
-    // requestTls governs the handshake with the Emby server through the tunnel,
+    // insecureTls governs the handshake with the Emby server through the tunnel,
     // which is the one that fails on an untrusted certificate.
-    agent = insecureTls
-      ? new ProxyAgent({ uri: proxyUrl, requestTls: { rejectUnauthorized: false } })
-      : new ProxyAgent(proxyUrl);
+    agent = proxyDispatcher(proxyUrl, insecureTls);
     proxyAgents.set(key, agent);
   }
   return agent;

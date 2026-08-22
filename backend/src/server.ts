@@ -40,6 +40,7 @@ import { createVncWss } from "./tg/vncBridge";
 import { startVlessTunnels, stopVlessTunnels } from "./tg/vlessTunnel";
 import { startProxyHealthChecks } from "./tg/proxyHealth";
 import { startProxyProviderSync } from "./tg/proxySync";
+import { applyGlobalProxy } from "./tg/globalProxy";
 import { startMemoryMonitor, markCleanShutdown } from "./monitor/memory";
 import { claimInstanceLock, releaseInstanceLock } from "./instanceLock";
 
@@ -256,6 +257,9 @@ server.listen(PORT, BIND_HOST, () => {
   startMemoryMonitor();
   // Before the scheduler: a job whose proxy is a tunnel exit needs its listener up
   startVlessTunnels();
+  // After the tunnels, since the global exit may be one of them, and before anything that
+  // reaches outward: it is what an unrouted connection goes out by
+  applyGlobalProxy();
   startScheduler();
   // After the tunnels, so their listeners are up before the first test judges them
   startProxyHealthChecks();

@@ -8,6 +8,7 @@ import {
   submitPassword,
 } from "../auth/tgAuth";
 import { parseTgProxy } from "./runner";
+import { globalTgProxyUrl } from "../tg/globalProxy";
 import { resolveAppClientParams } from "../tg/appClient";
 
 // Bulk-adds Telegram accounts whose verification code + 2FA are served by an
@@ -305,7 +306,8 @@ function pickRandom<T>(arr: T[]): T | null {
 }
 
 function resolveProxyUrl(proxyId: string | null): string | undefined {
-  if (!proxyId) return undefined;
+  // No exit of its own means the global one, when it is SOCKS -- see accountOps.resolveProxyUrl
+  if (!proxyId) return globalTgProxyUrl();
   const list = readSettingList<{ id: string; url: string }>("proxies");
   return list.find((p) => p.id === proxyId)?.url;
 }

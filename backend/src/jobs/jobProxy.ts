@@ -2,6 +2,7 @@ import { db } from "../db/database";
 import {
   CF_PROXY_DIRECT,
   CF_PROXY_RANDOM,
+  globalProxyLabel,
   listProxies,
   parseProxyChoice,
   POOL_PROVIDER_PREFIX,
@@ -82,10 +83,18 @@ export function makeJobProxyResolver(): (row: JobProxyRow) => JobProxy {
     return size;
   };
 
+  let global: string | null = null;
+  // Nothing picked no longer means the host's own address: the global exit stands in for it
+  const globalLabel = (): string => (global ??= globalProxyLabel());
+
   const describe = (choice: ProxyChoice, source: JobProxySource): JobProxy => {
     const id = choice.proxyId;
-    if (!id || id === CF_PROXY_DIRECT)
-      return { kind: "direct", label: "", source };
+    if (!id || id === CF_PROXY_DIRECT) {
+      const label = globalLabel();
+      return label
+        ? { kind: "global", label, source }
+        : { kind: "direct", label: "", source };
+    }
     if (id !== CF_PROXY_RANDOM) {
       const exit = exitName(id);
       return {

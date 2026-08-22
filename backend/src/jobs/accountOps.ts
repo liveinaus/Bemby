@@ -17,6 +17,7 @@ import type { Passkey, PasskeyLoginVerification } from "../tg/passkeys";
 import { checkSpamStatus } from "./checkin";
 import { changeLoginEmailViaGmail, changeLoginEmailViaPool } from "./bulkLoginEmail";
 import { parseTgProxy } from "./runner";
+import { globalTgProxy, globalTgProxyUrl } from "../tg/globalProxy";
 import { resolveAppClientParams } from "../tg/appClient";
 import {
   cleanAccount,
@@ -102,7 +103,10 @@ export function resolveApiCredentials(account: AccountRow): {
 export function resolveProxyUrl(
   proxyId: string | null | undefined,
 ): string | undefined {
-  if (!proxyId) return undefined;
+  // Naming no exit means the global one, which stands in for a direct connection. Only a
+  // SOCKS global exit is offered here: every caller hands this to MTProto, which cannot use
+  // anything else, and an HTTP one would be dropped further down without saying so.
+  if (!proxyId) return globalTgProxyUrl();
   try {
     const row = db
       .prepare("SELECT value FROM settings WHERE key = ?")
@@ -129,7 +133,15 @@ export type AccountExit = {
  * codes first of all), and nothing about it would otherwise be visible.
  */
 export function resolveAccountExit(account: AccountRow): AccountExit {
-  if (!account.proxy_id) return { proxy: undefined, label: "direct" };
+  if (!account.proxy_id) {
+    // No exit of its own means the global one, which is what stands in for a direct
+    // connection everywhere. Only a SOCKS global exit reaches here; anything else leaves
+    // this direct, as it was before one was set.
+    const global = globalTgProxy();
+    return global
+      ? { proxy: global, label: `${global.ip}:${global.port}` }
+      : { proxy: undefined, label: "direct" };
+  }
   const url = resolveProxyUrl(account.proxy_id);
   if (!url)
     throw new Error(

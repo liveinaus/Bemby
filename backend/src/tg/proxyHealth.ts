@@ -462,7 +462,9 @@ export class ProxyUnavailableError extends Error {
  */
 export async function checkedProxyUrl(choice: ProxyChoice): Promise<string | undefined> {
   const { proxyId, pool } = choice;
-  if (!proxyId || proxyId === CF_PROXY_DIRECT) return undefined;
+  // Nothing picked resolves to the global exit, which has nothing to check between: there is
+  // no second candidate to move on to, so a failure would only turn into a run that fails
+  if (!proxyId || proxyId === CF_PROXY_DIRECT) return proxyUrlFor(proxyId);
   if (!checksProxyBeforeUse()) return proxyUrlFor(proxyId, pool);
 
   const pinned = proxyId === CF_PROXY_RANDOM ? undefined : proxyById(proxyId);

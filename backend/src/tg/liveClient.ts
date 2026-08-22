@@ -9,6 +9,7 @@ import { decryptAccountRow } from "../db/secretColumns";
 import { escapeHtml as escHtml, safeHref } from "./htmlEscape";
 import { parseTgProxy } from "../jobs/runner";
 import { missingProxyMessage } from "./proxyProviders";
+import { globalTgProxy } from "./globalProxy";
 import { resolveAppClientParams } from "./appClient";
 import { parseMiniAppLink, withClientLaunchParams } from "./miniApp";
 import { displayPeerId } from "./peerTarget";
@@ -490,7 +491,10 @@ function docFileName(
  * without a cycle.
  */
 function resolveProxy(proxyId: string | null) {
-  if (!proxyId) return undefined;
+  // An account naming no exit follows the global one, which stands in for a direct
+  // connection everywhere; only a SOCKS global exit can carry MTProto, and anything else
+  // leaves this direct
+  if (!proxyId) return globalTgProxy();
 
   let url: string | undefined;
   try {

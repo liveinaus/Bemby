@@ -1,6 +1,7 @@
 import { db } from "../db/database";
 import { testStoredProxies } from "./proxyHealth";
 import { readProviders, syncProviders, type SyncResult } from "./proxyProviders";
+import { applyGlobalProxy } from "./globalProxy";
 
 // Pulling the providers' lists in again on a timer, which is what keeps a subscription
 // current: a Worker that rotates its nodes, or gains one, is otherwise only noticed when
@@ -56,6 +57,9 @@ export function syncAndTestProviders(
 ): Promise<SyncAndTestResult> {
   return serialised(async () => {
     const result = await syncProviders(onlyProviderId);
+    // A refresh can rewrite the url behind the global exit's id, and the process-wide
+    // dispatcher is built from that url rather than looked up per request
+    applyGlobalProxy();
     const tested = result.syncedProviderIds.length
       ? await testStoredProxies({ providerIds: result.syncedProviderIds })
       : [];

@@ -4,6 +4,7 @@ import { decryptAccountRow } from "../db/secretColumns";
 import { updateProfile, setProfilePhoto, updateUsername } from "../auth/tgAuth";
 import { normaliseUsername, usernameError } from "../tg/usernames";
 import { parseTgProxy } from "./runner";
+import { globalTgProxyUrl } from "../tg/globalProxy";
 import { resolveAppClientParams } from "../tg/appClient";
 import { isAuthError, markSessionExpired } from "../tg/liveClient";
 import {
@@ -148,7 +149,8 @@ export function clearBulkProfile(): boolean {
 }
 
 function resolveProxyUrl(proxyId: string | null): string | undefined {
-  if (!proxyId) return undefined;
+  // No exit of its own means the global one, when it is SOCKS -- see accountOps.resolveProxyUrl
+  if (!proxyId) return globalTgProxyUrl();
   const row = db
     .prepare("SELECT value FROM settings WHERE key = ?")
     .get("proxies") as { value: string } | undefined;

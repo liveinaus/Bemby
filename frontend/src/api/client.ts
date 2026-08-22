@@ -1119,7 +1119,12 @@ export type CustomStepLog = {
   webSteps?: WebStepLog[];
 };
 
-export type JobProxyKind = "direct" | "proxy" | "provider" | "random";
+export type JobProxyKind =
+  | "direct"
+  | "global"
+  | "proxy"
+  | "provider"
+  | "random";
 
 /** Which of the three settings a job's exit came from. */
 export type JobProxySource = "job" | "template" | "account";
@@ -1839,6 +1844,11 @@ export type Settings = {
   proxy_test_interval_minutes?: string;
   /** "true" makes a run verify its exit before going out through it. */
   proxy_check_before_use?: string;
+  /**
+   * Proxy list id of the exit that stands in for a direct connection everywhere. Blank means
+   * direct, as before. An exit picked on a job, a template or an account still wins over it.
+   */
+  global_proxy_id?: string;
   /** "true" turns on the data store: its menu entry, its API and its job steps. */
   data_store_enabled?: string;
   /**

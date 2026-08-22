@@ -578,6 +578,72 @@ export function rememberCfProxy(host: string, proxyId: string): void {
 export const CF_PROXY_DIRECT = "direct";
 
 /**
+ * Setting key for the exit that stands in for a direct connection everywhere.
+ *
+ * Behind a national firewall the host's own address reaches none of what Bemby talks to --
+ * Telegram, the Bot API, GitHub -- so "no proxy" cannot mean "no connection". This names one
+ * exit from the proxy list to leave by whenever nothing else was picked, which is what makes
+ * an unconfigured account or job work at all from such a network.
+ *
+ * It is a default, not an override: an exit picked on a job, a template or an account still
+ * wins. Empty, which is how an install that never touched it reads, is a direct connection
+ * exactly as before.
+ */
+export const GLOBAL_PROXY_ID_KEY = "global_proxy_id";
+
+/**
+ * The global exit's url, or undefined when none is set. One entry from the list by id and
+ * nothing else: a draw would settle on a different exit per caller, and this is the address
+ * the whole install goes out by.
+ *
+ * A pin whose exit has since gone is a warning rather than a throw. Every other resolver may
+ * fail its one run over a missing proxy; this one is consulted by everything, so failing here
+ * would take the panel down over a deleted list entry.
+ */
+export function globalProxyUrl(): string | undefined {
+  const id = globalProxyId();
+  if (!id) return undefined;
+  const url = readProxies().find((p) => p.id === id)?.url;
+  if (!url) warnMissingGlobalProxy(id);
+  return url;
+}
+
+/**
+ * The configured id, or "" for off. Read defensively: this is consulted on every connection
+ * and every job row, so a settings read that cannot be made -- an install mid-migration, a
+ * caller holding a database that has not been set up -- must leave things direct rather than
+ * take the request down with it.
+ */
+function globalProxyId(): string {
+  let raw: string | undefined;
+  try {
+    raw = readSetting(GLOBAL_PROXY_ID_KEY);
+  } catch {
+    return "";
+  }
+  const id = (raw ?? "").trim();
+  return !id || id === CF_PROXY_DIRECT ? "" : id;
+}
+
+/** The global exit as it reads in a log line or a column, or "" when none is set. */
+export function globalProxyLabel(): string {
+  const id = globalProxyId();
+  if (!id) return "";
+  const proxy = readProxies().find((p) => p.id === id);
+  if (!proxy) return "";
+  return proxy.name?.trim() || proxyLabelForUrl(proxy.url);
+}
+
+// Said once per id: this is read on every connection, and a deleted global exit would
+// otherwise fill the log faster than anything else in it.
+let warnedGlobalProxyId = "";
+function warnMissingGlobalProxy(id: string): void {
+  if (warnedGlobalProxyId === id) return;
+  warnedGlobalProxyId = id;
+  console.warn(`[proxy] global proxy "${id}" is no longer in the list; connections go out direct`);
+}
+
+/**
  * Value of a pinned proxy id meaning "draw one from the pool". The draw happens where the
  * exit is needed, so each run gets its own, and a pool that is left empty means the whole
  * proxy list.
@@ -722,8 +788,14 @@ export function proxyUrlFor(
   proxyId: string | null | undefined,
   poolIds?: string[],
 ): string | undefined {
-  if (!proxyId || proxyId === CF_PROXY_DIRECT) return undefined;
-  if (proxyId === CF_PROXY_RANDOM) return pickRandomProxy(poolIds)?.url;
+  // Nothing picked, and `direct` with it: the global exit is what a direct connection now
+  // means, so both land on it. A draw that comes up empty does too, rather than falling out
+  // of the proxy chain onto the host's address.
+  if (!proxyId || proxyId === CF_PROXY_DIRECT) return globalProxyUrl();
+  if (proxyId === CF_PROXY_RANDOM)
+    return pickRandomProxy(poolIds)?.url ?? globalProxyUrl();
+  // A pin that no longer resolves stays undefined: the callers tell that apart from "no proxy"
+  // and raise missingProxyMessage, which the global exit must not paper over.
   return readProxies().find((p) => p.id === proxyId)?.url;
 }
 
@@ -811,17 +883,28 @@ export function cfProxyCandidatesFor(opts: {
     proxyId && proxyId !== CF_PROXY_DIRECT
       ? pool.find((p) => p.id === proxyId)
       : undefined;
+  // What "no exit" comes to here, the same as everywhere else: the global proxy when one is
+  // set, and only then the host's own address. Named by its list entry where it has one, so a
+  // retry's `exclude` and the log line both say which exit was actually tried.
+  const globalUrl = globalProxyUrl();
+  const globalEntry = globalUrl
+    ? pool.find((p) => p.url === globalUrl)
+    : undefined;
+  const fallback: ProxyCandidate = globalUrl
+    ? {
+        id: globalEntry?.id ?? CF_PROXY_DIRECT,
+        label: globalEntry?.name || globalProxyLabel() || "global proxy",
+        url: globalUrl,
+      }
+    : { id: CF_PROXY_DIRECT, label: "direct", url: undefined };
+
   const primary: ProxyCandidate = pinned
     ? { id: pinned.id, label: pinned.name, url: pinned.url }
-    : proxyId === CF_PROXY_DIRECT
-      ? { id: CF_PROXY_DIRECT, label: "direct", url: undefined }
+    : proxyId === CF_PROXY_DIRECT || !primaryUrl
+      ? fallback
       : {
-          id:
-            pool.find((p) => p.url === primaryUrl)?.id ??
-            (primaryUrl ? "job" : "direct"),
-          label:
-            pool.find((p) => p.url === primaryUrl)?.name ??
-            (primaryUrl ? "job proxy" : "direct"),
+          id: pool.find((p) => p.url === primaryUrl)?.id ?? "job",
+          label: pool.find((p) => p.url === primaryUrl)?.name ?? "job proxy",
           url: primaryUrl,
         };
 

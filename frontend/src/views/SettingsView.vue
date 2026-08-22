@@ -1266,6 +1266,37 @@
           <div v-if="proxiesMsg" class="success-msg">{{ proxiesMsg }}</div>
           <div v-if="proxiesError" class="error-msg">{{ proxiesError }}</div>
 
+          <!-- The exit that stands in for a direct connection everywhere, for a network where
+               going out by the host's own address reaches nothing. Off is a direct connection,
+               exactly as before, and anything picked on a job, template or account still wins -->
+          <div class="global-proxy-box">
+            <label class="form-label" style="margin: 0 0 4px">{{ t("settings.globalProxy") }}</label>
+            <div class="proxy-row">
+              <select v-model="globalProxyId" class="form-select" style="flex: 1">
+                <option value="">{{ t("settings.globalProxyOff") }}</option>
+                <option v-for="p in proxies" :key="p.id" :value="p.id">
+                  {{ p.name }}{{ proxySupportsTelegram(p.url) ? "" : ` (${t("settings.globalProxyNoTg")})` }}
+                </option>
+              </select>
+              <button
+                class="btn btn-ghost btn-sm"
+                :disabled="globalProxySaving"
+                @click="saveGlobalProxy"
+              >
+                {{ globalProxySaving ? t("common.saving") : t("common.save") }}
+              </button>
+            </div>
+            <p style="font-size: 11px; color: var(--text-muted); margin: 4px 0 0">
+              {{ t("settings.globalProxyHint") }}
+            </p>
+            <p
+              v-if="globalProxySelected && !proxySupportsTelegram(globalProxySelected.url)"
+              style="font-size: 11px; color: var(--warning); margin: 4px 0 0"
+            >
+              {{ t("settings.globalProxyNoTgHint") }}
+            </p>
+          </div>
+
           <!-- The list is what makes this card tall: a synced provider leaves dozens of
                entries, so it folds away behind a count of what state they are in -->
           <div class="proxy-fold">
@@ -4217,6 +4248,7 @@ onMounted(async () => {
     proxyTestExtraUrl.value = s.proxy_test_extra_url ?? "";
     proxyTestIntervalMinutes.value = Number(s.proxy_test_interval_minutes) || 0;
     proxyCheckBeforeUse.value = s.proxy_check_before_use === "true";
+    globalProxyId.value = s.global_proxy_id ?? "";
     try {
       appClients.value = JSON.parse(s.tg_app_clients ?? "[]");
     } catch {
@@ -4502,6 +4534,30 @@ async function disableProxy(id: string) {
     applyProxies((await settingsApi.disableProxy(id)).proxies);
   } catch (err: any) {
     proxiesError.value = err.response?.data?.error ?? t("settings.saveFailed");
+  }
+}
+
+// The exit every unrouted connection leaves by. One entry from the list, or off for a direct
+// connection. A draw is deliberately not offered: this is the address the whole install goes
+// out by, and it should be the same one each time.
+const globalProxyId = ref("");
+const globalProxySaving = ref(false);
+
+const globalProxySelected = computed(() =>
+  proxies.value.find((p) => p.id === globalProxyId.value),
+);
+
+async function saveGlobalProxy() {
+  proxiesMsg.value = "";
+  proxiesError.value = "";
+  globalProxySaving.value = true;
+  try {
+    await settingsApi.update({ global_proxy_id: globalProxyId.value });
+    proxiesMsg.value = t("settings.saved");
+  } catch (err: any) {
+    proxiesError.value = err.response?.data?.error ?? t("settings.saveFailed");
+  } finally {
+    globalProxySaving.value = false;
   }
 }
 
@@ -5616,6 +5672,16 @@ async function signOutEverywhere() {
 
 .settings-grid .card-section-title {
   margin-bottom: 12px;
+}
+
+/* Set apart from the list below it: this one setting decides where everything with no exit
+   of its own goes out, so it should not read as another row of the list */
+.global-proxy-box {
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
 }
 
 /* One folded sub-section's header row: the toggle, and a note that stands in for what is

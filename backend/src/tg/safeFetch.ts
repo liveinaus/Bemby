@@ -1,6 +1,7 @@
 import dns from "dns";
 import net from "net";
 import { Agent, fetch as undiciFetch } from "undici";
+import { globalProxyDispatcher } from "./globalProxy";
 
 // Fetching an address the operator supplied means the server can be pointed at anything it
 // can reach, so every such fetch goes through here. Two things guard it: the URL is checked
@@ -297,10 +298,14 @@ export async function ssrfSafeFetch(
   let current = startUrl;
   for (let hop = 0; hop <= maxHops; hop++) {
     await assertPublicUrl(current);
+    // Through the global exit when one is set: the addresses this reaches are the ones a
+    // national firewall blocks, so a direct fetch here answers nothing. The url check above
+    // still runs on every hop; what the proxy costs is the second check on the socket, which
+    // is made on the far side and cannot be seen from here.
     const resp = (await undiciFetch(current, {
       ...(init as any),
       redirect: "manual",
-      dispatcher: ssrfAgent,
+      dispatcher: globalProxyDispatcher() ?? ssrfAgent,
     })) as unknown as globalThis.Response;
     if (followRedirects && resp.status >= 300 && resp.status < 400) {
       const location = resp.headers.get("location");

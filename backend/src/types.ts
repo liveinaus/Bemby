@@ -34,7 +34,12 @@ export type TgAccount = {
   createdAt: string;
 };
 
-export type JobProxyKind = "direct" | "proxy" | "provider" | "random";
+export type JobProxyKind =
+  | "direct"
+  | "global"
+  | "proxy"
+  | "provider"
+  | "random";
 
 /** Which of the three settings a job's exit came from, so the panel can say why it wins. */
 export type JobProxySource = "job" | "template" | "account";

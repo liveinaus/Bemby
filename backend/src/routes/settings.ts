@@ -56,10 +56,12 @@ import {
   clearCfExitGeo,
   setProxyOff,
   providersForClient,
+  GLOBAL_PROXY_ID_KEY,
   PROXY_SYNC_MATCH_BY_NAME_KEY,
   saveProviders,
   type ProxyProvider,
 } from "../tg/proxyProviders";
+import { applyGlobalProxy } from "../tg/globalProxy";
 import {
   PROXY_CHECK_BEFORE_USE_KEY,
   PROXY_TEST_CF_KEY,
@@ -119,6 +121,7 @@ export const ALLOWED_KEYS = [
   NOTIFY_BOT_TARGET_KEY,
   "ua_presets",
   "proxies",
+  GLOBAL_PROXY_ID_KEY,
   PROXY_SYNC_MATCH_BY_NAME_KEY,
   PROXY_TEST_CF_KEY,
   PROXY_TEST_EXTRA_URL_KEY,
@@ -437,6 +440,10 @@ router.put("/", (req, res) => {
 
   // Same for the automatic provider refresh
   if (PROXY_PROVIDER_SYNC_INTERVAL_KEY in updates) startProxyProviderSync();
+
+  // Point the process-wide dispatcher at the exit just named -- or at the one whose url was
+  // just edited, since the global exit is one entry of that list
+  if (GLOBAL_PROXY_ID_KEY in updates || "proxies" in updates) applyGlobalProxy();
 
   res.json(getClientSettings());
 });
