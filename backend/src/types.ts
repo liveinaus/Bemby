@@ -275,6 +275,13 @@ export type CustomAction = CustomActionCommon &
          * `{aiInput}` placeholder. Blank auto-detects a checkin-worded control.
          */
         appButtons?: string[];
+        /**
+         * A step's label must be the control's whole text rather than part of it. Off by
+         * default: a step naming `签到` usually means a button reading `立即签到 >`. On, that
+         * step passes over a toast reading `签到成功` and holds out for the control itself,
+         * which is what an app whose wording overlaps its own outcome needs.
+         */
+        exactAppLabels?: boolean;
         successContains?: string;
         failContains?: string;
         maxRetries?: number;
@@ -322,6 +329,13 @@ export type CustomAction = CustomActionCommon &
          * `{aiInput}`). Blank auto-detects a checkin control.
          */
         appButtons?: string[];
+        /**
+         * A step's label must be the control's whole text rather than part of it. Off by
+         * default: a step naming `签到` usually means a button reading `立即签到 >`. On, that
+         * step passes over a toast reading `签到成功` and holds out for the control itself,
+         * which is what an app whose wording overlaps its own outcome needs.
+         */
+        exactAppLabels?: boolean;
         successContains?: string;
         failContains?: string;
         maxRetries?: number;
@@ -365,6 +379,13 @@ export type CustomAction = CustomActionCommon &
          * `{aiInput}`). Blank auto-detects a checkin control.
          */
         appButtons?: string[];
+        /**
+         * A step's label must be the control's whole text rather than part of it. Off by
+         * default: a step naming `签到` usually means a button reading `立即签到 >`. On, that
+         * step passes over a toast reading `签到成功` and holds out for the control itself,
+         * which is what an app whose wording overlaps its own outcome needs.
+         */
+        exactAppLabels?: boolean;
         successContains?: string;
         failContains?: string;
         maxRetries?: number;

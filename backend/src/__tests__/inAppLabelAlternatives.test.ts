@@ -7,11 +7,11 @@ import {
   textSaysFail,
   textSaysSuccess,
 } from "../jobs/placeholders";
+import { inAppLabelRegex } from "../jobs/cloudflare";
 
 /** How clickInAppControl turns the alternatives into the matcher it searches with. */
 function matcher(step: string): RegExp {
-  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(parseLabelAlternatives(step).map(escape).join("|"), "i");
+  return inAppLabelRegex(parseLabelAlternatives(step));
 }
 
 describe("parseLabelAlternatives", () => {

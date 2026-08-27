@@ -141,6 +141,13 @@ export type CheckinPageResult = {
   finalHost: string;
   /** Label of the checkin control pressed inside a Mini App page, if any. */
   inAppAction?: string;
+  /**
+   * Text the page showed at any point while the run drove it, deduped and capped. A Mini App
+   * puts its outcome in a toast that is gone by the time the final page is read, so the
+   * success wording is matched against this too. Failure wording is not: a state the page
+   * passed through mid-run is not the outcome it settled on.
+   */
+  seenText?: string;
   /** Id of the proxy the accepted (or last) attempt went through. */
   proxyId?: string;
   /** Human-readable name of that proxy, for the job log. */
@@ -311,6 +318,18 @@ export type LoadOptions = {
    * checkin-worded control.
    */
   inAppClicks?: string[];
+  /**
+   * A step's label must be the control's whole text rather than part of it. Off by default,
+   * since a button reading "立即签到 >" is what a step naming 签到 usually means; on, that
+   * step passes over a toast reading 签到成功 and holds out for the control itself.
+   */
+  exactAppLabels?: boolean;
+  /**
+   * Success wording the caller will judge the run by. Given here so the in-app steps can
+   * recognise an outcome the app is already showing rather than failing on a press that had
+   * nothing left to do.
+   */
+  successContains?: string;
   /** Answers a question read off the app (used by the `{aiInput}` step). */
   solveQuestion?: (question: string) => Promise<string>;
   /**
@@ -1169,8 +1188,53 @@ async function clearMiniAppSession(page: Page, url: string): Promise<string | nu
 const IN_APP_LABEL_RE = /签到|簽到|打卡|领取|領取|check\s?-?in|sign\s?-?in/i;
 const IN_APP_DONE_RE = /已签到|已簽到|已打卡|已领取|已領取|已完成|already/i;
 
+// Wording an app shows once the action has gone through. It is a result, never a control:
+// a step naming 签到 matches a toast reading 签到成功, and pressing that toast presses
+// nothing at all while looking like a checkin that failed.
+const IN_APP_SUCCESS_RE =
+  /签到成功|簽到成功|打卡成功|领取成功|領取成功|成功签到|成功簽到|签到完成|簽到完成|check\s?-?in (?:successful|succeeded|completed?)|checked\s?-?in/i;
+
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The pattern a step's label is matched by.
+ *
+ * Loose (the default) matches anywhere in a control's text, which is what a button reading
+ * "立即签到 >" needs from a step naming 签到. Exact anchors it, so the same step passes over
+ * a toast reading 签到成功 and holds out for the control itself -- worth turning on for an
+ * app whose wording overlaps its own outcome. Either way, a step with no label of its own
+ * falls back to auto-detection.
+ */
+export function inAppLabelRegex(alternatives: string[], exact?: boolean): RegExp {
+  if (!alternatives.length) return IN_APP_LABEL_RE;
+  const body = alternatives.map(escapeRe).join("|");
+  return new RegExp(exact ? `^(?:${body})$` : body, "i");
+}
+
+/**
+ * A click that landed on plain text moved nothing on the page. Before that is reported as a
+ * failure, this asks whether the app is already showing the outcome: an app that checked in
+ * on an earlier step puts its success wording exactly where the step's label matches it, and
+ * pressing that wording is a no-op on a checkin that was already made.
+ *
+ * Wording that was on the page before any step ran does not count -- "签到成功后可获得积分"
+ * is page furniture, not an outcome -- so only wording this run brought up rescues the step.
+ */
+export function weakClickWasSpent(state: {
+  /** Page text as it reads now. */
+  text: string;
+  /** Page text before the in-app steps ran. */
+  priorText?: string;
+  /** Success wording the job judges the run by, `|` alternatives included. */
+  successContains?: string;
+}): boolean {
+  const { text, priorText = "", successContains } = state;
+  const alternatives = parseLabelAlternatives(successContains ?? "");
+  if (alternatives.some((a) => text.includes(a) && !priorText.includes(a))) return true;
+  const appeared = (re: RegExp) => re.test(text) && !re.test(priorText);
+  return appeared(IN_APP_SUCCESS_RE) || appeared(IN_APP_DONE_RE);
 }
 
 const LOADING_RE = /loading|加载|加載|載入|please wait|请稍候|請稍候/i;
@@ -1224,6 +1288,9 @@ type InAppTarget = { label: string; kind: InAppTargetKind; done: boolean };
  * while looking like success. So every match is collected and the most control-like one
  * wins: a real button or link first, then an element that at least behaves like one, then
  * a button sitting in the same card as the label, and only then the bare text.
+ *
+ * An element whose own text reads as the outcome ("签到成功") is reported as already done
+ * rather than pressed: it is what the app has to say about the action, not a way to take it.
  *
  * `wanted` may instead be a CSS selector (`css:` prefix), which skips all of this and
  * presses exactly what the selector names.
@@ -1315,7 +1382,9 @@ async function findInAppCheckin(
             const inside = Array.from(box.querySelectorAll(CONTROL_SEL)).filter(
               (c) =>
                 fn.visible(c) &&
-                label.test((c.textContent ?? "") || (c as HTMLInputElement).value || ""),
+                label.test(
+                  ((c.textContent ?? "").trim() || (c as HTMLInputElement).value || "").trim(),
+                ),
             );
             if (inside.length) {
               out.push({ el: inside[0], kind: "in-card" });
@@ -1347,7 +1416,11 @@ async function findInAppCheckin(
 
         return best ? fn.take(best.el, best.kind, best.fallback) : null;
       },
-      { labelSrc: labelRe.source, doneSrc: IN_APP_DONE_RE.source, sel: selector ?? "" },
+      {
+        labelSrc: labelRe.source,
+        doneSrc: `${IN_APP_DONE_RE.source}|${IN_APP_SUCCESS_RE.source}`,
+        sel: selector ?? "",
+      },
     )
     .catch((err: any) => {
       // Swallowing this once cost a long hunt: a lookup that throws looks exactly like
@@ -1380,14 +1453,13 @@ type ClickOutcome = {
 async function clickInAppControl(
   page: Page,
   wanted?: string,
+  exact?: boolean,
 ): Promise<ClickOutcome | undefined> {
   const selector = wanted ? parseSelectorStep(wanted) : undefined;
   // A CSS selector is taken whole -- `|` is a legitimate character in one (namespaces,
   // `[attr|=value]`), so only a plain label is read as a list of alternatives.
   const alternatives = wanted && !selector ? parseLabelAlternatives(wanted) : [];
-  const labelRe = alternatives.length
-    ? new RegExp(alternatives.map(escapeRe).join("|"), "i")
-    : IN_APP_LABEL_RE;
+  const labelRe = inAppLabelRegex(alternatives, exact);
 
   const target = await findInAppCheckin(page, labelRe, selector);
   if (target?.done) {
@@ -1765,16 +1837,56 @@ async function scrollOutcome(page: Page, x: number, y: number): Promise<string |
   return `scrolled ${moved.what} to ${moved.x},${moved.y}${ends ? ` (${ends} at the end)` : ""}`;
 }
 
+/**
+ * Ceiling on the page texts one Mini App run keeps, together. These exist so a toast that
+ * has since gone can still be matched, not as a transcript, and they travel with the result.
+ */
+const MAX_SEEN_TEXT_CHARS = 40_000;
+
 async function runInAppClicks(
   page: Page,
   steps: string[],
   deadline: number,
-  solveQuestion?: (question: string) => Promise<string>,
-  aiLocate?: (image: string, prompt: string) => Promise<string>,
-): Promise<{ trace?: string; ok: boolean; failure?: string; acted: boolean }> {
+  opts: {
+    solveQuestion?: (question: string) => Promise<string>;
+    aiLocate?: (image: string, prompt: string) => Promise<string>;
+    /** A step's label must be the control's whole text, not merely part of it. */
+    exactLabels?: boolean;
+    /** Success wording the job judges the run by, so a step can tell it has already landed. */
+    successContains?: string;
+    /** Page text before any of these steps ran, to tell an outcome from page furniture. */
+    priorText?: string;
+  } = {},
+): Promise<{
+  trace?: string;
+  ok: boolean;
+  failure?: string;
+  acted: boolean;
+  /** Everything the page read while the steps ran, deduped, newest last. */
+  seen: string[];
+}> {
+  const { solveQuestion, aiLocate } = opts;
   const tune = cfTuning();
   const done: string[] = [];
   let failure: string | undefined;
+
+  // A Mini App puts its outcome in a toast that is gone by the time the final page is read,
+  // so what the page said along the way is kept and the success wording is matched against
+  // it too. Deduped, and capped: these are whole page texts.
+  const seen: string[] = [];
+  let seenChars = 0;
+  const noteText = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || seen.includes(trimmed)) return;
+    if (seenChars + trimmed.length > MAX_SEEN_TEXT_CHARS) return;
+    seen.push(trimmed);
+    seenChars += trimmed.length;
+  };
+  const readText = async (): Promise<string> => {
+    const text = await page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
+    noteText(text);
+    return text;
+  };
   // Whether a step actually did something to the app. Waiting and scrolling are how a step
   // gets ready to act, not acting: counting them would let a page that rendered nothing
   // report a completed checkin on the strength of a delay.
@@ -1785,6 +1897,9 @@ async function runInAppClicks(
       failure = "ran out of time before the in-app steps finished";
       break;
     }
+    // Where the page stands going into this step: the step before it may have raised a
+    // toast that will be gone again by the end of the run.
+    await readText();
     const pause = parseDelayStep(step);
     if (pause !== null) {
       // Bounded by the action budget, so a long delay cannot outlive it
@@ -1892,8 +2007,8 @@ async function runInAppClicks(
     }
 
     // What the page reads now, so a click on something inert can be told from a real one
-    const before = await page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
-    const click = await clickInAppControl(page, step);
+    const before = await readText();
+    const click = await clickInAppControl(page, step, opts.exactLabels);
     if (!click) {
       // A label that never appears is worth reporting: the app may have changed
       if (step) done.push(`"${step}" not found`);
@@ -1911,10 +2026,21 @@ async function runInAppClicks(
     await sleep(tune.inAppStepMs, deadline);
 
     // Pressing plain text is a guess. If the app did not react to it, nothing happened,
-    // and reporting success would log a checkin that was never made.
+    // and reporting success would log a checkin that was never made -- unless the app is
+    // already showing the outcome, in which case the text pressed was that outcome and the
+    // checkin is made. Failing on that is the false alarm this catches.
     if (click.weak) {
-      const after = await page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
+      const after = await readText();
       if (after === before) {
+        const spent = weakClickWasSpent({
+          text: after,
+          priorText: opts.priorText,
+          successContains: opts.successContains,
+        });
+        if (spent) {
+          done.push("the app already shows the action as done");
+          break;
+        }
         failure =
           `pressed "${click.outcome}" but it is not a control and the app did not react` +
           " -- name the control exactly, or give a CSS selector (css:...)";
@@ -1925,8 +2051,11 @@ async function runInAppClicks(
   }
 
   // Let the last step's request round-trip before the page text is scraped
-  if (done.length) await sleep(tune.inAppSettleMs, deadline);
-  return { trace: done.length ? done.join(" → ") : undefined, ok: !failure, failure, acted };
+  if (done.length) {
+    await sleep(tune.inAppSettleMs, deadline);
+    await readText();
+  }
+  return { trace: done.length ? done.join(" → ") : undefined, ok: !failure, failure, acted, seen };
 }
 
 // ── Driving a plain web page (the `open_url` action) ──────────────────────────
@@ -5234,18 +5363,30 @@ async function attemptLoad(
     // Standing text, captured before the steps run, so a verify prompt the page has always
     // shown can be told from one raised by pressing the control.
     let priorText: string | undefined;
+    // What the page said while the steps ran. The outcome of a Mini App checkin is often a
+    // toast lasting a second or two, and the final scrape below happens well after it.
+    const seenTexts: string[] = [];
+    let seenChars = 0;
+    const noteSeen = (text?: string) => {
+      const trimmed = (text ?? "").trim();
+      if (!trimmed || seenTexts.includes(trimmed)) return;
+      if (seenChars + trimmed.length > MAX_SEEN_TEXT_CHARS) return;
+      seenTexts.push(trimmed);
+      seenChars += trimmed.length;
+    };
     if (opts.miniApp && solved) {
       priorText = await page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
-      const clicks = await runInAppClicks(
-        page,
-        opts.inAppClicks ?? [],
-        budgetDeadline,
-        opts.solveQuestion,
-        opts.aiLocate,
-      );
+      const clicks = await runInAppClicks(page, opts.inAppClicks ?? [], budgetDeadline, {
+        solveQuestion: opts.solveQuestion,
+        aiLocate: opts.aiLocate,
+        exactLabels: opts.exactAppLabels,
+        successContains: opts.successContains,
+        priorText,
+      });
       inAppAction = clicks.trace;
       inAppFailure = clicks.failure;
       inAppActed = clicks.acted;
+      for (const t of clicks.seen) noteSeen(t);
 
       // A verification the app raises only once the checkin is pressed needs a moment to
       // render. Asking once, immediately, sees nothing there and calls the step done --
@@ -5256,6 +5397,7 @@ async function attemptLoad(
         after = await solveChallenge();
         if (after !== null) break;
         const body = await page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
+        noteSeen(body);
         // Standing wording is not the app asking; waiting it out just spends the budget.
         if (!VERIFY_REQUIRED_RE.test(body) || !isLivePrompt(body, priorText)) break;
         if (Date.now() >= challengeBy) break;
@@ -5271,11 +5413,13 @@ async function attemptLoad(
     // the app's own wording is the outcome. Give it a bounded wait rather than closing
     // the browser while the request is still in flight.
     let text = await page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
+    noteSeen(text);
     if (solved && challenged && !SUCCESS_RE.test(text)) {
       const deadline = Math.min(Date.now() + tune.confirmTimeoutMs, budgetDeadline);
       while (Date.now() < deadline) {
         await sleep(tune.pollMs, deadline);
         text = await page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
+        noteSeen(text);
         if (SUCCESS_RE.test(text)) break;
       }
     }
@@ -5316,6 +5460,7 @@ async function attemptLoad(
       ok: verdict.ok,
       challenged,
       text,
+      seenText: seenTexts.length ? seenTexts.join("\n") : undefined,
       finalHost,
       inAppAction,
       webSteps,

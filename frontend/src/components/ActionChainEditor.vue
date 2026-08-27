@@ -305,6 +305,13 @@
         <MiniAppStepsEditor :steps="action.appSteps" />
       </div>
       <div class="form-group" style="margin-bottom:0;margin-top:8px">
+        <label class="form-checkbox-label">
+          <input type="checkbox" v-model="action.exactAppLabels" />
+          {{ t('jobs.custom.labelExactAppLabels') }}
+        </label>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.exactAppLabelsHint') }}</div>
+      </div>
+      <div class="form-group" style="margin-bottom:0;margin-top:8px">
         <label class="form-label">{{ t('jobs.custom.labelSuccessContains') }}</label>
         <input v-model.trim="action.successContains" class="form-input" :placeholder="t('jobs.custom.successContainsPlaceholder')" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.successContainsHint') }}</div>

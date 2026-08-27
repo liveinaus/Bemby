@@ -172,3 +172,20 @@ export function textSaysFail(text: string, failContains?: string): boolean {
 export function textSaysSuccess(text: string, successContains?: string): boolean {
   return !successContains?.trim() || matchesAnyLabel(text, successContains);
 }
+
+/**
+ * Success as a browser run judges it: the wording may have been in a toast that was gone
+ * again by the time the final page was read, so text the page showed while the steps ran
+ * counts as well. Only for success -- a state the app passed through on the way is not the
+ * failure it settled on, and matching `failContains` against it would fail good runs.
+ */
+export function runSaysSuccess(
+  finalText: string,
+  seenText: string | undefined,
+  successContains?: string,
+): { ok: boolean; transient: boolean } {
+  if (!successContains?.trim()) return { ok: true, transient: false };
+  if (textSaysSuccess(finalText, successContains)) return { ok: true, transient: false };
+  if (seenText && textSaysSuccess(seenText, successContains)) return { ok: true, transient: true };
+  return { ok: false, transient: false };
+}

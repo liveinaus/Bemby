@@ -525,6 +525,8 @@ export type CustomAction = CustomActionCommon &
       /** Bot that owns the app, used to sign the URL. Blank uses the job's bot. */
       contact?: string;
       appButtons?: string[];
+      /** A step's label must be the control's whole text rather than part of it. */
+      exactAppLabels?: boolean;
       successContains?: string;
       failContains?: string;
       maxRetries?: number;
@@ -550,6 +552,8 @@ export type CustomAction = CustomActionCommon &
       /** Bot whose menu button to open. Blank uses the job's bot. */
       contact?: string;
       appButtons?: string[];
+      /** A step's label must be the control's whole text rather than part of it. */
+      exactAppLabels?: boolean;
       successContains?: string;
       failContains?: string;
       maxRetries?: number;
@@ -574,6 +578,8 @@ export type CustomAction = CustomActionCommon &
       contact?: string;
       button?: string;
       appButtons?: string[];
+      /** A step's label must be the control's whole text rather than part of it. */
+      exactAppLabels?: boolean;
       successContains?: string;
       failContains?: string;
       maxRetries?: number;

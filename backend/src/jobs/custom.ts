@@ -34,6 +34,7 @@ import {
 import {
   matchesAnyLabel,
   parseLabelAlternatives,
+  runSaysSuccess,
   textSaysFail,
   textSaysSuccess,
 } from "./placeholders";
@@ -3012,6 +3013,10 @@ export async function runCustom(
                   // run would speak for another one, so it goes unless asked for
                   clearAppSession: !action.keepAppSession,
                   inAppClicks: (action.appButtons ?? []).map((b) => b.trim()).filter(Boolean),
+                  exactAppLabels: action.exactAppLabels,
+                  // Given to the browser side as well, so a step that presses an outcome
+                  // the app already shows is not read as a press that did nothing
+                  successContains: action.successContains,
                   maxWaitMs: budgetLeft,
                   profile: { template: action.profileId, vars: cfProfileVars(cfRun) },
                   display: await displayForRun(cfRun),
@@ -3075,10 +3080,16 @@ export async function runCustom(
                 if (textSaysFail(cf.text, action.failContains)) {
                   throw new Error(`Page indicates failure: "${action.failContains}" detected`);
                 }
-                if (!textSaysSuccess(cf.text, action.successContains)) {
+                const said = runSaysSuccess(cf.text, cf.seenText, action.successContains);
+                if (!said.ok) {
                   throw new Error(
                     `Expected success indicator "${action.successContains}" not found in the Mini App page`,
                   );
+                }
+                // Worth saying which one it was: the app showed the wording and took it away
+                // again, so the final page the log keeps does not carry it
+                if (said.transient) {
+                  step.result = `${step.result ?? ""} (success wording seen, then cleared)`;
                 }
                 break;
               }
@@ -3194,6 +3205,10 @@ export async function runCustom(
                   // run would speak for another one, so it goes unless asked for
                   clearAppSession: !action.keepAppSession,
                   inAppClicks: (action.appButtons ?? []).map((b) => b.trim()).filter(Boolean),
+                  exactAppLabels: action.exactAppLabels,
+                  // Given to the browser side as well, so a step that presses an outcome
+                  // the app already shows is not read as a press that did nothing
+                  successContains: action.successContains,
                   maxWaitMs: budgetLeft,
                   profile: { template: action.profileId, vars: cfProfileVars(cfRun) },
                   display: await displayForRun(cfRun),
@@ -3253,10 +3268,14 @@ export async function runCustom(
                 if (textSaysFail(cf.text, action.failContains)) {
                   throw new Error(`Page indicates failure: "${action.failContains}" detected`);
                 }
-                if (!textSaysSuccess(cf.text, action.successContains)) {
+                const saidOk = runSaysSuccess(cf.text, cf.seenText, action.successContains);
+                if (!saidOk.ok) {
                   throw new Error(
                     `Expected success indicator "${action.successContains}" not found in the Mini App page`,
                   );
+                }
+                if (saidOk.transient) {
+                  step.result = `${step.result ?? ""} (success wording seen, then cleared)`;
                 }
                 break;
               }

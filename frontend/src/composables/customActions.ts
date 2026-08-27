@@ -70,6 +70,8 @@ export type CustomActionForm = {
   channelId: string;
   /** Mini App actions: the in-app steps, one per entry, run in order */
   appSteps: string[];
+  /** Mini App actions: a step's label must be the control's whole text, not part of it */
+  exactAppLabels: boolean;
   /** Mini App / open_url: browser budget, 0 = default */
   miniAppMaxWaitMs: number;
   miniAppProxyId: string;
@@ -139,6 +141,7 @@ export function defaultAction(): CustomActionForm {
     verifyMaskedName: false,
     channelId: "",
     appSteps: [],
+    exactAppLabels: false,
     miniAppMaxWaitMs: 300000,
     miniAppProxyId: "",
     miniAppProxyPool: [],
@@ -308,6 +311,7 @@ export function actionsFromConfig(actions: CustomAction[] | undefined): CustomAc
         button: a.type === "open_mini_app" ? (a.button ?? "") : "",
         url: a.type === "open_mini_app_url" ? (a.url ?? "") : "",
         appSteps: [...(a.appButtons ?? [])],
+        exactAppLabels: a.exactAppLabels ?? false,
         successContains: a.successContains ?? "",
         failContains: a.failContains ?? "",
         maxRetries: a.maxRetries ?? 0,
@@ -475,6 +479,7 @@ export function actionsToConfig(forms: CustomActionForm[]): CustomAction[] {
         ...common,
         ...(a.contact.trim() ? { contact: a.contact.trim() } : {}),
         ...appButtonsOf(a.appSteps),
+        ...(a.exactAppLabels ? { exactAppLabels: true } : {}),
         ...(a.successContains.trim() ? { successContains: a.successContains.trim() } : {}),
         ...(a.failContains.trim() ? { failContains: a.failContains.trim() } : {}),
         ...(a.maxRetries > 0 ? { maxRetries: a.maxRetries } : {}),
