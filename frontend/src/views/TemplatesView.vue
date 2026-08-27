@@ -721,18 +721,21 @@ async function bulkMuteBotForever() {
   showToast(t('templates.bulkMuteBotForeverDone'));
 }
 
-const SHARE_KEYS: (keyof JobTemplate)[] = ['name', 'jobType', 'botUsername', 'timezone', 'replyTimeoutMs', 'retryMax', 'config'];
+const SHARE_KEYS: (keyof JobTemplate)[] = ['name', 'jobType', 'botUsername'];
 
-// The start command and the button are stored on every template, defaulted, but only these
-// job types read them -- a custom or embywatch template shared with them in tow reads as if
-// it sends "/start" and looks for "签到", which it never does.
+// Every template row carries a timezone, a reply timeout, a retry count, a start command and a
+// button, all defaulted -- but the editor only offers each of them to some job types. Sharing one
+// the recipient's form never shows hands them a value they cannot see or correct: a custom
+// template would arrive claiming "/start" and "签到" it never sends, and a retry count that is
+// not the one it runs (that lives in config.maxRetries). Timezone is on no form at all.
 const SHARE_KEYS_BY_TYPE: Partial<Record<JobTemplate['jobType'], (keyof JobTemplate)[]>> = {
-  checkin: ['startCommand', 'checkinButton'],
-  autoreg: ['startCommand'],
+  checkin: ['replyTimeoutMs', 'retryMax', 'startCommand', 'checkinButton'],
+  autoreg: ['replyTimeoutMs', 'retryMax', 'startCommand'],
+  embywatch: ['retryMax'],
 };
 
 function shareShape(tpl: JobTemplate): Record<string, unknown> {
-  const keys = [...SHARE_KEYS, ...(SHARE_KEYS_BY_TYPE[tpl.jobType] ?? [])];
+  const keys: (keyof JobTemplate)[] = [...SHARE_KEYS, ...(SHARE_KEYS_BY_TYPE[tpl.jobType] ?? []), 'config'];
   return Object.fromEntries(keys.map(k => [k, tpl[k]]));
 }
 

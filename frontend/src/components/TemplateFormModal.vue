@@ -748,9 +748,10 @@ function loadFromTemplate(tpl: JobTemplate) {
     name: tpl.name,
     jobType: tpl.jobType,
     botUsername: tpl.botUsername,
-    timezone: tpl.timezone,
-    replyTimeoutMs: tpl.replyTimeoutMs,
-    retryMax: tpl.retryMax,
+    // A share only carries the timings its job type puts on this form, so the rest fall back
+    timezone: tpl.timezone ?? '',
+    replyTimeoutMs: tpl.replyTimeoutMs ?? 40000,
+    retryMax: tpl.retryMax ?? Number(settings.value?.default_max_retry ?? 5),
     runEveryDays: tpl.runEveryDays ?? 1,
     runEveryDaysMax: tpl.runEveryDaysMax ?? null,
     icon: tpl.icon ?? null,
