@@ -416,7 +416,7 @@
           :proxies="proxiesList"
           :label="t('jobs.labelProxy')"
           :blank-label="t('jobs.proxyNone')"
-          :hint="t('jobs.proxyBrowserOnlyHint')"
+          :hint="proxyHint"
         />
 
       </div><!-- end modal-body -->
@@ -454,6 +454,11 @@ const emit = defineEmits<{ (e: 'close'): void; (e: 'saved'): void }>();
 
 const editTarget = ref<JobTemplate | null>(props.template);
 const settings = ref<Settings | null>(null);
+// Emby traffic goes out through the pick itself; for everything else it is the browser that
+// does, with Telegram staying on the account's exit.
+const proxyHint = computed(() =>
+  form.jobType === 'embywatch' ? t('jobs.proxyEmbyHint') : t('jobs.proxyBrowserOnlyHint'),
+);
 const formError = ref('');
 const saving = ref(false);
 

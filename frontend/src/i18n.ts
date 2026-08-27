@@ -758,6 +758,8 @@ const zh = {
     proxyRandomPoolBySupplier: "已由上方的供应商整体勾选",
     proxyBrowserOnlyHint:
       "此代理用于浏览器（Cloudflare 验证 / 小程序）。Telegram 连接始终使用账户上的代理，与登录时保持一致；若两者不同会导致同一会话出现两个 IP，触发 AUTH_KEY_DUPLICATED 并使会话失效。要让 Telegram 也走某个代理，请在账户上设置该代理（必要时重新登录）。",
+    proxyEmbyHint:
+      "与 Emby 服务器的全部连接（登录、上报、真实观看的字节拉取）都走此代理。留空则不使用代理（若已配置全局代理，则走全局代理）。任务上的设置优先于模板上的设置。",
     playbackRulesHint:
       "播放从剧集的随机 5–10% 位置开始，时长为设定时间加上 0–10% 的随机延长。",
     labelCheckinButton: "签到按钮文字",
@@ -3161,6 +3163,8 @@ const en: typeof zh = {
     proxyRandomPoolBySupplier: "Covered by the supplier tick above",
     proxyBrowserOnlyHint:
       "Used by the browser (Cloudflare checks / Mini Apps). The Telegram connection always follows the proxy set on the account, matching what login used: two exits for one session is what Telegram answers with AUTH_KEY_DUPLICATED, invalidating it. To route Telegram through a proxy, set it on the account (and re-authenticate if needed).",
+    proxyEmbyHint:
+      "Carries everything this job sends to the Emby server -- login, playback reports, and the bytes Real Watch pulls. Blank goes out with no proxy, or through the global one when that is set. A pick on the job wins over the template's.",
     playbackRulesHint:
       "Playback starts at a random 5–10% into the episode. Duration is the set time plus 0–10% random extra.",
     labelCheckinButton: "Check-in Button Text",

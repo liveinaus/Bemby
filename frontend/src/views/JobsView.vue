@@ -210,7 +210,7 @@
           :proxies="proxiesList"
           :label="t('jobs.labelProxy')"
           :blank-label="t('jobs.proxyFollowTemplate') + (templateProxyName ? ` (${templateProxyName})` : '')"
-          :hint="t('jobs.proxyBrowserOnlyHint')"
+          :hint="proxyHint"
         />
 
         <!-- Name + Type (no template) | Name + Account (template, checkin/custom) -->
@@ -317,6 +317,17 @@
               <span>{{ t('jobs.labelIgnoreSslErrors') }}</span>
             </label>
             <div style="font-size:11px;color:var(--text-faint);margin-top:4px;padding-left:24px">{{ t('jobs.ignoreSslErrorsHint') }}</div>
+          </div>
+          <!-- No account carries an Emby job, so its exit is set here rather than inherited -->
+          <div v-if="proxiesList.length" style="margin-bottom:14px">
+            <ProxyPicker
+              v-model="jobProxyId"
+              :pool="jobProxyPool"
+              :proxies="proxiesList"
+              :label="t('jobs.labelProxy')"
+              :blank-label="t('jobs.proxyNone')"
+              :hint="proxyHint"
+            />
           </div>
           <div class="form-group">
             <label class="form-label">{{ t('jobs.labelLibrary') }}</label>
@@ -1033,9 +1044,20 @@ const templateProxyName = computed(() => {
   return proxiesList.value.find(p => p.id === id)?.name ?? id;
 });
 
-/** Config fragment carrying this job's proxy override, empty when it follows the template. */
+// Which exit a job leaves by is either its own or inherited, and only these two forms offer
+// the pick: a template-linked job overriding its template, and an Emby job, which has no
+// account to inherit one from.
+const proxyPickable = computed(() => !!form.templateId || form.jobType === 'embywatch');
+
+// Emby traffic goes out through the pick itself; for everything else it is the browser that
+// does, with Telegram staying on the account's exit.
+const proxyHint = computed(() =>
+  form.jobType === 'embywatch' ? t('jobs.proxyEmbyHint') : t('jobs.proxyBrowserOnlyHint'),
+);
+
+/** Config fragment carrying this job's proxy pick, empty when it has none to make. */
 function proxyOverride(): { proxyId?: string; proxyPool?: string[] } {
-  return form.templateId ? proxyFields(jobProxyId.value, jobProxyPool.value) : {};
+  return proxyPickable.value ? proxyFields(jobProxyId.value, jobProxyPool.value) : {};
 }
 
 // "Run every days" accepts a single number (7) or a range (7-15). The range is
@@ -1506,7 +1528,9 @@ function openAdd() {
 function openEdit(j: Job) {
   void loadSettings();
   editTarget.value = j;
-  const jobProxy = j.templateId ? readConfigProxy(j.config) : { proxyId: '', pool: [] };
+  const jobProxy = j.templateId || j.jobType === 'embywatch'
+    ? readConfigProxy(j.config)
+    : { proxyId: '', pool: [] };
   jobProxyId.value = jobProxy.proxyId;
   jobProxyPool.value = jobProxy.pool;
   Object.assign(form, {
@@ -1682,7 +1706,7 @@ function buildConfig(): EmbywatchConfig | CustomConfig | AutoregConfig | Checkin
       // Template provides all settings; job only stores credentials and any proxy override
       return { username: embyCfg.username, password: embyCfg.password, ...proxyOverride() } as EmbywatchConfig;
     }
-    const cfg: EmbywatchConfig = { username: embyCfg.username, password: embyCfg.password };
+    const cfg: EmbywatchConfig = { username: embyCfg.username, password: embyCfg.password, ...proxyOverride() };
     if (embyCfg.playDuration !== '') cfg.playDuration = Number(embyCfg.playDuration as string | number);
     if (embyCfg.userAgent) cfg.userAgent = embyCfg.userAgent;
     cfg.markWatched = embyCfg.markWatched;
