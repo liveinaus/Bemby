@@ -581,6 +581,26 @@
           </div>
         </div>
 
+        <!-- Cadence is job-wide, whatever the job does; a linked job follows its template's -->
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t('jobs.labelRunEveryDays') }}</label>
+            <input
+              v-model.trim="runEveryDaysText"
+              class="form-input"
+              type="text"
+              :placeholder="t('jobs.runEveryDaysPlaceholder')"
+              style="max-width:120px"
+              :disabled="!!form.templateId"
+            />
+            <div style="font-size:11px;margin-top:4px" :style="runEveryDaysValid ? 'color:var(--text-faint)' : 'color:var(--danger-soft-text)'">{{ t('jobs.runEveryDaysHint') }}</div>
+          </div>
+          <div v-if="form.jobType === 'embywatch' && !form.templateId" class="form-group">
+            <label class="form-label">{{ t('jobs.labelMaxRetries') }}</label>
+            <input v-model.number="form.retryMax" class="form-input" type="number" min="1" max="10" />
+          </div>
+        </div>
+
         <!-- checkin-specific fields (hidden when template controls them) -->
         <template v-if="form.jobType === 'checkin' && !form.templateId">
           <div class="form-row" style="align-items:start">
@@ -633,18 +653,6 @@
             <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.failContainsHint') }}</div>
           </div>
         </template>
-
-        <div v-if="form.jobType === 'embywatch' && !form.templateId" class="form-row">
-          <div class="form-group">
-            <label class="form-label">{{ t('jobs.labelRunEveryDays') }}</label>
-            <input v-model.trim="runEveryDaysText" class="form-input" type="text" :placeholder="t('jobs.runEveryDaysPlaceholder')" style="max-width:120px" />
-            <div style="font-size:11px;margin-top:4px" :style="runEveryDaysValid ? 'color:var(--text-faint)' : 'color:var(--danger-soft-text)'">{{ t('jobs.runEveryDaysHint') }}</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">{{ t('jobs.labelMaxRetries') }}</label>
-            <input v-model.number="form.retryMax" class="form-input" type="number" min="1" max="10" />
-          </div>
-        </div>
 
         </div><!-- end modal-body -->
         <div class="modal-footer">
@@ -1325,6 +1333,9 @@ function applyTemplate(tpl: JobTemplate) {
   form.timezone = tpl.timezone;
   form.replyTimeoutMs = tpl.replyTimeoutMs;
   form.retryMax = tpl.retryMax;
+  form.runEveryDays = tpl.runEveryDays ?? 1;
+  form.runEveryDaysMax = tpl.runEveryDaysMax ?? null;
+  runEveryDaysText.value = formatRunEvery(tpl.runEveryDays ?? 1, tpl.runEveryDaysMax);
   setCmdState(tpl.startCommand === '/start' ? '' : (tpl.startCommand ?? ''));
   setBtnState(tpl.checkinButton === '签到' ? '' : (tpl.checkinButton ?? ''));
   if (tpl.jobType === 'embywatch') {

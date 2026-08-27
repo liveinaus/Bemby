@@ -170,11 +170,6 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">{{ t('jobs.labelRunEveryDays') }}</label>
-              <input v-model.trim="runEveryDaysText" class="form-input" type="text" :placeholder="t('jobs.runEveryDaysPlaceholder')" style="max-width:120px" />
-              <div style="font-size:11px;margin-top:4px" :style="runEveryDaysValid ? 'color:var(--text-faint)' : 'color:var(--danger-soft-text)'">{{ t('jobs.runEveryDaysHint') }}</div>
-            </div>
-            <div class="form-group">
               <label class="form-label">{{ t('jobs.labelMaxRetries') }}</label>
               <input v-model.number="form.retryMax" class="form-input" type="number" min="1" max="10" />
             </div>
@@ -408,6 +403,15 @@
             <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.failContainsHint') }}</div>
           </div>
         </template>
+
+        <!-- Cadence is job-wide, whatever the job does, and is pushed down to every linked job -->
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t('jobs.labelRunEveryDays') }}</label>
+            <input v-model.trim="runEveryDaysText" class="form-input" type="text" :placeholder="t('jobs.runEveryDaysPlaceholder')" style="max-width:120px" />
+            <div style="font-size:11px;margin-top:4px" :style="runEveryDaysValid ? 'color:var(--text-faint)' : 'color:var(--danger-soft-text)'">{{ t('jobs.runEveryDaysHint') }}</div>
+          </div>
+        </div>
 
         <ProxyPicker
           v-if="proxiesList.length"

@@ -89,7 +89,7 @@ export function syncLinkedJobs(templateId: number, t: TemplateRow) {
     t.retry_max,
     t.start_command,
     t.checkin_button,
-    t.run_every_days ?? 7,
+    t.run_every_days ?? 1,
     t.run_every_days_max ?? null,
     templateId,
   );
@@ -441,8 +441,9 @@ router.post('/:id/create-jobs', (req, res) => {
           name, account_id, job_type, bot_username,
           schedule_window_start, schedule_window_end, timezone,
           reply_timeout_ms, retry_max, enabled, config,
-          start_command, checkin_button, template_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          start_command, checkin_button, template_id,
+          run_every_days, run_every_days_max
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         j.name,
         j.accountId,
@@ -458,6 +459,10 @@ router.post('/:id/create-jobs', (req, res) => {
         template.start_command,
         template.checkin_button,
         template.id,
+        // Cadence is the template's to set, the same as it is on a save that syncs it down;
+        // without it every job created here would start out on the column default of 1
+        template.run_every_days ?? 1,
+        template.run_every_days_max ?? null,
       );
       createdIds.push(Number(result.lastInsertRowid));
     }

@@ -721,7 +721,7 @@ async function bulkMuteBotForever() {
   showToast(t('templates.bulkMuteBotForeverDone'));
 }
 
-const SHARE_KEYS: (keyof JobTemplate)[] = ['name', 'jobType', 'botUsername'];
+const SHARE_KEYS: (keyof JobTemplate)[] = ['name', 'jobType', 'botUsername', 'runEveryDays'];
 
 // Every template row carries a timezone, a reply timeout, a retry count, a start command and a
 // button, all defaulted -- but the editor only offers each of them to some job types. Sharing one
@@ -735,7 +735,13 @@ const SHARE_KEYS_BY_TYPE: Partial<Record<JobTemplate['jobType'], (keyof JobTempl
 };
 
 function shareShape(tpl: JobTemplate): Record<string, unknown> {
-  const keys: (keyof JobTemplate)[] = [...SHARE_KEYS, ...(SHARE_KEYS_BY_TYPE[tpl.jobType] ?? []), 'config'];
+  const keys: (keyof JobTemplate)[] = [
+    ...SHARE_KEYS,
+    ...(SHARE_KEYS_BY_TYPE[tpl.jobType] ?? []),
+    // Only a range has an upper bound; "every N days" leaves it off rather than sharing a null
+    ...(tpl.runEveryDaysMax != null ? (['runEveryDaysMax'] as (keyof JobTemplate)[]) : []),
+    'config',
+  ];
   return Object.fromEntries(keys.map(k => [k, tpl[k]]));
 }
 

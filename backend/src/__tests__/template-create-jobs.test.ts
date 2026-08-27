@@ -139,4 +139,26 @@ describe("create jobs from a template", () => {
     await createJobs(body({ enabled: undefined }));
     expect(createdJobs().map((j) => j.enabled)).toEqual([1, 1]);
   });
+
+  // The cadence is the template's, the same as a later save that syncs it down. Taken from
+  // the jobs table's own default instead, every job here would start out running daily.
+  it("gives each job the template's cadence rather than the daily default", async () => {
+    testDb
+      .prepare("UPDATE job_templates SET run_every_days = 5, run_every_days_max = 9 WHERE id = ?")
+      .run(templateId);
+
+    await createJobs(body());
+
+    expect(
+      testDb.prepare("SELECT run_every_days, run_every_days_max FROM jobs").get(),
+    ).toEqual({ run_every_days: 5, run_every_days_max: 9 });
+  });
+
+  it("carries a single-number cadence with no upper bound", async () => {
+    await createJobs(body());
+
+    expect(
+      testDb.prepare("SELECT run_every_days, run_every_days_max FROM jobs").get(),
+    ).toEqual({ run_every_days: 7, run_every_days_max: null });
+  });
 });
