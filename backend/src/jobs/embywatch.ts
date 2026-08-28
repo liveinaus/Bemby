@@ -148,6 +148,9 @@ function buildAuthHeader(deviceName: string, ua: string, token?: string): string
   return parts.join(', ');
 }
 
+/** Carries the HTTP status so callers can branch on it without parsing the message. */
+type EmbyHttpError = Error & { status?: number };
+
 async function embyRequest<T = any>(
   baseUrl: string,
   path: string,
@@ -203,7 +206,9 @@ async function embyRequest<T = any>(
       if (typeof json.Message === 'string' && json.Message) detail = json.Message;
       else if (typeof json.message === 'string' && json.message) detail = json.message;
     } catch { /* leave detail as raw text */ }
-    throw new Error(`Emby ${method} ${path} → ${res.status} ${res.statusText}: ${detail}`);
+    const err = new Error(`Emby ${method} ${path} → ${res.status} ${res.statusText}: ${detail}`) as EmbyHttpError;
+    err.status = res.status;
+    throw err;
   }
   return text ? JSON.parse(text) : (null as T);
 }
@@ -647,6 +652,8 @@ type PlayCtx = {
   signal?: AbortSignal;
   /** Why the last candidate was passed over, so a run that finds nothing can say. */
   pickNote?: string;
+  /** Form the server accepts playback reports in; see `reportPlayback`. */
+  reportStyle?: 'body' | 'query';
 };
 
 function toSegment(candidate: any): Segment {
@@ -781,6 +788,47 @@ async function buildStreamer(serverUrl: string, ctx: PlayCtx, seg: Segment): Pro
   };
 }
 
+// Some Emby front-ends answer 401 "Access token is invalid or expired." to a
+// playback report carrying a JSON body, while accepting the very same report as
+// query parameters -- the token is fine, the body is what trips them. Emby binds
+// these endpoints from the query string too, so the fallback is valid everywhere.
+// The working form is remembered on the run's context, so only the first report
+// of a run pays for the retry.
+type ReportPayload = Record<string, string | number | boolean | undefined>;
+
+function toQuery(payload: ReportPayload): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(payload)) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  return params.toString();
+}
+
+/** POST a /Sessions/Playing* report, falling back from a JSON body to query parameters. */
+async function reportPlayback(
+  serverUrl: string,
+  ctx: PlayCtx,
+  path: string,
+  payload: ReportPayload,
+  opts: Omit<Parameters<typeof embyRequest>[2], 'method' | 'body'>,
+): Promise<void> {
+  const asQuery = () => embyRequest(serverUrl, `${path}?${toQuery(payload)}`, { ...opts, method: 'POST' });
+
+  if (ctx.reportStyle === 'query') {
+    await asQuery();
+    return;
+  }
+  try {
+    await embyRequest(serverUrl, path, { ...opts, method: 'POST', body: payload });
+  } catch (err) {
+    const status = (err as EmbyHttpError).status;
+    if (status !== 401 && status !== 400) throw err;
+    await asQuery();
+    ctx.reportStyle = 'query';
+    console.warn(`[embywatch] ${serverUrl} rejects playback reports sent as a JSON body — falling back to query parameters`);
+  }
+}
+
 /** POST /Sessions/Playing → progress loop (+ Real Watch byte streaming) → /Sessions/Playing/Stopped. */
 async function playSegment(
   serverUrl: string,
@@ -801,10 +849,11 @@ async function playSegment(
   await reportStopped(serverUrl, ctx, seg, startSeconds, { anySession: true }).catch(() => {});
 
   try {
-    await embyRequest(serverUrl, '/Sessions/Playing', {
-      method: 'POST',
-      ...reqOpts(ctx),
-      body: {
+    await reportPlayback(
+      serverUrl,
+      ctx,
+      '/Sessions/Playing',
+      {
         ItemId: itemId,
         MediaSourceId: mediaSourceId,
         PlaySessionId: ctx.playSessionId,
@@ -812,7 +861,8 @@ async function playSegment(
         IsPaused: false,
         CanSeek: true,
       },
-    });
+      reqOpts(ctx),
+    );
   } catch (err) {
     // A failed start report can still have registered the session (a duplicate-row
     // 500 lands the row, then errors), which holds one of the account's stream
@@ -862,17 +912,19 @@ async function playSegment(
       }
       elapsed += wait;
 
-      await embyRequest(serverUrl, '/Sessions/Playing/Progress', {
-        method: 'POST',
-        ...reqOpts(ctx),
-        body: {
+      await reportPlayback(
+        serverUrl,
+        ctx,
+        '/Sessions/Playing/Progress',
+        {
           ItemId: itemId,
           MediaSourceId: mediaSourceId,
           PlaySessionId: ctx.playSessionId,
           PositionTicks: startTicks + elapsed * TICKS_PER_SECOND,
           IsPaused: false,
         },
-      });
+        reqOpts(ctx),
+      );
     }
   } catch (err) {
     // Cancelled (or failed) mid-playback: still tell Emby we stopped, otherwise
@@ -905,21 +957,25 @@ async function reportStopped(
   positionSeconds: number,
   opts: { anySession?: boolean } = {},
 ): Promise<void> {
-  await embyRequest(serverUrl, '/Sessions/Playing/Stopped', {
-    method: 'POST',
-    ua: ctx.ua,
-    token: ctx.token,
-    deviceName: ctx.deviceName,
-    proxyUrl: ctx.proxyUrl,
-    insecureTls: ctx.insecureTls,
-    signal: AbortSignal.timeout(STOP_REPORT_TIMEOUT_MS),
-    body: {
+  await reportPlayback(
+    serverUrl,
+    ctx,
+    '/Sessions/Playing/Stopped',
+    {
       ItemId: seg.itemId,
       MediaSourceId: seg.mediaSourceId,
-      ...(opts.anySession ? {} : { PlaySessionId: ctx.playSessionId }),
+      PlaySessionId: opts.anySession ? undefined : ctx.playSessionId,
       PositionTicks: positionSeconds * TICKS_PER_SECOND,
     },
-  });
+    {
+      ua: ctx.ua,
+      token: ctx.token,
+      deviceName: ctx.deviceName,
+      proxyUrl: ctx.proxyUrl,
+      insecureTls: ctx.insecureTls,
+      signal: AbortSignal.timeout(STOP_REPORT_TIMEOUT_MS),
+    },
+  );
 }
 
 async function markPlayed(serverUrl: string, ctx: PlayCtx, itemId: string): Promise<boolean> {

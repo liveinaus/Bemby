@@ -141,6 +141,8 @@ function routeFetch(
     playingMessage?: string;
     /** An item query that comes back empty, as it does for a user who can see no library. */
     noItems?: boolean;
+    /** Front-end that refuses any playback report carrying a JSON body. */
+    rejectBodyReports?: boolean;
   } = {},
 ) {
   const jsonRes = (body: unknown) => ({
@@ -154,7 +156,7 @@ function routeFetch(
     body: { cancel: vi.fn(), getReader: () => streamOf(status === 200 || status === 206 ? 1024 : 0) },
   });
   let stoppedFailed = false;
-  mockUndiciFetch.mockImplementation((url: string) => {
+  mockUndiciFetch.mockImplementation((url: string, init?: any) => {
     if (url.includes('/Users/AuthenticateByName')) {
       return Promise.resolve(jsonRes({ AccessToken: 'tok', User: { Id: 'u1', Name: 'Tester' } }));
     }
@@ -176,6 +178,14 @@ function routeFetch(
           ? []
           : [{ Id: 'i1', Name: 'Ep', Type: 'Episode', RunTimeTicks: 6000_000_000, MediaSources: [{ Id: 's1' }] }],
       }));
+    }
+    if (opts.rejectBodyReports && url.includes('/Sessions/Playing') && init?.body) {
+      return Promise.resolve({
+        ok: false,
+        status: 401,
+        statusText: '',
+        text: vi.fn().mockResolvedValue('Access token is invalid or expired.'),
+      });
     }
     // Fails only the pre-flight Stopped (the first one), leaving the end-of-segment
     // report to succeed as a real server's would.
@@ -905,5 +915,40 @@ describe('embywatch cancellation', () => {
       c => typeof c[0] === 'string' && c[0].endsWith('/Sessions/Playing/Stopped'),
     );
     expect(stopped).toBe(true);
+  });
+});
+
+// A front-end that answers 401 "Access token is invalid or expired." to a playback
+// report sent as a JSON body, while accepting the identical report as query
+// parameters. The token is valid throughout -- every other call goes through.
+describe('embywatch playback report fallback', () => {
+  it('retries a body-rejected report as query parameters and sticks with that form', async () => {
+    routeFetch(206, { rejectBodyReports: true });
+
+    const result = await runEmbywatch('https://emby.example.com', baseConfig);
+    expect(result.title).toBe('Ep');
+
+    const reports = mockUndiciFetch.mock.calls.filter(
+      c => typeof c[0] === 'string' && (c[0] as string).includes('/Sessions/Playing'),
+    );
+    const start = reports.find(c => (c[0] as string).includes('/Sessions/Playing?'));
+    expect(start?.[0]).toContain('ItemId=i1');
+    expect(start?.[0]).toContain('MediaSourceId=s1');
+    expect((start?.[1] as any).body).toBeUndefined();
+
+    // Only the first report pays for the retry; the rest go straight to query form.
+    expect(reports.filter(c => (c[1] as any).body !== undefined)).toHaveLength(1);
+  });
+
+  it('keeps sending a JSON body when the server accepts it', async () => {
+    routeFetch(206);
+
+    await runEmbywatch('https://emby.example.com', baseConfig);
+
+    const reports = mockUndiciFetch.mock.calls.filter(
+      c => typeof c[0] === 'string' && (c[0] as string).includes('/Sessions/Playing'),
+    );
+    expect(reports.length).toBeGreaterThan(0);
+    expect(reports.every(c => (c[1] as any).body !== undefined)).toBe(true);
   });
 });
