@@ -32,6 +32,7 @@ import {
   type CfRunState,
 } from "./cloudflare";
 import {
+  expandDatePlaceholders,
   matchesAnyLabel,
   parseLabelAlternatives,
   runSaysSuccess,
@@ -848,7 +849,7 @@ async function waitForReply(
       if (textSaysFail(text, failContains)) {
         cleanup();
         reject(
-          new Error(`Reply indicates failure: "${failContains}" detected`),
+          new Error(`Reply indicates failure: "${expandDatePlaceholders(failContains ?? "")}" detected`),
         );
         return;
       }
@@ -1426,9 +1427,10 @@ export async function runCustom(
 
               case "wait_reply": {
                 const { successContains, failContains } = action;
+                // Shown expanded, so the log says which date the run was actually looking for
                 const hints = [
-                  successContains ? `success: "${successContains}"` : "",
-                  failContains ? `fail: "${failContains}"` : "",
+                  successContains ? `success: "${expandDatePlaceholders(successContains)}"` : "",
+                  failContains ? `fail: "${expandDatePlaceholders(failContains)}"` : "",
                 ]
                   .filter(Boolean)
                   .join(", ");
@@ -1754,10 +1756,10 @@ export async function runCustom(
                         // A deep-link button records its own result inside openWebButton
                         if (!step.result) step.result = `Opened "${btnText}"`;
                         if (textSaysFail(cfText, action.failContains)) {
-                          throw new Error(`Reply indicates failure: "${action.failContains}" detected`);
+                          throw new Error(`Reply indicates failure: "${expandDatePlaceholders(action.failContains ?? "")}" detected`);
                         }
                         if (!textSaysSuccess(cfText, action.successContains)) {
-                          throw new Error(`Expected success indicator "${action.successContains}" not found in response`);
+                          throw new Error(`Expected success indicator "${expandDatePlaceholders(action.successContains ?? "")}" not found in response`);
                         }
                         break;
                       }
@@ -1914,10 +1916,10 @@ export async function runCustom(
                       if (action.successContains || action.failContains) {
                         const texts = [answer?.message ?? '', ...responses.map((r) => r.msg.message ?? ''), cfText].filter(Boolean).join('\n');
                         if (textSaysFail(texts, action.failContains)) {
-                          throw new Error(`Reply indicates failure: "${action.failContains}" detected`);
+                          throw new Error(`Reply indicates failure: "${expandDatePlaceholders(action.failContains ?? "")}" detected`);
                         }
                         if (!textSaysSuccess(texts, action.successContains)) {
-                          throw new Error(`Expected success indicator "${action.successContains}" not found in response`);
+                          throw new Error(`Expected success indicator "${expandDatePlaceholders(action.successContains ?? "")}" not found in response`);
                         }
                       }
 
@@ -2129,10 +2131,10 @@ export async function runCustom(
                         // A deep-link button records its own result inside openWebButton
                         if (!step.result) step.result = `Opened "${btnText}"`;
                         if (textSaysFail(cfText, action.failContains)) {
-                          throw new Error(`Reply indicates failure: "${action.failContains}" detected`);
+                          throw new Error(`Reply indicates failure: "${expandDatePlaceholders(action.failContains ?? "")}" detected`);
                         }
                         if (!textSaysSuccess(cfText, action.successContains)) {
-                          throw new Error(`Expected success indicator "${action.successContains}" not found in response`);
+                          throw new Error(`Expected success indicator "${expandDatePlaceholders(action.successContains ?? "")}" not found in response`);
                         }
                         break;
                       }
@@ -2280,10 +2282,10 @@ export async function runCustom(
                       if (action.successContains || action.failContains) {
                         const texts = [answer?.message ?? '', ...responses.map((r) => r.msg.message ?? ''), cfText].filter(Boolean).join('\n');
                         if (textSaysFail(texts, action.failContains)) {
-                          throw new Error(`Reply indicates failure: "${action.failContains}" detected`);
+                          throw new Error(`Reply indicates failure: "${expandDatePlaceholders(action.failContains ?? "")}" detected`);
                         }
                         if (!textSaysSuccess(texts, action.successContains)) {
-                          throw new Error(`Expected success indicator "${action.successContains}" not found in response`);
+                          throw new Error(`Expected success indicator "${expandDatePlaceholders(action.successContains ?? "")}" not found in response`);
                         }
                       }
 
@@ -2724,13 +2726,13 @@ export async function runCustom(
                   // once the whole sequence is done.
                   if (textSaysFail(responseText, action.failContains)) {
                     throw new Error(
-                      `Reply indicates failure: "${action.failContains}" detected`,
+                      `Reply indicates failure: "${expandDatePlaceholders(action.failContains ?? "")}" detected`,
                     );
                   }
                   const isLast = k === aiResult.buttons.length - 1;
                   if (isLast && !textSaysSuccess(responseText, action.successContains)) {
                     throw new Error(
-                      `Expected success indicator "${action.successContains}" not found in response`,
+                      `Expected success indicator "${expandDatePlaceholders(action.successContains ?? "")}" not found in response`,
                     );
                   }
                 }
@@ -3078,12 +3080,12 @@ export async function runCustom(
                   : `Opened "${hit.web.text}" (nothing pressed inside the app)`;
 
                 if (textSaysFail(cf.text, action.failContains)) {
-                  throw new Error(`Page indicates failure: "${action.failContains}" detected`);
+                  throw new Error(`Page indicates failure: "${expandDatePlaceholders(action.failContains ?? "")}" detected`);
                 }
                 const said = runSaysSuccess(cf.text, cf.seenText, action.successContains);
                 if (!said.ok) {
                   throw new Error(
-                    `Expected success indicator "${action.successContains}" not found in the Mini App page`,
+                    `Expected success indicator "${expandDatePlaceholders(action.successContains ?? "")}" not found in the Mini App page`,
                   );
                 }
                 // Worth saying which one it was: the app showed the wording and took it away
@@ -3266,12 +3268,12 @@ export async function runCustom(
                   : `Opened the Mini App (nothing pressed inside it)${how}`;
 
                 if (textSaysFail(cf.text, action.failContains)) {
-                  throw new Error(`Page indicates failure: "${action.failContains}" detected`);
+                  throw new Error(`Page indicates failure: "${expandDatePlaceholders(action.failContains ?? "")}" detected`);
                 }
                 const saidOk = runSaysSuccess(cf.text, cf.seenText, action.successContains);
                 if (!saidOk.ok) {
                   throw new Error(
-                    `Expected success indicator "${action.successContains}" not found in the Mini App page`,
+                    `Expected success indicator "${expandDatePlaceholders(action.successContains ?? "")}" not found in the Mini App page`,
                   );
                 }
                 if (saidOk.transient) {
@@ -3574,11 +3576,11 @@ export async function runCustom(
                   : `Opened ${cf.finalHost}`;
 
                 if (textSaysFail(cf.text, action.failContains)) {
-                  throw new Error(`Page indicates failure: "${action.failContains}" detected`);
+                  throw new Error(`Page indicates failure: "${expandDatePlaceholders(action.failContains ?? "")}" detected`);
                 }
                 if (!textSaysSuccess(cf.text, action.successContains)) {
                   throw new Error(
-                    `Expected success indicator "${action.successContains}" not found on the page`,
+                    `Expected success indicator "${expandDatePlaceholders(action.successContains ?? "")}" not found on the page`,
                   );
                 }
                 break;

@@ -1178,6 +1178,20 @@
                   </td>
                   <td>随机的常见英文名 / 姓氏（无需填位数）</td>
                 </tr>
+                <tr>
+                  <td>
+                    <code>{date}</code> / <code>{date:格式}</code>
+                  </td>
+                  <td>
+                    <strong>运行当天</strong>的日期（按设置中的时区），格式自定：<code
+                      >{date:d/M/yyyy}</code
+                    >
+                    → <code>28/8/2026</code>、<code>{date:dd/MM/yyyy}</code> →
+                    <code>28/08/2026</code>、<code>{date:yyyy年M月d日}</code> →
+                    <code>2026年8月28日</code>、<code>{date}</code> →
+                    <code>2026-08-28</code>。时间同理（<code>{date:HH:mm}</code>）。也可用于<strong>成功／失败包含文字</strong>，匹配回复里的当天日期
+                  </td>
+                </tr>
               </tbody>
             </table>
             <p class="help-note">
@@ -1298,7 +1312,7 @@
                 <tr>
                   <td>等待回复</td>
                   <td>
-                    等待机器人回复（可设置超时时长），支持独立的<strong>最大重试次数</strong>。可选配<strong>成功包含文字</strong>和<strong>失败包含文字</strong>：收到含成功文字的回复则立即标记成功；收到含失败文字的回复则标记失败（并按配置重试）；两者均留空时，任意回复均视为成功。两者都支持用 <code>|</code> 分隔多个写法，命中任一即可（例：<code>签到成功|签到中</code>），机器人对同一结果有多种措辞时用它。
+                    等待机器人回复（可设置超时时长），支持独立的<strong>最大重试次数</strong>。可选配<strong>成功包含文字</strong>和<strong>失败包含文字</strong>：收到含成功文字的回复则立即标记成功；收到含失败文字的回复则标记失败（并按配置重试）；两者均留空时，任意回复均视为成功。两者都支持用 <code>|</code> 分隔多个写法，命中任一即可（例：<code>签到成功|签到中</code>），机器人对同一结果有多种措辞时用它。两者也支持 <code>{date:格式}</code> 占位符，按运行当天展开（如 <code>签到成功 {date:d/M/yyyy}</code>），运行日志里会显示展开后的文字。
                   </td>
                 </tr>
                 <tr>
@@ -1602,6 +1616,23 @@
                   </td>
                   <td>An ordinary given name / surname (no length to give)</td>
                 </tr>
+                <tr>
+                  <td>
+                    <code>{date}</code> / <code>{date:FORMAT}</code>
+                  </td>
+                  <td>
+                    The date the run is <strong>happening on</strong>, in the
+                    app's timezone, written however the site writes it:
+                    <code>{date:d/M/yyyy}</code> gives <code>28/8/2026</code>,
+                    <code>{date:dd/MM/yyyy}</code> gives <code>28/08/2026</code>,
+                    <code>{date:yyyy年M月d日}</code> gives
+                    <code>2026年8月28日</code>, and <code>{date}</code> gives
+                    <code>2026-08-28</code>. Time tokens work the same way
+                    (<code>{date:HH:mm}</code>). Also takes effect in
+                    <strong>Success / Fail contains</strong>, to match the date a
+                    reply carries
+                  </td>
+                </tr>
               </tbody>
             </table>
             <p class="help-note">
@@ -1755,6 +1786,10 @@
                     alternative wordings separated by <code>|</code>, any one of
                     which counts (e.g. <code>checked in|checking in</code>) --
                     for a bot with more than one wording for the same outcome.
+                    Both also take the <code>{date:FORMAT}</code> placeholder,
+                    expanded against the day of the run
+                    (<code>checked in {date:d/M/yyyy}</code>); the run log shows
+                    the expanded text.
                   </td>
                 </tr>
                 <tr>

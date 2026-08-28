@@ -3,7 +3,10 @@
 // into a field. Kept in a module of its own so the browser side can reach it without pulling
 // in a Telegram client.
 
+import { DateTime } from "luxon";
+
 import { fillDataRefs } from "../db/dataStore";
+import { getDefaultTimezone } from "../db/database";
 
 const LOWER = "abcdefghijklmnopqrstuvwxyz";
 const UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -78,6 +81,39 @@ function randomInRange(r: NumRange): string {
   return String(n).padStart(r.width, "0");
 }
 
+const DEFAULT_DATE_FORMAT = "yyyy-MM-dd";
+
+// `|` is excluded from the format because it separates alternatives in every matcher, and a
+// format is never worth the ambiguity of deciding which of the two a `|` meant. The length
+// bound keeps an unclosed brace from swallowing the rest of the field.
+const DATE_PLACEHOLDER = /\{date(?::([^{}|]{0,200}))?\}/g;
+
+/** The moment a run is happening, in the configured timezone rather than the host's. */
+function nowInDefaultZone(): DateTime {
+  const zoned = DateTime.now().setZone(getDefaultTimezone());
+  return zoned.isValid ? zoned : DateTime.now();
+}
+
+/**
+ * Expands `{date}` and `{date:FORMAT}` to the date the run is happening on -- not the date the
+ * job was written -- so a bot that answers with today's date can be matched by a job that was
+ * set up once and left alone.
+ *
+ * The format is Luxon's: `{date:d/M/yyyy}` gives `28/8/2026`, `{date:yyyy-MM-dd}` gives
+ * `2026-08-28`, and `{date}` on its own means the latter. Time tokens work the same way
+ * (`{date:HH:mm}`), and text that would otherwise read as tokens is quoted (`{date:'day' d}`).
+ * The date is the one in the app's timezone setting, which is the day the bot means as well.
+ *
+ * `now` is for the tests; a run always asks what the time is now.
+ */
+export function expandDatePlaceholders(text: string, now?: DateTime): string {
+  if (!text.includes("{date")) return text;
+  const at = now ?? nowInDefaultZone();
+  return text.replace(DATE_PLACEHOLDER, (_match, format?: string) =>
+    at.toFormat(format?.trim() || DEFAULT_DATE_FORMAT),
+  );
+}
+
 /**
  * Expands template placeholders before a value is used.
  * Syntax: {type}, {type:length}, or {num:low-high}
@@ -87,6 +123,8 @@ function randomInRange(r: NumRange): string {
  * `num` also takes a range: `{num:1-30}` is a number from 1 to 30, and `{num:01-30}` the same
  * range padded to two digits. A range given to any other type is left alone rather than read
  * as a length, so a template that means something else is visible instead of quietly wrong.
+ *
+ * `{date}` and `{date:FORMAT}` give the date of the run itself; see expandDatePlaceholders.
  *
  * An optional context map supplies named tokens (e.g. {name}) that take
  * precedence over the built-in random types.
@@ -133,7 +171,7 @@ export function expandCommand(template: string, context?: Record<string, string>
         return match; // unknown placeholder -- leave as-is
     }
   });
-  return fillDataRefs(expanded);
+  return fillDataRefs(expandDatePlaceholders(expanded));
 }
 
 /**
@@ -142,9 +180,12 @@ export function expandCommand(template: string, context?: Record<string, string>
  * the language the app or bot decides to render in, and one field should cover the lot
  * rather than the operator keeping a template per language. `|` already means "any of
  * these" for the success/fail matchers, so it reads the same way everywhere.
+ *
+ * `{date:FORMAT}` is expanded first, against the day the run is on, so a matcher may name a
+ * date the bot only prints on the day.
  */
 export function parseLabelAlternatives(wanted: string): string[] {
-  return wanted
+  return expandDatePlaceholders(wanted)
     .split("|")
     .map((part) => part.trim())
     .filter(Boolean);

@@ -6,7 +6,12 @@ import type { TgProxy } from '../types';
 import type { TgDeviceParams } from '../auth/tgAuth';
 import { NewMessage, NewMessageEvent, Raw } from 'telegram/events';
 import { webButtonOf, type WebButton } from '../tg/miniApp';
-import { matchesAnyLabel, textSaysFail, textSaysSuccess } from './placeholders';
+import {
+  expandDatePlaceholders,
+  matchesAnyLabel,
+  textSaysFail,
+  textSaysSuccess,
+} from './placeholders';
 import { escapeHtml, safeHref } from '../tg/htmlEscape';
 import { connectWithTimeout, destroyQuietly, withTgClient } from '../tg/clientTimeout';
 
@@ -992,10 +997,12 @@ export async function runCheckin(
     if (!successContains && !failContains) return;
     const joined = texts.filter(Boolean).join('\n');
     if (textSaysFail(joined, failContains)) {
-      throw new Error(`Reply indicates failure: "${failContains}" detected`);
+      throw new Error(
+        `Reply indicates failure: "${expandDatePlaceholders(failContains ?? "")}" detected`,
+      );
     }
     if (!textSaysSuccess(joined, successContains)) {
-      throw new Error(`Expected success indicator "${successContains}" not found in response`);
+      throw new Error(`Expected success indicator "${expandDatePlaceholders(successContains ?? "")}" not found in response`);
     }
   };
 

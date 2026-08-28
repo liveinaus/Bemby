@@ -2,6 +2,13 @@ import { ref } from "vue";
 
 type Locale = "zh" | "en";
 
+// Appended to every success/fail matcher hint: the same paragraph belongs on all of them, and
+// the placeholder is the one thing about those fields that is not self-evident.
+const ZH_DATE_VAR =
+  "。日期变量 {date:d/M/yyyy} 按运行当天展开，格式自定：{date:dd/MM/yyyy} → 28/08/2026、{date:yyyy年M月d日} → 2026年8月28日、{date} → 2026-08-28。不确定站点用哪种写法时，用 | 把几种都列上";
+const EN_DATE_VAR =
+  ". {date:d/M/yyyy} stands for the day the run happens, in whichever format the site uses: {date:dd/MM/yyyy} gives 28/08/2026, {date:yyyy年M月d日} gives 2026年8月28日, {date} gives 2026-08-28. List several with | when you are unsure which the site prints";
+
 const zh = {
   nav: {
     accounts: "账户",
@@ -785,9 +792,11 @@ const zh = {
     successContainsPlaceholder: "例：签到成功|已签到",
     failContainsPlaceholder: "例：签到失败",
     successContainsHint:
-      "收到含该文字的回复时标记成功，留空则不按文字判断；多个写法用 | 分隔，命中任一即可（例：签到成功|签到中）",
+      "收到含该文字的回复时标记成功，留空则不按文字判断；多个写法用 | 分隔，命中任一即可（例：签到成功|签到中）" +
+      ZH_DATE_VAR,
     failContainsHint:
-      "收到含该文字的回复时标记失败，留空则不按文字判断；多个写法用 | 分隔，命中任一即可",
+      "收到含该文字的回复时标记失败，留空则不按文字判断；多个写法用 | 分隔，命中任一即可" +
+      ZH_DATE_VAR,
     labelReplyTimeout: "回复超时（毫秒）",
     labelWindowStart: "开始时间（HHMM）",
     labelWindowEnd: "结束时间（HHMM）",
@@ -953,9 +962,11 @@ const zh = {
       successContainsPlaceholder: "例：签到成功|已签到",
       failContainsPlaceholder: "例：签到失败",
       successContainsHint:
-        "收到含该文字的回复时标记成功，留空则任意回复均视为成功；多个写法用 | 分隔，命中任一即可（例：签到成功|签到中）",
+        "收到含该文字的回复时标记成功，留空则任意回复均视为成功；多个写法用 | 分隔，命中任一即可（例：签到成功|签到中）" +
+        ZH_DATE_VAR,
       failContainsHint:
-        "收到含该文字的回复时标记失败，留空则不按文字判断；多个写法用 | 分隔，命中任一即可",
+        "收到含该文字的回复时标记失败，留空则不按文字判断；多个写法用 | 分隔，命中任一即可" +
+        ZH_DATE_VAR,
       labelJobMaxRetries: "任务最大重试次数",
       jobMaxRetriesHint: "整个动作链失败后的重试次数，1 表示不重试",
       labelContact: "联系人（机器人 / 群组 / 用户）",
@@ -3202,9 +3213,11 @@ const en: typeof zh = {
     successContainsPlaceholder: "e.g. checked in|already checked in",
     failContainsPlaceholder: "e.g. check-in failed",
     successContainsHint:
-      "Mark as success when the response contains this text; leave blank to skip text matching. Separate alternative wordings with | and any one of them counts (e.g. checked in|checking in)",
+      "Mark as success when the response contains this text; leave blank to skip text matching. Separate alternative wordings with | and any one of them counts (e.g. checked in|checking in)" +
+      EN_DATE_VAR,
     failContainsHint:
-      "Mark as failed when the response contains this text; leave blank to skip text matching. Separate alternative wordings with | and any one of them counts",
+      "Mark as failed when the response contains this text; leave blank to skip text matching. Separate alternative wordings with | and any one of them counts" +
+      EN_DATE_VAR,
     labelReplyTimeout: "Reply Timeout (ms)",
     labelWindowStart: "Window Start (HHMM)",
     labelWindowEnd: "Window End (HHMM)",
@@ -3374,9 +3387,11 @@ const en: typeof zh = {
       successContainsPlaceholder: "e.g. checked in|already checked in",
       failContainsPlaceholder: "e.g. check-in failed",
       successContainsHint:
-        "Marks the action successful when the reply contains this text; leave empty to treat any reply as success. Separate alternative wordings with | and any one of them counts (e.g. checked in|checking in)",
+        "Marks the action successful when the reply contains this text; leave empty to treat any reply as success. Separate alternative wordings with | and any one of them counts (e.g. checked in|checking in)" +
+        EN_DATE_VAR,
       failContainsHint:
-        "Marks the action failed when the reply contains this text; leave empty for no text-based failure. Separate alternative wordings with | and any one of them counts",
+        "Marks the action failed when the reply contains this text; leave empty for no text-based failure. Separate alternative wordings with | and any one of them counts" +
+        EN_DATE_VAR,
       labelJobMaxRetries: "Job max retries",
       jobMaxRetriesHint:
         "How many times to retry the whole action chain on failure; 1 means no retry",
