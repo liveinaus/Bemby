@@ -139,6 +139,8 @@ function routeFetch(
     stoppedStatus?: number;
     playingStatus?: number;
     playingMessage?: string;
+    /** An item query that comes back empty, as it does for a user who can see no library. */
+    noItems?: boolean;
   } = {},
 ) {
   const jsonRes = (body: unknown) => ({
@@ -170,7 +172,9 @@ function routeFetch(
     }
     if (url.includes('/Items')) {
       return Promise.resolve(jsonRes({
-        Items: [{ Id: 'i1', Name: 'Ep', Type: 'Episode', RunTimeTicks: 6000_000_000, MediaSources: [{ Id: 's1' }] }],
+        Items: opts.noItems
+          ? []
+          : [{ Id: 'i1', Name: 'Ep', Type: 'Episode', RunTimeTicks: 6000_000_000, MediaSources: [{ Id: 's1' }] }],
       }));
     }
     // Fails only the pre-flight Stopped (the first one), leaving the end-of-segment
@@ -211,6 +215,30 @@ describe('embywatch playability verification', () => {
     expect(reported).toBe(false);
   });
 
+  it('names the status the stream refused with, so a 403 is not read as a dead disk', async () => {
+    routeFetch(403);
+
+    await expect(runEmbywatch('https://emby.example.com', baseConfig))
+      .rejects.toThrow('"Ep" → HTTP 403');
+  });
+
+  it('says so when the server returns no items at all, which is not an offline file', async () => {
+    routeFetch(206, { noItems: true });
+
+    await expect(runEmbywatch('https://emby.example.com', baseConfig))
+      .rejects.toThrow('the server returned no items for this user');
+  });
+
+  it('sends the token as a header on the stream probe as well as in the url', async () => {
+    routeFetch(206);
+    await runEmbywatch('https://emby.example.com', baseConfig);
+
+    const probe = mockUndiciFetch.mock.calls.find(
+      c => typeof c[0] === 'string' && c[0].includes('/Videos/') && c[0].includes('/stream'),
+    );
+    expect((probe?.[1] as any)?.headers['X-Emby-Authorization']).toContain('Token="tok"');
+  });
+
   it('reports playback when the stream probe succeeds', async () => {
     routeFetch(206);
 
@@ -242,6 +270,39 @@ describe('embywatch playability verification', () => {
 
     await expect(runEmbywatch('https://emby.example.com', baseConfig))
       .rejects.toThrow('No streamable items found');
+  });
+
+  it('plays through a proxy that only accepts the /Videos/ path and a capitalised MediaSourceId', async () => {
+    // A reverse proxy in front of Emby matched the path and query key exactly: the lowercase
+    // /videos/ form PlaybackInfo advertises answered 404, and mediaSourceId answered 400.
+    const accepted: string[] = [];
+    mockUndiciFetch.mockImplementation((url: string) => {
+      const json = (body: unknown) => Promise.resolve({
+        ok: true, status: 200, statusText: 'OK', text: vi.fn().mockResolvedValue(JSON.stringify(body)),
+      });
+      if (url.includes('/Users/AuthenticateByName')) {
+        return json({ AccessToken: 'tok', User: { Id: 'u1', Name: 'Tester' } });
+      }
+      if (url.includes('/PlaybackInfo')) {
+        return json({ MediaSources: [{ Id: 's1', DirectStreamUrl: '/videos/i1/stream?MediaSourceId=s1&api_key=tok' }] });
+      }
+      if (url.includes('/Items')) {
+        return json({ Items: [{ Id: 'i1', Name: 'Ep', Type: 'Episode', RunTimeTicks: 6000_000_000, MediaSources: [{ Id: 's1' }] }] });
+      }
+      if (url.includes('/stream')) {
+        const ok = url.includes('/Videos/') && url.includes('MediaSourceId=');
+        if (ok) accepted.push(url);
+        return Promise.resolve({
+          status: ok ? 206 : url.includes('/Videos/') ? 400 : 404,
+          body: { cancel: vi.fn(), getReader: () => streamOf(ok ? 1024 : 0) },
+        });
+      }
+      return Promise.resolve({ ok: true, status: 204, statusText: 'No Content', text: vi.fn().mockResolvedValue('') });
+    });
+
+    const result = await runEmbywatch('https://emby.example.com', baseConfig);
+    expect(result.title).toBe('Ep');
+    expect(accepted.length).toBeGreaterThan(0);
   });
 
   it('stops reading after the first chunk when the server ignores Range and returns the whole file', async () => {

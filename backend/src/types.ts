@@ -1094,6 +1094,33 @@ export type WebStep =
     }
   | {
       /**
+       * Run a piece of JavaScript on the page, the way the browser console does, and hold
+       * what it gives back under a name. What the reading steps cannot reach: a value a
+       * script put on `window`, a total worked out across a table, the JSON a page fetches
+       * for itself. `{name}` is filled in anywhere in the script before it runs.
+       *
+       * A script that reads as one expression (`document.title`) hands back what it
+       * evaluates to; anything longer is run as a function body, so it needs its own
+       * `return`. Whatever comes back is held as text -- an object or an array as its JSON
+       * -- and it must be something the browser can hand over: a DOM node or a function
+       * cannot cross, so read the property wanted rather than returning the element. A
+       * script that returns nothing falls back to what it wrote to the console, which is
+       * what makes a bare `console.log(...)` worth a name.
+       */
+      type: "web_eval";
+      /** The script, e.g. `return document.querySelectorAll('.post').length`. */
+      script: string;
+      /** Name to hold the result under. Blank runs the script for its effect alone. */
+      varName?: string;
+      /** Cut the result to this many characters. Blank/0 keeps 1000. */
+      maxChars?: number;
+      /** How long to give the script, promises included. Blank/0 waits 15s. */
+      waitMs?: number;
+      /** Keep the result out of the log, showing its length alone. */
+      secret?: boolean;
+    }
+  | {
+      /**
        * Go to another address in the same browser, so whatever the page steps have already
        * logged into stays logged in. `{name}` is filled in from the loop's current value.
        */

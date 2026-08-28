@@ -63,8 +63,10 @@ export type WebStepForm = {
   fromContains: string;
   /** web_email_code: only consider mail whose subject contains this. */
   subjectContains: string;
-  /** web_read: keep what was read out of the log. */
+  /** web_read / web_eval: keep what was read out of the log. */
   secret: boolean;
+  /** web_eval: the JavaScript to run on the page. */
+  script: string;
   /** web_totp: where the authenticator secret is, e.g. `{data.example.{jobId}.otp}`. */
   secretRef: string;
   /** web_totp: wait for the next code when this much of the window is not left. */
@@ -158,6 +160,7 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "web_pick",
   "web_collect",
   "web_read",
+  "web_eval",
   "web_email_code",
   "web_email_lease",
   "web_otp_secret",
@@ -275,6 +278,7 @@ export function defaultWebStep(): WebStepForm {
     fromContains: "",
     subjectContains: "",
     secret: false,
+    script: "",
     secretRef: "",
     minValidMs: 10000,
     jobTemplate: "",
@@ -514,6 +518,15 @@ export function webStepToConfig(s: WebStepForm): WebStep {
         selector: s.selector.trim(),
         varName: s.varName.trim(),
         ...(s.maxChars > 0 ? { maxChars: s.maxChars } : {}),
+        ...(s.secret ? { secret: true } : {}),
+      };
+    case "web_eval":
+      return {
+        type: "web_eval",
+        script: s.script,
+        ...(s.varName.trim() ? { varName: s.varName.trim() } : {}),
+        ...(s.maxChars > 0 ? { maxChars: s.maxChars } : {}),
+        ...(s.waitMs > 0 ? { waitMs: s.waitMs } : {}),
         ...(s.secret ? { secret: true } : {}),
       };
     case "web_press":
@@ -808,6 +821,16 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
         selector: s.selector,
         varName: s.varName,
         maxChars: s.maxChars ?? 0,
+        secret: s.secret ?? false,
+      };
+    case "web_eval":
+      return {
+        ...base,
+        type: s.type,
+        script: s.script,
+        varName: s.varName ?? "",
+        maxChars: s.maxChars ?? 0,
+        waitMs: s.waitMs ?? 15000,
         secret: s.secret ?? false,
       };
     case "web_press":

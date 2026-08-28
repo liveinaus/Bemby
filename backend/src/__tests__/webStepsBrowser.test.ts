@@ -993,6 +993,35 @@ describe.skipIf(!exe)("page steps in a real browser", () => {
   );
 
   it(
+    "runs a console script and holds what it gives back",
+    async () => {
+      const p = await open(`<div class="post">a</div><div class="post">b</div><title>Two posts`);
+      const run = await runWebSteps(
+        p,
+        [
+          // The three shapes a console line comes in: an expression, a body with its own
+          // return, and one whose only output is what it printed
+          { type: "web_eval", script: "document.title", varName: "pageTitle" },
+          {
+            type: "web_eval",
+            script: "const posts = document.querySelectorAll('.post');\nreturn { n: posts.length };",
+            varName: "counted",
+          },
+          { type: "web_eval", script: 'console.log("this is a test")', varName: "printed" },
+        ],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.ok).toBe(true);
+      expect(run.logs[0].outcome).toBe("ran the script into {pageTitle}: Two posts");
+      expect(run.logs[1].outcome).toBe('ran the script into {counted}: {"n":2}');
+      expect(run.logs[2].outcome).toContain("from the console: this is a test");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
     "fails the step when the ruler cannot be drawn, instead of asking for a blind guess",
     async () => {
       const p = await open(`<div>plain</div>`);

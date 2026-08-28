@@ -266,7 +266,31 @@ type MediaOpts = {
 };
 
 // What a raw stream fetch needs: identity, route and TLS mode.
-type NetOpts = { ua: string; proxyUrl?: string; insecureTls?: boolean; signal?: AbortSignal };
+type NetOpts = {
+  ua: string;
+  proxyUrl?: string;
+  insecureTls?: boolean;
+  signal?: AbortSignal;
+  /** Identifies the caller to the stream endpoints; see `streamHeaders`. */
+  token?: string;
+  deviceName?: string;
+};
+
+/**
+ * Headers for a request to a stream endpoint. The token also rides in the url as `api_key`,
+ * which is what a stream url is normally signed with, but a server (or the reverse proxy in
+ * front of it) may only honour the header a real client sends -- and answers 401/403 to the
+ * query form while every metadata call, which sends the header, goes through.
+ */
+function streamHeaders(opts: NetOpts, extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    'User-Agent': opts.ua,
+    ...(opts.token
+      ? { 'X-Emby-Authorization': buildAuthHeader(opts.deviceName ?? 'Bemby', opts.ua, opts.token) }
+      : {}),
+    ...extra,
+  };
+}
 
 // Number of random items to try before giving up when verifying playability.
 const MAX_PICK_ATTEMPTS = 5;
@@ -277,38 +301,38 @@ const PROBE_RANGE_BYTES = 65_535;
  * Fetch the first bytes of a stream URL, as a real player would.
  * A readable file yields 206 (partial) or 200 with body bytes.
  */
-async function probeStream(url: string, opts: NetOpts): Promise<boolean> {
+async function probeStream(url: string, opts: NetOpts): Promise<ProbeResult> {
   try {
     const res = (await undiciFetch(url, {
       method: 'GET',
-      headers: {
-        'User-Agent': opts.ua,
-        Range: `bytes=0-${PROBE_RANGE_BYTES}`,
-      },
+      headers: streamHeaders(opts, { Range: `bytes=0-${PROBE_RANGE_BYTES}` }),
       signal: opts.signal,
       dispatcher: dispatcherFor(opts.proxyUrl, opts.insecureTls),
     } as Parameters<typeof undiciFetch>[1])) as unknown as Response;
 
     if (res.status !== 200 && res.status !== 206) {
       await res.body?.cancel?.();
-      return false;
+      return { ok: false, why: `HTTP ${res.status}` };
     }
     // Read one chunk and stop, rather than buffering the response. A 200 here means the
     // server ignored the Range header and is sending the whole file (common when a proxy
     // fronts Emby), so reading it in full would pull an entire movie into memory.
     const reader = res.body?.getReader?.();
-    if (!reader) return false;
+    if (!reader) return { ok: false, why: `HTTP ${res.status} with no body` };
     try {
       const { done, value } = await reader.read();
-      return !done && (value?.byteLength ?? 0) > 0;
+      const bytes = value?.byteLength ?? 0;
+      return done || bytes === 0
+        ? { ok: false, why: `HTTP ${res.status} but no bytes` }
+        : { ok: true, why: '' };
     } finally {
       try { await reader.cancel?.(); } catch { /* already closed */ }
     }
-  } catch {
+  } catch (err: any) {
     // A cancelled job must abort, not be read as an unplayable item
     throwIfAborted(opts.signal);
     // Network-level failure reaching the stream, treat as unavailable
-    return false;
+    return { ok: false, why: err?.cause?.code ?? err?.cause?.message ?? err?.message ?? 'unreachable' };
   }
 }
 
@@ -354,6 +378,20 @@ async function getClientStreamUrl(
   }
 }
 
+/** Whether a stream answered, and what it said when it did not. */
+type ProbeResult = { ok: boolean; why: string };
+
+/**
+ * The URLs to try for one stream path. Emby advertises the lowercase `/videos/` form and
+ * answers either casing, but a reverse proxy in front of it may route only `/Videos/` and
+ * answer the advertised form with a bare 404, so the capitalised variant is tried as well.
+ */
+function streamUrlCasings(url: string | undefined): string[] {
+  if (!url) return [];
+  const recased = url.replace('/videos/', '/Videos/');
+  return recased === url ? [url] : [url, recased];
+}
+
 /**
  * Confirm the media file is actually streamable, mimicking what a real player
  * does: fetch the first bytes of the stream. If the disk/mount is down, Emby
@@ -365,20 +403,27 @@ async function isMediaAvailable(
   itemId: string,
   mediaSourceId: string,
   opts: MediaOpts
-): Promise<boolean> {
+): Promise<ProbeResult> {
   // Prefer the URL a real client would play; proxies that offload streaming
   // to another host often only route this form
   const clientUrl = await getClientStreamUrl(baseUrl, itemId, mediaSourceId, opts);
-  if (clientUrl && (await probeStream(clientUrl, opts))) return true;
+  let client: ProbeResult | undefined;
+  for (const url of streamUrlCasings(clientUrl)) {
+    client = await probeStream(url, opts);
+    if (client.ok) return client;
+  }
 
   // Fall back to the generic static stream URL
   const params = new URLSearchParams({
     static: 'true',
-    mediaSourceId,
+    MediaSourceId: mediaSourceId,
     api_key: opts.token,
   });
   const staticUrl = `${baseUrl.replace(/\/$/, '')}/Videos/${itemId}/stream?${params.toString()}`;
-  return probeStream(staticUrl, opts);
+  const staticProbe = await probeStream(staticUrl, opts);
+  if (staticProbe.ok || !client) return staticProbe;
+  // Both routes were tried and both refused: which one refused how is the whole diagnosis
+  return { ok: false, why: `stream ${staticProbe.why}, PlaybackInfo url ${client.why}` };
 }
 
 function appendParam(url: string, key: string, value: string): string {
@@ -393,9 +438,11 @@ function buildStaticStreamUrl(
   mediaSourceId: string,
   opts: { token: string; playSessionId: string; deviceId: string }
 ): string {
+  // MediaSourceId is capitalised the way PlaybackInfo advertises it and a real client
+  // sends it: a proxy fronting Emby may match the key exactly and reject the other casing.
   const params = new URLSearchParams({
     static: 'true',
-    mediaSourceId,
+    MediaSourceId: mediaSourceId,
     api_key: opts.token,
     PlaySessionId: opts.playSessionId,
     DeviceId: opts.deviceId,
@@ -413,7 +460,7 @@ async function probeStreamSize(url: string, opts: NetOpts): Promise<StreamProbe>
   try {
     const res = (await undiciFetch(url, {
       method: 'GET',
-      headers: { 'User-Agent': opts.ua, Range: 'bytes=0-0' },
+      headers: streamHeaders(opts, { Range: 'bytes=0-0' }),
       signal: opts.signal,
       dispatcher: dispatcherFor(opts.proxyUrl, opts.insecureTls),
     } as Parameters<typeof undiciFetch>[1])) as unknown as Response;
@@ -464,20 +511,22 @@ async function resolveRealStreamUrl(
   if (staticProbe.ok) return { url: staticUrl, size: staticProbe.size, transcoding: false, hls: false };
 
   const direct = await getClientStreamUrl(baseUrl, itemId, mediaSourceId, { ...opts, directOnly: true });
-  if (direct) {
-    const url = withPlaySession(direct, opts.playSessionId);
+  for (const candidate of streamUrlCasings(direct)) {
+    const url = withPlaySession(candidate, opts.playSessionId);
     const probe = await probeStreamSize(url, opts);
     if (probe.ok) return { url, size: probe.size, transcoding: false, hls: isHlsUrl(url) };
   }
 
   // Direct play is unavailable or unservable: fall back to the transcode stream.
   const transcode = await getClientStreamUrl(baseUrl, itemId, mediaSourceId, { ...opts, transcodeOnly: true });
-  if (!transcode) return undefined;
-  const url = withPlaySession(transcode, opts.playSessionId);
-  const probe = await probeStreamSize(url, opts);
-  if (!probe.ok) return undefined;
-  const hls = isHlsUrl(url);
-  return { url, size: hls ? 0 : probe.size, transcoding: true, hls };
+  for (const candidate of streamUrlCasings(transcode)) {
+    const url = withPlaySession(candidate, opts.playSessionId);
+    const probe = await probeStreamSize(url, opts);
+    if (!probe.ok) continue;
+    const hls = isHlsUrl(url);
+    return { url, size: hls ? 0 : probe.size, transcoding: true, hls };
+  }
+  return undefined;
 }
 
 /**
@@ -494,7 +543,7 @@ async function drainRange(
 ): Promise<number> {
   const res = (await undiciFetch(url, {
     method: 'GET',
-    headers: { 'User-Agent': opts.ua, Range: `bytes=${start}-${end ?? ''}` },
+    headers: streamHeaders(opts, { Range: `bytes=${start}-${end ?? ''}` }),
     signal: opts.signal,
     dispatcher: dispatcherFor(opts.proxyUrl, opts.insecureTls),
   } as Parameters<typeof undiciFetch>[1])) as unknown as Response;
@@ -532,7 +581,7 @@ async function fetchText(url: string, opts: NetOpts): Promise<string | undefined
   try {
     const res = (await undiciFetch(url, {
       method: 'GET',
-      headers: { 'User-Agent': opts.ua },
+      headers: streamHeaders(opts),
       signal: opts.signal,
       dispatcher: dispatcherFor(opts.proxyUrl, opts.insecureTls),
     } as Parameters<typeof undiciFetch>[1])) as unknown as Response;
@@ -596,6 +645,8 @@ type PlayCtx = {
   playSessionId: string;
   realWatch: boolean;
   signal?: AbortSignal;
+  /** Why the last candidate was passed over, so a run that finds nothing can say. */
+  pickNote?: string;
 };
 
 function toSegment(candidate: any): Segment {
@@ -606,6 +657,18 @@ function toSegment(candidate: any): Segment {
     mediaSourceId: candidate.MediaSources?.[0]?.Id ?? itemId,
     runtimeSeconds: candidate.RunTimeTicks ? Math.floor(candidate.RunTimeTicks / TICKS_PER_SECOND) : 0,
   };
+}
+
+/** Why the run found nothing to play, with the last refusal so it can be told apart. */
+function noStreamableError(ctx: PlayCtx): string {
+  const base = 'No streamable items found on Emby server — media may be offline (disk down); skipped reporting';
+  return ctx.pickNote ? `${base} (last: ${ctx.pickNote})` : base;
+}
+
+function noteUnplayable(ctx: PlayCtx, name: string, why: string, attempt?: string): void {
+  ctx.pickNote = `"${name}" → ${why}`;
+  const of = attempt ? ` [${attempt}]` : '';
+  console.warn(`[embywatch] "${name}" is not streamable (${why})${of} — trying another item`);
 }
 
 function reqOpts(ctx: PlayCtx) {
@@ -630,7 +693,7 @@ type Streamer = {
  */
 async function buildStreamer(serverUrl: string, ctx: PlayCtx, seg: Segment): Promise<Streamer | undefined> {
   const { itemId, mediaSourceId, item, runtimeSeconds } = seg;
-  const net: NetOpts = { ua: ctx.ua, proxyUrl: ctx.proxyUrl, insecureTls: ctx.insecureTls, signal: ctx.signal };
+  const net: NetOpts = { ua: ctx.ua, proxyUrl: ctx.proxyUrl, insecureTls: ctx.insecureTls, signal: ctx.signal, token: ctx.token, deviceName: ctx.deviceName };
 
   const resolved = await resolveRealStreamUrl(serverUrl, itemId, mediaSourceId, {
     ...mediaOpts(ctx),
@@ -880,10 +943,10 @@ async function firstPlayable(
   for (const candidate of candidates) {
     throwIfAborted(ctx.signal);
     const seg = toSegment(candidate);
-    if (!verifyPlayable || (await isMediaAvailable(serverUrl, seg.itemId, seg.mediaSourceId, mediaOpts(ctx)))) {
-      return seg;
-    }
-    console.warn(`[embywatch] "${candidate.Name}" is not streamable — trying another item`);
+    if (!verifyPlayable) return seg;
+    const probe = await isMediaAvailable(serverUrl, seg.itemId, seg.mediaSourceId, mediaOpts(ctx));
+    if (probe.ok) return seg;
+    noteUnplayable(ctx, candidate.Name, probe.why);
   }
   return undefined;
 }
@@ -924,7 +987,9 @@ async function resolveLibraryId(serverUrl: string, ctx: PlayCtx, library?: strin
 const LIBRARY_SAMPLE_SIZE = 12;
 
 async function available(serverUrl: string, ctx: PlayCtx, seg: Segment): Promise<boolean> {
-  return isMediaAvailable(serverUrl, seg.itemId, seg.mediaSourceId, mediaOpts(ctx));
+  const probe = await isMediaAvailable(serverUrl, seg.itemId, seg.mediaSourceId, mediaOpts(ctx));
+  if (!probe.ok) noteUnplayable(ctx, seg.item?.Name ?? seg.itemId, probe.why);
+  return probe.ok;
 }
 
 /** A bounded random sample of a library's Series/Movies (no full enumeration). */
@@ -1046,12 +1111,17 @@ async function pickRandomSegment(serverUrl: string, ctx: PlayCtx, verifyPlayable
       `/Users/${ctx.userId}/Items?SortBy=Random&Limit=1&IncludeItemTypes=Episode,Movie&Recursive=true&Fields=MediaSources,RunTimeTicks${scope}`,
       reqOpts(ctx),
     );
-    if (!items.Items?.length) return undefined;
-    const seg = toSegment(items.Items[0]);
-    if (!verifyPlayable || (await isMediaAvailable(serverUrl, seg.itemId, seg.mediaSourceId, mediaOpts(ctx)))) {
-      return seg;
+    if (!items.Items?.length) {
+      // Not a broken file: the query itself came back empty, which is a library this user
+      // cannot see (or a scope that holds nothing) rather than media that is offline
+      ctx.pickNote = 'the server returned no items for this user';
+      return undefined;
     }
-    console.warn(`[embywatch] "${seg.item.Name}" is not streamable (attempt ${attempt}/${attempts}) — trying another item`);
+    const seg = toSegment(items.Items[0]);
+    if (!verifyPlayable) return seg;
+    const probe = await isMediaAvailable(serverUrl, seg.itemId, seg.mediaSourceId, mediaOpts(ctx));
+    if (probe.ok) return seg;
+    noteUnplayable(ctx, seg.item.Name, probe.why, `attempt ${attempt}/${attempts}`);
   }
   return undefined;
 }
@@ -1064,8 +1134,12 @@ async function getNextEpisode(serverUrl: string, ctx: PlayCtx, item: any, verify
   const idx = list.findIndex(e => e.Id === item.Id);
   if (idx < 0 || idx + 1 >= list.length) return undefined;
   const next = toSegment(list[idx + 1]);
-  if (verifyPlayable && !(await isMediaAvailable(serverUrl, next.itemId, next.mediaSourceId, mediaOpts(ctx)))) {
-    return undefined;
+  if (verifyPlayable) {
+    const probe = await isMediaAvailable(serverUrl, next.itemId, next.mediaSourceId, mediaOpts(ctx));
+    if (!probe.ok) {
+      noteUnplayable(ctx, next.item.Name, probe.why);
+      return undefined;
+    }
   }
   return next;
 }
@@ -1135,7 +1209,7 @@ async function runSequencePlay(
     started = await pickWholeServer();
   }
   if (!started) {
-    throw new Error('No streamable items found on Emby server — media may be offline (disk down); skipped reporting');
+    throw new Error(noStreamableError(ctx));
   }
   let cur: Segment | undefined = started.seg;
   let curStart = started.start;
@@ -1297,7 +1371,7 @@ export async function runEmbywatch(
     picked = await pickRandomSegment(serverUrl, ctx, verifyPlayable);
   }
   if (!picked) {
-    throw new Error('No streamable items found on Emby server — media may be offline (disk down); skipped reporting');
+    throw new Error(noStreamableError(ctx));
   }
   const { item, itemId, runtimeSeconds } = picked;
 

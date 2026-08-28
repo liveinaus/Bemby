@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { BrowserContext, Page } from "playwright-core";
+import type { BrowserContext, ConsoleMessage, Page } from "playwright-core";
 import { cfTuning } from "./cfTuning";
 import {
   chromiumExecutable,
@@ -2835,6 +2835,15 @@ const MAX_COLLECTED = 200;
 /** Characters of page text a `web_read` keeps when it is not told a length. */
 const WEB_READ_CHARS = 1000;
 
+/** Characters of a `web_eval` result kept when it is not told a length. */
+const WEB_EVAL_CHARS = 1000;
+
+/** How long a `web_eval` script gets when it is not told, promises included. */
+const WEB_EVAL_WAIT_MS = 15_000;
+
+/** Console lines one `web_eval` keeps, so a script in a loop cannot fill the log. */
+const WEB_EVAL_CONSOLE_LINES = 20;
+
 /** How long a `web_otp_secret` gives the page to draw the secret when it is not told. */
 const OTP_SECRET_WAIT_MS = 15_000;
 
@@ -2900,6 +2909,38 @@ export function fillVars(text: string, vars: Map<string, string>): string {
 export function fillContent(text: string, vars: Map<string, string>): string {
   if (!text) return text;
   return expandCommand(text, Object.fromEntries(vars));
+}
+
+/**
+ * The expression the page is given for a `web_eval`. A script that is one expression on its
+ * own -- `document.title` -- is handed back as it stands, since that is what the console does
+ * with it; anything longer becomes the body of an async function, where `return` is the way
+ * out and `await` works. Compiling it here tells the two apart without running it, so a
+ * script with no `return` in it is never run twice to find out which it was.
+ */
+export function webEvalExpression(script: string): string {
+  const body = script.trim();
+  if (!/\breturn\b/.test(body)) {
+    try {
+      new Function(`return (\n${body}\n);`);
+      return `(async () => (\n${body}\n))()`;
+    } catch {
+      // Not a single expression, so it is statements
+    }
+  }
+  return `(async () => {\n${body}\n})()`;
+}
+
+/** What a `web_eval` result is held as: text as it stands, anything else as its JSON. */
+export function webEvalText(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return String(value);
+  }
 }
 
 /**
@@ -3517,6 +3558,78 @@ async function runStepList(
           log.outcome = step.secret
             ? `read ${kept.length} character(s) into {${name}} (kept out of the log)`
             : `read ${kept.length} character(s) into {${name}}: ${oneLine(kept).slice(0, 120)}`;
+          break;
+        }
+
+        case "web_eval": {
+          const script = fillVars(step.script ?? "", run.current).trim();
+          if (!script) throw new Error("no script given to run");
+          const name = (step.varName ?? "").trim();
+          const wait = Math.max(
+            1,
+            Math.min(
+              step.waitMs && step.waitMs > 0 ? step.waitMs : WEB_EVAL_WAIT_MS,
+              msLeft(deadline),
+            ),
+          );
+
+          // What the script printed, which is what a bare `console.log(...)` leaves behind:
+          // used when the script itself hands nothing back
+          const printed: string[] = [];
+          const onConsole = (msg: ConsoleMessage) => {
+            if (printed.length < WEB_EVAL_CONSOLE_LINES) printed.push(msg?.text?.() ?? "");
+          };
+          page.on?.("console", onConsole);
+
+          const running = page.evaluate(webEvalExpression(script)) as Promise<unknown>;
+          // Handled here as well, so a script still failing after its own step gave up
+          // does not come back as an unhandled rejection
+          running.catch(() => {});
+          let timedOut = false;
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          let value: unknown;
+          try {
+            value = await Promise.race([
+              running,
+              new Promise<never>((_, reject) => {
+                timer = setTimeout(() => {
+                  timedOut = true;
+                  reject(new Error(`the script did not finish within ${wait}ms`));
+                }, wait);
+              }),
+            ]);
+          } catch (err: any) {
+            if (timedOut) throw err;
+            // The browser's own wording, which names the line the script fell over on
+            throw new Error(
+              `the script failed: ${oneLine(err?.message ?? String(err)).slice(0, 300)}`,
+            );
+          } finally {
+            if (timer) clearTimeout(timer);
+            page.off?.("console", onConsole);
+          }
+
+          const returned = webEvalText(value).trim();
+          const printedText = printed.join("\n").trim();
+          const text = returned || printedText;
+          if (!text && name)
+            throw new Error(
+              `the script gave nothing back to hold under {${name}} ` +
+                "(a script of more than one expression needs its own `return`)",
+            );
+
+          const max = step.maxChars && step.maxChars > 0 ? step.maxChars : WEB_EVAL_CHARS;
+          const kept = text.slice(0, max);
+          if (name) run.current.set(name, kept);
+          const shown = step.secret
+            ? `${kept.length} character(s), kept out of the log`
+            : oneLine(kept).slice(0, 200);
+          const where = returned ? "" : " from the console";
+          log.outcome = name
+            ? `ran the script into {${name}}${where}: ${shown}`
+            : text
+              ? `ran the script; it ${returned ? "gave back" : "printed"} ${shown}`
+              : "ran the script";
           break;
         }
 
@@ -4579,6 +4692,11 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
       return `Send a notification${step.target?.trim() ? ` to ${fill(step.target)}` : ""}`;
     case "web_read":
       return `Read \`${fill(step.selector)}\` into {${step.varName}}`;
+    case "web_eval":
+      return (
+        `Run a script${step.varName?.trim() ? ` into {${step.varName.trim()}}` : ""}: ` +
+        `\`${oneLine(fill(step.script ?? "")).slice(0, 80)}\``
+      );
     case "web_email_code":
       return `Read a code from ${fill(step.email ?? "")} into {${step.varName}}`;
     case "web_email_lease":

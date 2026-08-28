@@ -736,6 +736,23 @@ export type WebStep =
     }
   | {
       /**
+       * Run JavaScript on the page, the way the console does, and hold what it gives back
+       * under a name. One expression hands back what it evaluates to; anything longer is a
+       * function body and needs its own `return`. A script that returns nothing falls back
+       * to what it printed to the console.
+       */
+      type: "web_eval";
+      script: string;
+      /** Blank runs the script for its effect alone. */
+      varName?: string;
+      maxChars?: number;
+      /** How long to give the script, promises included. */
+      waitMs?: number;
+      /** Keep the result out of the log. */
+      secret?: boolean;
+    }
+  | {
+      /**
        * Read a record out of the data store into a name. The same value is readable inline as
        * {data.folder.key} in any text field; the step is what a job wants when the value has
        * to reach a selector, or when the run should stop if nothing is stored.

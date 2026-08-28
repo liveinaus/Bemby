@@ -493,6 +493,46 @@
         </div>
       </div>
 
+      <!-- A script run the way the browser console runs one, for what no selector reaches -->
+      <div v-if="s.type === 'web_eval'">
+        <label class="form-label">{{ t("jobs.web.labelScript") }}</label>
+        <textarea
+          v-model="s.script"
+          class="form-input"
+          rows="4"
+          style="resize: vertical; font-family: var(--font-mono, monospace)"
+          :placeholder="t('jobs.web.scriptPlaceholder')"
+        />
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
+          {{ t("jobs.web.scriptHint") }}
+        </div>
+        <div class="form-row" style="margin-top: 8px">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelEvalVarName") }}</label>
+            <input
+              v-model.trim="s.varName"
+              class="form-input"
+              :placeholder="t('jobs.web.evalNamePlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelMaxChars") }}</label>
+            <input v-model.number="s.maxChars" class="form-input" type="number" min="0" step="100" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelEvalWait") }}</label>
+            <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
+          {{ t("jobs.web.evalNameHint") }}
+        </div>
+        <label class="form-checkbox-label" style="margin-top: 8px">
+          <input v-model="s.secret" type="checkbox" />
+          {{ t("jobs.web.labelReadSecret") }}
+        </label>
+      </div>
+
       <div v-if="s.type === 'web_notify'">
         <label class="form-label">{{ t("jobs.web.labelNotifyText") }}</label>
         <textarea
@@ -1503,6 +1543,8 @@ function summaryDetail(s: WebStepForm): string {
       return s.hint;
     case "web_delay":
       return `${s.waitMs}ms`;
+    case "web_eval":
+      return `${s.script.replace(/\s+/g, " ").trim().slice(0, 60)}${s.varName ? ` → {${s.varName}}` : ""}`;
     default:
       return s.selector || s.url || s.text || "";
   }

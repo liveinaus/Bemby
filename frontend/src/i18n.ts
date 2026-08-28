@@ -1042,6 +1042,7 @@ const zh = {
         web_pick: "挑选一个元素（存为变量）",
         web_collect: "收集全部元素（存为列表）",
         web_read: "读取页面文字（存为变量）",
+        web_eval: "在页面执行脚本（存为变量）",
         web_email_code: "从邮箱获取验证码（存为变量）",
         web_email_lease: "领取一个邮箱地址（存为变量）",
         web_job_handover: "移交任务给其他模版（并改名）",
@@ -1212,6 +1213,15 @@ const zh = {
       labelMaxChars: "最多保留字数",
       readHint:
         "读取第一个匹配元素的文字并存入该变量，供后续步骤以 {变量名} 使用——最典型的是写进 AI 提示，让模型直接读到帖子正文，而不必从截图里辨认。留空或 0 表示保留 1000 字",
+      labelScript: "脚本",
+      scriptPlaceholder: "return document.querySelectorAll('.post').length",
+      scriptHint:
+        "在页面中执行，效果与在浏览器控制台里敲一遍完全一致。只写一个表达式（如 document.title）时，其结果即为返回值；写多行时按函数体处理，必须自己写 return。返回值必须是浏览器能传出来的东西——字符串、数字、普通对象或数组（按 JSON 保存）——因此请返回需要的属性，而不是元素本身。脚本没有返回值时，会退而取它打印到控制台的内容，所以直接写 console.log(...) 也能存成变量。脚本中的 {变量名} 会在执行前先行替换",
+      labelEvalVarName: "变量名（可留空）",
+      evalNamePlaceholder: "postCount",
+      labelEvalWait: "脚本超时（毫秒）",
+      evalNameHint:
+        "留空表示只执行、不取值；填了变量名则把结果存入该变量供后续步骤以 {变量名} 使用，且脚本没有任何返回时该步骤会直接失败，而不是留下一个空变量。字数与超时留空或填 0 表示保留 1000 字、等待 15 秒（含脚本内的 await）",
       setNamePlaceholder: "username",
       labelSetValue: "取值",
       setValuePlaceholder: "bemby_{word:6}",
@@ -3455,6 +3465,7 @@ const en: typeof zh = {
         web_pick: "Pick one element (into a name)",
         web_collect: "Collect every element (into a list)",
         web_read: "Read text off the page (into a name)",
+        web_eval: "Run a script on the page (into a name)",
         web_email_code: "Get a verification code from email (into a name)",
         web_email_lease: "Take an email address from the pool (into a name)",
         web_job_handover: "Hand this job over to another template",
@@ -3626,6 +3637,15 @@ const en: typeof zh = {
       labelMaxChars: "Keep at most (characters)",
       readHint:
         "Reads the first matching element's text and holds it under the name for later steps to use as {name} -- most usefully in an AI hint, so the model is handed the post's own words rather than having to make them out in a screenshot. Blank or 0 keeps 1000 characters",
+      labelScript: "Script",
+      scriptPlaceholder: "return document.querySelectorAll('.post').length",
+      scriptHint:
+        "Runs in the page, exactly as typing it into the browser console would. One expression on its own (document.title) hands back what it comes to; anything longer is a function body, so it needs its own return. What comes back must be something the browser can hand over -- text, a number, a plain object or array (kept as its JSON) -- so read the property wanted rather than returning the element itself. A script that returns nothing falls back to what it printed, which is what makes a bare console.log(...) worth a name. Takes {name} placeholders, filled in before the script runs",
+      labelEvalVarName: "Name to hold the result under (optional)",
+      evalNamePlaceholder: "postCount",
+      labelEvalWait: "Give the script (ms)",
+      evalNameHint:
+        "Blank runs the script for its effect alone. With a name, the result is held for later steps to use as {name}, and a script that hands back nothing fails the step rather than leaving the name empty. Blank or 0 keeps 1000 characters and waits 15s for the script, promises included",
       setNamePlaceholder: "username",
       labelSetValue: "Value",
       setValuePlaceholder: "bemby_{word:6}",
