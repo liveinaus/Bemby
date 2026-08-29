@@ -3423,7 +3423,30 @@ function onMsgLinkClick(e: MouseEvent) {
   handleTgUrl(href);
 }
 
+/**
+ * A t.me link that points at a single message: t.me/<username>/<id>, the private-chat
+ * form t.me/c/<internalId>/<id>, and either with a forum topic id in front of the
+ * message id. A Mini App short name always starts with a letter, so an all-digit last
+ * segment is what tells the two apart.
+ */
+type TgMessageLink = { username: string | null; chatId: string | null; msgId: number };
+
+function parseMessageLink(url: string): TgMessageLink | null {
+  const priv = url.match(
+    /https?:\/\/t(?:elegram)?\.me\/c\/(\d+)\/(?:\d+\/)?(\d+)(?:[?#].*)?$/i,
+  );
+  if (priv) return { username: null, chatId: `c${priv[1]}`, msgId: Number(priv[2]) };
+
+  const pub = url.match(
+    /https?:\/\/t(?:elegram)?\.me\/([A-Za-z]\w*)\/(?:\d+\/)?(\d+)(?:[?#].*)?$/i,
+  );
+  if (pub) return { username: pub[1], chatId: null, msgId: Number(pub[2]) };
+
+  return null;
+}
+
 function isMiniAppUrl(url: string): boolean {
+  if (parseMessageLink(url)) return false;
   return /[?&]startapp=/i.test(url) || /t(?:elegram)?\.me\/\w+\/\w+/i.test(url);
 }
 
@@ -3608,6 +3631,47 @@ function openLinkInBrowser() {
   window.open(url, "_blank", "noopener");
 }
 
+/**
+ * Opens the chat a message link points at and scrolls to the message. A private link
+ * carries only the internal chat id, which resolves for chats this account is in.
+ */
+async function openMessageLink(link: TgMessageLink) {
+  if (!selectedAccountId.value) return;
+  try {
+    let dialog: TgDialog;
+    if (link.username) {
+      dialog = await tgClientApi.resolvePeer(
+        selectedAccountId.value,
+        link.username,
+      );
+    } else {
+      const known = dialogs.value.find((d) => d.chatId === link.chatId);
+      if (known) {
+        dialog = known;
+      } else {
+        const profile = await tgClientApi.profile(
+          selectedAccountId.value,
+          link.chatId!,
+        );
+        dialog = {
+          chatId: profile.chatId,
+          name: profile.name,
+          type: profile.type,
+          username: profile.username,
+          unreadCount: 0,
+          lastMessage: null,
+        };
+      }
+    }
+    if (activeChatId.value !== dialog.chatId) await openChat(dialog, true);
+    if (!(await jumpToMessage(link.msgId))) {
+      showToast(t("tgc.msgLink.notFound"), 4000);
+    }
+  } catch {
+    showToast(t("tgc.msgLink.noAccess"), 4000);
+  }
+}
+
 async function handleTgUrl(url: string) {
   // Non-Telegram links always go through the chooser
   if (!/https?:\/\/t(?:elegram)?\.me\//i.test(url)) {
@@ -3653,6 +3717,13 @@ async function handleTgUrl(url: string) {
     } finally {
       checkingInvite.value = false;
     }
+    return;
+  }
+
+  // Links to a single message -- open the chat and scroll to it
+  const msgLink = parseMessageLink(url);
+  if (msgLink) {
+    await openMessageLink(msgLink);
     return;
   }
 
@@ -4894,21 +4965,22 @@ async function openMsgSearchResult(msg: TgMessage) {
   await jumpToMessage(msg.id);
 }
 
-// Scrolls a message into view, loading context around it if it is not loaded
-async function jumpToMessage(id: number) {
-  if (!selectedAccountId.value || !activeChatId.value) return;
+// Scrolls a message into view, loading context around it if it is not loaded.
+// Returns false when the message could not be found -- deleted, or out of reach.
+async function jumpToMessage(id: number): Promise<boolean> {
+  if (!selectedAccountId.value || !activeChatId.value) return false;
   const inView = messages.value.find((m) => m.id === id);
   if (inView) {
     await nextTick();
     const el = messagesEl.value;
-    if (!el) return;
+    if (!el) return false;
     const target = el.querySelector(`[data-msg-id="${id}"]`);
     if (target) {
       target.scrollIntoView({ behavior: 'smooth', block: 'center' });
       target.classList.add('tgc-msg-highlighted');
       setTimeout(() => target.classList.remove('tgc-msg-highlighted'), 1500);
     }
-    return;
+    return Boolean(target);
   }
   // Message not in current view -- load context around the pinned message AND
   // the recent messages so the user can still scroll down to the latest.
@@ -4929,13 +5001,14 @@ async function jumpToMessage(id: number) {
 
   await nextTick();
   const el = messagesEl.value;
-  if (!el) return;
+  if (!el) return false;
   const target = el.querySelector(`[data-msg-id="${id}"]`);
   if (target) {
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     target.classList.add('tgc-msg-highlighted');
     setTimeout(() => target.classList.remove('tgc-msg-highlighted'), 1500);
   }
+  return Boolean(target);
 }
 
 async function backToDialogs() {

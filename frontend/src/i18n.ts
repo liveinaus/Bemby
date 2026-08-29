@@ -2372,6 +2372,10 @@ const zh = {
       viewerInsecure:
         "WEBVIEW_PUBLIC_ORIGIN 是 http，而本面板是 https，浏览器会拦截该内嵌页面。请把它改成 https 后重启。",
     },
+    msgLink: {
+      notFound: "找不到该消息，可能已被删除。",
+      noAccess: "无法打开该消息，可能需要先加入该聊天。",
+    },
     clean: {
       btnTitle: "清理账户",
       title: "清理账户",
@@ -4836,6 +4840,10 @@ const en: typeof zh = {
         "This site blocks embedding, so it was loaded via the Bemby proxy. Sign-ins and some interactive features may not work.",
       viewerInsecure:
         "WEBVIEW_PUBLIC_ORIGIN is http while this panel is https, so the browser blocks the framed page. Set it to https and restart.",
+    },
+    msgLink: {
+      notFound: "That message could not be found -- it may have been deleted.",
+      noAccess: "Could not open that message -- you may need to join the chat first.",
     },
     clean: {
       btnTitle: "Clean account",
