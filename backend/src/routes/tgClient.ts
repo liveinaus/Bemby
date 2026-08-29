@@ -12,6 +12,7 @@ import {
   loadDialogs,
   getMessages,
   sendMessage,
+  type TgNameMention,
   sendFile,
   sharePhoneNumber,
   normalisePhoneNumber,
@@ -270,13 +271,33 @@ router.delete("/:accountId/messages/:chatId/cache", (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * Mentions of members without a username, as {offset, length, chatId} spans over the
+ * message text. Anything malformed is dropped rather than rejected -- the worst case is
+ * the name staying plain text.
+ */
+function parseNameMentions(raw: unknown): TgNameMention[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const mentions = raw.flatMap((m: any) => {
+    const offset = Number(m?.offset);
+    const length = Number(m?.length);
+    const chatId = String(m?.chatId ?? "");
+    if (!Number.isInteger(offset) || offset < 0) return [];
+    if (!Number.isInteger(length) || length <= 0) return [];
+    if (!/^u\d+$/.test(chatId)) return [];
+    return [{ offset, length, chatId }];
+  });
+  return mentions.length ? mentions : undefined;
+}
+
 // POST /:accountId/messages/:chatId -- send a message
 router.post("/:accountId/messages/:chatId", async (req, res) => {
   const accountId = Number(req.params.accountId);
   const chatId = req.params.chatId;
-  const { text, replyToMsgId } = req.body as {
+  const { text, replyToMsgId, mentions } = req.body as {
     text?: string;
     replyToMsgId?: number;
+    mentions?: unknown;
   };
   if (!text?.trim()) {
     res.status(400).json({ error: "text is required" });
@@ -289,6 +310,7 @@ router.post("/:accountId/messages/:chatId", async (req, res) => {
       chatId,
       text.trim(),
       replyToMsgId ? Number(replyToMsgId) : undefined,
+      parseNameMentions(mentions),
     );
     // Cache immediately -- GramJS won't fire NewMessage for UpdateShortSentMessage responses
     cacheMessages(accountId, chatId, [
@@ -676,14 +698,20 @@ router.post("/:accountId/messages/:chatId/:msgId/edit", async (req, res) => {
   const accountId = Number(req.params.accountId);
   const chatId = decodeURIComponent(req.params.chatId);
   const msgId = Number(req.params.msgId);
-  const { text } = req.body as { text?: string };
+  const { text, mentions } = req.body as { text?: string; mentions?: unknown };
   if (!text?.trim()) {
     res.status(400).json({ error: "text is required" });
     return;
   }
   try {
     const entry = await getLiveClient(accountId);
-    await editMessage(entry, chatId, msgId, text.trim());
+    await editMessage(
+      entry,
+      chatId,
+      msgId,
+      text.trim(),
+      parseNameMentions(mentions),
+    );
     updateCachedMessageText(accountId, chatId, msgId, text.trim());
     res.json({ ok: true });
   } catch (err: any) {

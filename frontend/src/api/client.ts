@@ -2660,6 +2660,12 @@ export type TgMember = {
   status: "creator" | "admin" | "member";
 };
 
+/**
+ * A mention of a member with no username, as a span over the message text. Telegram only
+ * carries these as an entity; offsets are UTF-16 code units, matching JS string indexes.
+ */
+export type TgNameMention = { offset: number; length: number; chatId: string };
+
 export type TgReportReason =
   | "spam"
   | "violence"
@@ -2735,6 +2741,7 @@ export const tgClientApi = {
     chatId: string,
     text: string,
     replyToMsgId?: number,
+    mentions?: TgNameMention[],
   ) =>
     api
       .post<{
@@ -2743,6 +2750,7 @@ export const tgClientApi = {
       }>(`/tg-client/${accountId}/messages/${encodeURIComponent(chatId)}`, {
         text,
         ...(replyToMsgId ? { replyToMsgId } : {}),
+        ...(mentions?.length ? { mentions } : {}),
       })
       .then((r) => r.data),
 
@@ -2999,13 +3007,19 @@ export const tgClientApi = {
       )
       .then((r) => r.data),
 
-  editMessage: (accountId: number, chatId: string, msgId: number, text: string) =>
+  editMessage: (
+    accountId: number,
+    chatId: string,
+    msgId: number,
+    text: string,
+    mentions?: TgNameMention[],
+  ) =>
     api
       .post<{
         ok: boolean;
       }>(
         `/tg-client/${accountId}/messages/${encodeURIComponent(chatId)}/${msgId}/edit`,
-        { text },
+        { text, ...(mentions?.length ? { mentions } : {}) },
       )
       .then((r) => r.data),
 

@@ -161,6 +161,7 @@ vi.mock('telegram', () => ({
     InputMessagesFilterEmpty: vi.fn().mockImplementation(() => ({})),
     InputPeerEmpty:           vi.fn().mockImplementation(() => ({})),
     InputPhoneContact: vi.fn().mockImplementation((d: any) => d),
+    InputMessageEntityMentionName: vi.fn().mockImplementation((d: any) => ({ mentionName: true, ...d })),
     updates: {
       GetState: vi.fn().mockImplementation((d: any) => d),
     },
@@ -170,6 +171,10 @@ vi.mock('telegram', () => ({
 
 vi.mock('telegram/extensions/Logger', () => ({
   LogLevel: { NONE: 0 },
+}));
+
+vi.mock('telegram/Utils', () => ({
+  getInputUser: vi.fn().mockImplementation((u: any) => ({ inputUser: u.id })),
 }));
 
 vi.mock('telegram/sessions', () => ({
@@ -755,6 +760,43 @@ describe('sendMessage', () => {
     mockGetDialogs.mockResolvedValueOnce([]); // dialogs return nothing
 
     await expect(sendMessage(entry as any, 'u999', 'Fail')).rejects.toThrow('Chat not found');
+  });
+
+  it('sends a mention of a member without a username as an entity', async () => {
+    const group  = new MockChannel({ id: 21n });
+    const member = new MockUser({ id: 22n });
+    const entry  = makeEntry([['c21', group], ['u22', member]]);
+
+    mockSendMessage.mockResolvedValueOnce({ id: 100, date: 1700000020 });
+
+    await sendMessage(entry as any, 'c21', '@Ada hi', undefined, [
+      { offset: 0, length: 4, chatId: 'u22' },
+    ]);
+
+    expect(mockSendMessage).toHaveBeenCalledWith(group, {
+      message: '@Ada hi',
+      parseMode: false,
+      formattingEntities: [
+        { mentionName: true, offset: 0, length: 4, userId: { inputUser: 22n } },
+      ],
+    });
+  });
+
+  it('drops a mention whose user cannot be resolved rather than failing the send', async () => {
+    const group = new MockChannel({ id: 23n });
+    const entry = makeEntry([['c23', group]]);
+    mockGetDialogs.mockResolvedValueOnce([]);
+    mockGetEntity.mockRejectedValueOnce(new Error('unresolvable'));
+    mockSendMessage.mockResolvedValueOnce({ id: 101, date: 1700000030 });
+
+    await sendMessage(entry as any, 'c23', '@Ada hi', undefined, [
+      { offset: 0, length: 4, chatId: 'u404' },
+    ]);
+
+    expect(mockSendMessage).toHaveBeenCalledWith(group, {
+      message: '@Ada hi',
+      parseMode: false,
+    });
   });
 });
 

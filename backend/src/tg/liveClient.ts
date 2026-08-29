@@ -1,5 +1,6 @@
 import { TelegramClient, Api, Logger } from "telegram";
 import { generateRandomBigInt } from "telegram/Helpers";
+import { getInputUser } from "telegram/Utils";
 import { CustomFile } from "telegram/client/uploads";
 import { LogLevel } from "telegram/extensions/Logger";
 import { StringSession } from "telegram/sessions";
@@ -1265,19 +1266,50 @@ export async function getPinnedMessage(
   };
 }
 
+/**
+ * A mention of a group member who has no username. Telegram only carries these as an
+ * entity, so the client sends the span it wrote into the text alongside the member.
+ * Offsets are UTF-16 code units, which is what a JS string index already is.
+ */
+export type TgNameMention = { offset: number; length: number; chatId: string };
+
+async function nameMentionEntities(
+  entry: LiveEntry,
+  mentions?: TgNameMention[],
+): Promise<Api.TypeMessageEntity[] | undefined> {
+  if (!mentions?.length) return undefined;
+  const entities: Api.TypeMessageEntity[] = [];
+  for (const mention of mentions) {
+    await ensureEntityCached(entry, mention.chatId);
+    const user = entry.entityCache.get(mention.chatId);
+    if (!(user instanceof Api.User)) continue; // unresolvable -- send it as plain text
+    entities.push(
+      new Api.InputMessageEntityMentionName({
+        offset: mention.offset,
+        length: mention.length,
+        userId: getInputUser(user),
+      }),
+    );
+  }
+  return entities.length ? entities : undefined;
+}
+
 export async function sendMessage(
   entry: LiveEntry,
   chatId: string,
   text: string,
   replyToMsgId?: number,
+  mentions?: TgNameMention[],
 ): Promise<{ id: number; date: number }> {
   await ensureEntityCached(entry, chatId);
   const entity = entry.entityCache.get(chatId);
   if (!entity) throw new Error("Chat not found");
 
+  const formattingEntities = await nameMentionEntities(entry, mentions);
   const result = await entry.client.sendMessage(entity, {
     message: text,
     parseMode: false, // disable markdown so characters like __ are sent verbatim
+    ...(formattingEntities ? { formattingEntities } : {}),
     ...(replyToMsgId ? { replyTo: replyToMsgId } : {}),
   });
   return { id: result.id, date: result.date };
@@ -2040,15 +2072,18 @@ export async function editMessage(
   chatId: string,
   msgId: number,
   text: string,
+  mentions?: TgNameMention[],
 ): Promise<void> {
   await ensureEntityCached(entry, chatId);
   const entity = entry.entityCache.get(chatId);
   if (!entity) throw new Error("Chat not found");
+  const entities = await nameMentionEntities(entry, mentions);
   await entry.client.invoke(
     new Api.messages.EditMessage({
       peer: entity as any,
       id: msgId,
       message: text,
+      ...(entities ? { entities } : {}),
     }),
   );
 }

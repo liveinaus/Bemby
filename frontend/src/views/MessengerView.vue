@@ -694,6 +694,35 @@
               </div>
             </div>
 
+            <!-- Member mention suggestions -->
+            <div v-if="mentionSuggestions.length" class="tgc-mention-suggestions">
+              <div
+                v-for="(m, i) in mentionSuggestions"
+                :key="m.chatId"
+                class="tgc-mention-item"
+                :class="{ 'tgc-mention-selected': i === selectedMentionIdx }"
+                @mousedown.prevent="applyMention(m)"
+              >
+                <div
+                  class="tgc-member-av"
+                  :style="!avatarSrc(m.chatId) ? { background: senderColor(m.chatId) } : {}"
+                  v-avatar-load="m.chatId"
+                >
+                  <img
+                    v-if="avatarSrc(m.chatId)"
+                    :src="avatarSrc(m.chatId)"
+                    class="tgc-sender-av-photo"
+                    alt=""
+                  />
+                  <template v-else>{{ avatarLetter(m.name) }}</template>
+                </div>
+                <span class="tgc-mention-name">{{ m.name }}</span>
+                <span v-if="m.username" class="tgc-mention-handle">
+                  @{{ m.username }}
+                </span>
+              </div>
+            </div>
+
             <!-- Command suggestions -->
             <div v-if="commandSuggestions.length" class="tgc-cmd-suggestions">
               <div
@@ -869,6 +898,8 @@
                   :placeholder="pendingFile ? 'Add a caption...' : 'Write a message...'"
                   rows="1"
                   @keydown="onComposeKey"
+                  @keyup="onComposeCaretMove"
+                  @click="onComposeCaretMove"
                   @paste="onPaste"
                   @compositionstart="composing = true"
                   @compositionend="composing = false"
@@ -1916,6 +1947,7 @@ import {
   type TgFolder,
   type TgProfile,
   type TgMember,
+  type TgNameMention,
   type TgMediaKind,
   type TgInvitePreview,
   type TgReportReason,
@@ -2090,6 +2122,20 @@ const membersError = ref("");
 const memberSearch = ref("");
 /** Server-side hits for the current query -- members past the loaded pages. */
 const memberSearchHits = ref<TgMember[]>([]);
+
+// "@" mention autocomplete over the members of the open group
+const MENTION_PAGE = 100;
+const MENTION_MAX = 8;
+const mentionPool = ref<TgMember[]>([]);
+const mentionPoolChatId = ref<string | null>(null);
+const mentionPoolTotal = ref(0);
+const mentionHits = ref<TgMember[]>([]);
+/** The text typed after "@", or null while the popup is closed. */
+const mentionQuery = ref<string | null>(null);
+const mentionAnchor = ref(-1);
+const selectedMentionIdx = ref(0);
+/** Members inserted by name because they have no username -- sent as entities. */
+const pickedNameMentions = ref<{ label: string; chatId: string }[]>([]);
 const copyToast = ref("");
 const btnLoadingKey = ref<string | null>(null);
 
@@ -2758,6 +2804,9 @@ function startEditMessage(msg: TgMessage) {
   editingMsg.value = msg;
   replyingTo.value = null;
   inputText.value = msg.text;
+  // The draft that was in the composer is gone, and with it any mention it carried
+  pickedNameMentions.value = [];
+  closeMentions();
   nextTick(() => {
     inputEl.value?.focus();
     autoResize();
@@ -2767,6 +2816,8 @@ function startEditMessage(msg: TgMessage) {
 function cancelEditMessage() {
   editingMsg.value = null;
   inputText.value = "";
+  pickedNameMentions.value = [];
+  closeMentions();
   if (inputEl.value) inputEl.value.style.height = "auto";
 }
 
@@ -2781,6 +2832,7 @@ async function submitEditMessage() {
       activeChatId.value,
       msg.id,
       text,
+      nameMentionEntities(text),
     );
     const local = messages.value.find((m) => m.id === msg.id);
     if (local) {
@@ -2934,6 +2986,20 @@ function typingLabel(chatId: string): string {
 function onComposeInput() {
   autoResize();
   notifyTyping();
+  updateMentionQuery();
+}
+
+// Arrow keys and clicks move the caret without changing the text, which can put it in or
+// out of an "@word"
+function onComposeCaretMove(e: KeyboardEvent | MouseEvent) {
+  if (
+    e instanceof KeyboardEvent &&
+    !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(
+      e.key,
+    )
+  )
+    return;
+  updateMentionQuery();
 }
 
 // Throttled -- Telegram expects a SetTyping ping roughly every 5s while typing
@@ -3138,6 +3204,155 @@ const filteredMembers = computed<TgMember[]>(() => {
     .sort((a, b) => b.score - a.score)
     .map((r) => r.m);
 });
+
+// ── "@" mention autocomplete ──────────────────────────────────────────────────
+
+/** The "@word" being typed, anchored to the start of the input or a space before it. */
+const MENTION_TOKEN = /(?:^|\s)@([^\s@]{0,32})$/;
+
+function resetMentions() {
+  closeMentions();
+  mentionPool.value = [];
+  mentionPoolChatId.value = null;
+  mentionPoolTotal.value = 0;
+  pickedNameMentions.value = [];
+}
+
+function closeMentions() {
+  mentionQuery.value = null;
+  mentionAnchor.value = -1;
+  mentionHits.value = [];
+  selectedMentionIdx.value = 0;
+}
+
+// One page is enough for most groups; bigger ones fall back to Telegram's own search.
+async function ensureMentionPool() {
+  const chatId = activeChatId.value;
+  if (!selectedAccountId.value || !chatId) return;
+  if (mentionPoolChatId.value === chatId) return;
+  mentionPoolChatId.value = chatId; // claimed upfront so a failure isn't retried per keystroke
+  try {
+    const res = await tgClientApi.members(selectedAccountId.value, chatId, {
+      limit: MENTION_PAGE,
+    });
+    if (mentionPoolChatId.value !== chatId) return;
+    mentionPool.value = res.members;
+    mentionPoolTotal.value = res.total;
+  } catch {
+    mentionPool.value = [];
+    mentionPoolTotal.value = 0;
+  }
+}
+
+const searchMentionsOnServer = debounce(async () => {
+  const chatId = activeChatId.value;
+  const query = mentionQuery.value?.trim() ?? "";
+  if (!selectedAccountId.value || !chatId || query.length < 2) return;
+  if (mentionPool.value.length >= mentionPoolTotal.value) return;
+  try {
+    const res = await tgClientApi.members(selectedAccountId.value, chatId, {
+      limit: MENTION_PAGE,
+      query,
+    });
+    if (mentionQuery.value?.trim() === query) mentionHits.value = res.members;
+  } catch {
+    // Local fuzzy matches still stand
+  }
+}, 350);
+
+/** Re-reads the "@word" under the caret; called on every input and caret move. */
+function updateMentionQuery() {
+  if (activeChat.value?.type !== "group") {
+    closeMentions();
+    return;
+  }
+  const caret = inputEl.value?.selectionStart ?? inputText.value.length;
+  const match = MENTION_TOKEN.exec(inputText.value.slice(0, caret));
+  if (!match) {
+    closeMentions();
+    return;
+  }
+  const query = match[1];
+  mentionAnchor.value = caret - query.length - 1;
+  // Only a changed query resets the highlight, so arrow keys can hold their place
+  if (mentionQuery.value !== query) {
+    mentionQuery.value = query;
+    selectedMentionIdx.value = 0;
+  }
+  void ensureMentionPool();
+  if (query.trim().length >= 2) searchMentionsOnServer();
+  else mentionHits.value = [];
+}
+
+const mentionSuggestions = computed<TgMember[]>(() => {
+  if (mentionQuery.value === null) return [];
+  const pool = [...mentionPool.value];
+  const seen = new Set(pool.map((m) => m.chatId));
+  for (const hit of mentionHits.value) {
+    if (!seen.has(hit.chatId)) pool.push(hit);
+  }
+
+  const query = mentionQuery.value.trim();
+  if (!query) return pool.slice(0, MENTION_MAX);
+  return pool
+    .map((m) => ({
+      m,
+      score: Math.max(
+        fuzzyScore(query, m.name),
+        m.username ? fuzzyScore(query, m.username) : 0,
+      ),
+    }))
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MENTION_MAX)
+    .map((r) => r.m);
+});
+
+/** Replaces the typed "@word" with the member, leaving the caret past a trailing space. */
+function applyMention(m: TgMember) {
+  if (mentionAnchor.value < 0) return;
+  const caret = inputEl.value?.selectionStart ?? inputText.value.length;
+  const label = m.username ? `@${m.username}` : `@${m.name}`;
+  const before = inputText.value.slice(0, mentionAnchor.value);
+  const after = inputText.value.slice(caret);
+  inputText.value = `${before}${label} ${after}`;
+  // A username is a mention on its own; a name only reaches Telegram as an entity
+  if (!m.username) pickedNameMentions.value.push({ label, chatId: m.chatId });
+  const nextCaret = before.length + label.length + 1;
+  closeMentions();
+  nextTick(() => {
+    autoResize();
+    const el = inputEl.value;
+    el?.focus();
+    el?.setSelectionRange(nextCaret, nextCaret);
+  });
+}
+
+/**
+ * Locates the name mentions still present in the text being sent. Longest labels are
+ * claimed first so "@Ada Lovelace" takes its span before a shorter "@Ada" can sit inside
+ * it, and an edited-away label simply drops out.
+ */
+function nameMentionEntities(text: string): TgNameMention[] {
+  const taken: Array<[number, number]> = [];
+  const entities: TgNameMention[] = [];
+  const byLength = [...pickedNameMentions.value].sort(
+    (a, b) => b.label.length - a.label.length,
+  );
+  for (const { label, chatId } of byLength) {
+    let at = text.indexOf(label);
+    while (
+      at !== -1 &&
+      taken.some(([s, e]) => at < e && at + label.length > s)
+    ) {
+      at = text.indexOf(label, at + 1);
+    }
+    if (at === -1) continue;
+    taken.push([at, at + label.length]);
+    entities.push({ offset: at, length: label.length, chatId });
+  }
+  return entities.sort((a, b) => a.offset - b.offset);
+}
 
 // Members are users, so a click opens the DM with them -- same as the contacts list.
 function openMemberChat(m: TgMember) {
@@ -4374,6 +4589,7 @@ async function onAccountChange() {
   typingChats.value = {};
   botCommands.value = [];
   botMenuButton.value = null;
+  resetMentions();
   saveMessengerState();
   await loadDialogs();
   startLiveSocket();
@@ -4547,6 +4763,7 @@ async function openChat(dialog: TgDialog, addToHistory = false) {
   showProfile.value = false;
   profileDetails.value = null;
   resetMembers();
+  resetMentions();
   showThread.value = false;
   threadRootMsg.value = null;
   replyingTo.value = null;
@@ -4848,6 +5065,36 @@ function onComposeKey(e: KeyboardEvent) {
     cancelEditMessage();
     return;
   }
+  // Mention suggestion keyboard navigation -- Enter picks, as the official client does
+  if (mentionSuggestions.value.length) {
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      selectedMentionIdx.value = Math.max(0, selectedMentionIdx.value - 1);
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      selectedMentionIdx.value = Math.min(
+        mentionSuggestions.value.length - 1,
+        selectedMentionIdx.value + 1,
+      );
+      return;
+    }
+    if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && !composing.value)) {
+      e.preventDefault();
+      const pick =
+        mentionSuggestions.value[selectedMentionIdx.value] ??
+        mentionSuggestions.value[0];
+      if (pick) applyMention(pick);
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeMentions();
+      return;
+    }
+  }
+
   // Command suggestion keyboard navigation
   if (commandSuggestions.value.length) {
     if (e.key === "ArrowUp") {
@@ -5008,8 +5255,11 @@ async function sendMessage() {
     return;
   sending.value = true;
   const replyMsg = replyingTo.value;
+  const mentions = nameMentionEntities(text);
   inputText.value = "";
   replyingTo.value = null;
+  pickedNameMentions.value = [];
+  closeMentions();
   if (inputEl.value) {
     inputEl.value.style.height = "auto";
   }
@@ -5019,6 +5269,7 @@ async function sendMessage() {
       activeChatId.value,
       text,
       replyMsg?.id,
+      mentions,
     );
     // Optimistically append
     messages.value.push({
@@ -6431,6 +6682,44 @@ async function saveContactEdit() {
   text-overflow: ellipsis;
   flex: 1;
   min-width: 0;
+}
+
+.tgc-mention-suggestions {
+  border-top: 1px solid var(--border);
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  flex-shrink: 0;
+  scrollbar-width: thin;
+}
+
+.tgc-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.tgc-mention-item:hover,
+.tgc-mention-selected {
+  background: var(--primary-soft);
+}
+
+.tgc-mention-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tgc-mention-handle {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 /* Slash button in compose row */
