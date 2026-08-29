@@ -156,6 +156,22 @@ function setPaused(id: string, paused: boolean): void {
   pokeBulkTasks();
 }
 
+/**
+ * Changes the wait between items. The server clamps the value and hands back what it
+ * kept, so the card shows the gap that is actually in force.
+ */
+export async function setBulkTaskGap(
+  id: string,
+  gapSeconds: number,
+): Promise<number> {
+  const { gapSeconds: applied } = await bulkTasksApi.setGap(id, gapSeconds);
+  tasks.value = tasks.value.map((t) =>
+    t.id === id ? { ...t, gapSeconds: applied } : t,
+  );
+  pokeBulkTasks();
+  return applied;
+}
+
 export async function dismissBulkTask(id: string): Promise<void> {
   await bulkTasksApi.dismiss(id);
   tasks.value = tasks.value.filter((t) => t.id !== id);

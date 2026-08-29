@@ -148,9 +148,16 @@ const KIND_LABELS: Record<BulkTaskKind, string> = {
   profile: "profile update",
 };
 
+/** Upper bound on a gap, so a typo cannot park a queue for a day. */
+export const MAX_GAP_SECONDS = 3600;
+
+export function clampGap(gapSeconds: number): number {
+  return Math.min(Math.max(gapSeconds, 0), MAX_GAP_SECONDS);
+}
+
 function normaliseGap(gapSeconds: unknown, fallback: number): number {
   const gap = Number(gapSeconds);
-  return Number.isFinite(gap) && gap >= 0 ? gap : fallback;
+  return Number.isFinite(gap) && gap >= 0 ? clampGap(gap) : fallback;
 }
 
 // Abortable sleep -- resolves early once termination is requested.
@@ -163,6 +170,27 @@ function sleep(ms: number, task: BulkTask): Promise<void> {
         return;
       }
       setTimeout(tick, Math.min(1000, ms));
+    };
+    tick();
+  });
+}
+
+/**
+ * The wait between two items. The target is re-read on every tick, so a gap changed from
+ * the panel -- typically while the queue is held -- applies to the wait already running
+ * rather than only to the next one. The item's line counts down with it.
+ */
+function sleepGap(task: BulkTask, item: BulkTaskItem): Promise<void> {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const tick = () => {
+      const left = task.gapSeconds * 1000 - (Date.now() - start);
+      if (task.cancelRequested || left <= 0) {
+        resolve();
+        return;
+      }
+      item.message = `Waiting ${Math.ceil(left / 1000)}s`;
+      setTimeout(tick, Math.min(1000, left));
     };
     tick();
   });
@@ -331,6 +359,17 @@ export function resumeBulkTask(id: string): boolean {
   return true;
 }
 
+/**
+ * Changes the wait between items on a running queue. Takes effect on the wait already
+ * running, so a queue held mid-batch can be slowed down before it is resumed.
+ */
+export function setBulkTaskGap(id: string, gapSeconds: number): boolean {
+  const task = tasks.get(id);
+  if (!task || task.state !== "running") return false;
+  task.gapSeconds = clampGap(gapSeconds);
+  return true;
+}
+
 /** Drops a finished task from the list; a running task must be terminated first. */
 export function dismissBulkTask(id: string): boolean {
   const task = tasks.get(id);
@@ -349,17 +388,15 @@ async function runTask(
   handler: BulkTaskHandler,
   itemTimeoutMs: number,
 ): Promise<void> {
-  const gapMs = task.gapSeconds * 1000;
   try {
     let processedAny = false;
     for (const item of task.items) {
       if (task.cancelRequested) break;
 
       // The gap spaces successive calls, so it belongs between two items.
-      if (processedAny && gapMs > 0) {
+      if (processedAny && task.gapSeconds > 0) {
         item.status = "waiting";
-        item.message = `Waiting ${Math.round(gapMs / 1000)}s`;
-        await sleep(gapMs, task);
+        await sleepGap(task, item);
         if (task.cancelRequested) break;
       }
 

@@ -47,6 +47,7 @@
     </div>
 
     <div class="modal-footer">
+      <BulkTaskGap v-if="task.state === 'running'" :task="task" />
       <button
         v-if="task.state === 'running'"
         class="btn btn-ghost"
@@ -87,6 +88,7 @@ import {
   taskDoneCount,
 } from "../composables/bulkTasks";
 import { bulkTaskItemText } from "../composables/bulkTaskText";
+import BulkTaskGap from "./BulkTaskGap.vue";
 
 // Progress view for one background bulk task, shared by every bulk modal. The
 // task runs on the server, so closing this only hides the view.
@@ -118,6 +120,11 @@ async function terminate() {
 </script>
 
 <style scoped>
+/* The gap control sits on the left, away from the footer buttons */
+.modal-footer > .task-gap {
+  margin-right: auto;
+}
+
 .bulk-task-head {
   display: flex;
   align-items: center;

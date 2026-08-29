@@ -75,6 +75,7 @@
         </div>
 
         <div class="task-card-actions">
+          <BulkTaskGap v-if="task.state === 'running'" :task="task" />
           <button
             v-if="task.state === 'running'"
             class="btn btn-ghost btn-sm"
@@ -130,6 +131,7 @@ import {
   taskProgress,
 } from "../composables/bulkTasks";
 import { bulkTaskItemText, bulkTaskTitle } from "../composables/bulkTaskText";
+import BulkTaskGap from "./BulkTaskGap.vue";
 
 const expanded = ref(false);
 const openDetail = ref<string | null>(null);
@@ -450,8 +452,14 @@ onMounted(() => startBulkTaskPolling());
 
 .task-card-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* The gap control sits on the left, away from the pause/terminate buttons */
+.task-card-actions > .task-gap {
+  margin-right: auto;
 }
 </style>

@@ -11,6 +11,7 @@ import {
   pickRandomAvatar,
   type AvatarSourceMode,
 } from "../tg/avatarSource";
+import { clampGap } from "./bulkTasks";
 
 // Bulk-updates the Telegram profile (first name, last name, bio/about, profile
 // photo) of already-authenticated accounts. Accounts are processed one at a time
@@ -51,6 +52,8 @@ export type BulkProfileBatch = {
   cancelled: boolean;
   /** Held between accounts: the one in flight finishes, then the batch waits. */
   paused: boolean;
+  /** Wait between accounts, in seconds; adjustable while the batch runs. */
+  gapSeconds: number;
   total: number;
   items: BulkProfileItem[];
 };
@@ -141,6 +144,13 @@ export function resumeBulkProfile(): boolean {
   return true;
 }
 
+/** Changes the wait between accounts on a running batch; see setBulkTaskGap. */
+export function setBulkProfileGap(gapSeconds: number): boolean {
+  if (!current || !current.running) return false;
+  current.gapSeconds = clampGap(gapSeconds);
+  return true;
+}
+
 /** Forgets a finished batch, so the task dock stops listing it. See clearBulkAdd. */
 export function clearBulkProfile(): boolean {
   if (!current || current.running) return false;
@@ -174,6 +184,27 @@ function sleep(ms: number, batch: BulkProfileBatch): Promise<void> {
         return;
       }
       setTimeout(tick, Math.min(1000, ms));
+    };
+    tick();
+  });
+}
+
+// The wait between accounts, re-read on every tick so a gap changed from the panel takes
+// effect on the wait already running. See sleepGap in bulkTasks.
+function sleepGap(
+  batch: BulkProfileBatch,
+  item: BulkProfileItem,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const tick = () => {
+      const left = batch.gapSeconds * 1000 - (Date.now() - start);
+      if (batch.cancelled || left <= 0) {
+        resolve();
+        return;
+      }
+      item.message = `Waiting ${Math.ceil(left / 1000)}s before updating`;
+      setTimeout(tick, Math.min(1000, left));
     };
     tick();
   });
@@ -338,8 +369,7 @@ async function runBatch(
       // except the first.
       if (processedAny) {
         item.status = "waiting";
-        item.message = `Waiting ${Math.round(config.betweenAccountsMs / 1000)}s before updating`;
-        await sleep(config.betweenAccountsMs, batch);
+        await sleepGap(batch, item);
         if (batch.cancelled) break;
       }
 
@@ -442,6 +472,7 @@ export function startBulkProfile(
     running: true,
     cancelled: false,
     paused: false,
+    gapSeconds: config.betweenAccountsMs / 1000,
     total: items.length,
     items,
   };

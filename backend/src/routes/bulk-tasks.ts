@@ -7,6 +7,8 @@ import {
   listBulkTasks,
   pauseBulkTask,
   resumeBulkTask,
+  setBulkTaskGap,
+  clampGap,
   type StartBulkTaskResult,
 } from "../jobs/bulkTasks";
 import {
@@ -15,6 +17,7 @@ import {
   legacyBulkTasks,
   pauseLegacyBulkTask,
   resumeLegacyBulkTask,
+  setLegacyBulkTaskGap,
 } from "../jobs/bulkTaskBridge";
 import {
   startBulkClean,
@@ -111,6 +114,19 @@ router.post("/:id/resume", (req, res) => {
   const resumed =
     resumeBulkTask(req.params.id) || resumeLegacyBulkTask(req.params.id);
   res.json({ resumed });
+});
+
+// POST /:id/gap -- change the wait between items on a running queue
+router.post("/:id/gap", (req, res) => {
+  const gapSeconds = optionalSeconds((req.body as { gapSeconds?: unknown })?.gapSeconds);
+  if (gapSeconds === undefined) {
+    res.status(400).json({ error: "gapSeconds must be 0 or more" });
+    return;
+  }
+  const updated =
+    setBulkTaskGap(req.params.id, gapSeconds) ||
+    setLegacyBulkTaskGap(req.params.id, gapSeconds);
+  res.json({ updated, gapSeconds: clampGap(gapSeconds) });
 });
 
 // DELETE /:id -- drop a finished task from the list

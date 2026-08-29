@@ -9,6 +9,7 @@ import {
   resetBulkTasks,
   resumeBulkTask,
   runningTaskOfKind,
+  setBulkTaskGap,
   startBulkTask,
 } from "../jobs/bulkTasks";
 
@@ -294,6 +295,56 @@ describe("bulk task registry", () => {
     await waitForFinish(started.task.id, 5000);
     expect(stamps).toHaveLength(2);
     expect(stamps[1] - stamps[0]).toBeGreaterThanOrEqual(900);
+  });
+
+  it("applies a shortened gap to the wait already running", async () => {
+    const stamps: number[] = [];
+    const started = startBulkTask({
+      kind: "fetch-attributes",
+      entries,
+      gapSeconds: 30,
+      handler: async () => {
+        stamps.push(Date.now());
+      },
+    });
+    if (!started.ok) throw new Error(started.error);
+
+    // Once the first item is done the queue is inside the 30s gap; cutting it to 1s must
+    // release that wait rather than only the next one
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(setBulkTaskGap(started.task.id, 1)).toBe(true);
+
+    await waitForFinish(started.task.id, 5000);
+    expect(stamps).toHaveLength(2);
+    expect(stamps[1] - stamps[0]).toBeLessThan(5000);
+  });
+
+  it("refuses a gap change once the task has finished", async () => {
+    const started = startBulkTask({
+      kind: "spam-check",
+      entries,
+      handler: async () => {},
+    });
+    if (!started.ok) throw new Error(started.error);
+
+    await waitForFinish(started.task.id);
+    expect(setBulkTaskGap(started.task.id, 90)).toBe(false);
+  });
+
+  it("clamps a gap to the ceiling", async () => {
+    const started = startBulkTask({
+      kind: "privacy",
+      entries,
+      handler: async (_item, ctx) => {
+        await ctx.sleep(5000);
+      },
+    });
+    if (!started.ok) throw new Error(started.error);
+
+    expect(setBulkTaskGap(started.task.id, 99_999)).toBe(true);
+    expect(started.task.gapSeconds).toBe(3600);
+    cancelBulkTask(started.task.id);
+    await waitForFinish(started.task.id);
   });
 
   it("lists newest first and only dismisses finished tasks", async () => {

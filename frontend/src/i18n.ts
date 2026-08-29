@@ -2255,6 +2255,10 @@ const zh = {
     terminating: "终止中...",
     dismiss: "移除记录",
     startFailed: "任务启动失败",
+    gapLabel: "间隔",
+    gapUnit: "秒",
+    gapHint: "两个账户之间的等待时间，运行中也可以改，正在等待的这一次立即生效",
+    gapFailed: "间隔修改失败",
     kind: {
       "spam-check": "批量检查封号状态",
       "fetch-attributes": "批量获取账户信息",
@@ -4720,6 +4724,11 @@ const en: typeof zh = {
     terminating: "Terminating...",
     dismiss: "Dismiss",
     startFailed: "Could not start the task",
+    gapLabel: "Gap",
+    gapUnit: "s",
+    gapHint:
+      "Wait between items. It can be changed while the queue runs, and the wait already running picks it up.",
+    gapFailed: "Could not change the gap",
     kind: {
       "spam-check": "Bulk spam check",
       "fetch-attributes": "Bulk attribute refresh",

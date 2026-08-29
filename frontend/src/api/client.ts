@@ -3326,6 +3326,13 @@ export const bulkTasksApi = {
     api
       .post<{ resumed: boolean }>(`/bulk-tasks/${id}/resume`)
       .then((r) => r.data),
+  /** Changes the wait between items on a running queue. */
+  setGap: (id: string, gapSeconds: number) =>
+    api
+      .post<{ updated: boolean; gapSeconds: number }>(`/bulk-tasks/${id}/gap`, {
+        gapSeconds,
+      })
+      .then((r) => r.data),
   dismiss: (id: string) =>
     api.delete<{ dismissed: boolean }>(`/bulk-tasks/${id}`).then((r) => r.data),
   spamCheck: (ids: number[], gapSeconds?: number) =>

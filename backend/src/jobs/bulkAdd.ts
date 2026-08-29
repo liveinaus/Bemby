@@ -10,6 +10,7 @@ import {
 import { parseTgProxy } from "./runner";
 import { globalTgProxyUrl } from "../tg/globalProxy";
 import { resolveAppClientParams } from "../tg/appClient";
+import { clampGap } from "./bulkTasks";
 
 // Bulk-adds Telegram accounts whose verification code + 2FA are served by an
 // external "getcode" API page (one page per account). Accounts are created
@@ -52,6 +53,8 @@ export type BulkAddBatch = {
   cancelled: boolean;
   /** Held between accounts: the one in flight finishes, then the batch waits. */
   paused: boolean;
+  /** Wait between accounts, in seconds; adjustable while the batch runs. */
+  gapSeconds: number;
   total: number;
   items: BulkAddItem[];
 };
@@ -279,6 +282,13 @@ export function resumeBulkAdd(): boolean {
   return true;
 }
 
+/** Changes the wait between accounts on a running batch; see setBulkTaskGap. */
+export function setBulkAddGap(gapSeconds: number): boolean {
+  if (!current || !current.running) return false;
+  current.gapSeconds = clampGap(gapSeconds);
+  return true;
+}
+
 /**
  * Forgets a finished batch, so the task dock stops listing it. Only the panel clearing its
  * own view used to happen, which left this batch here for the next poll to hand straight
@@ -322,6 +332,24 @@ function sleep(ms: number, batch: BulkAddBatch): Promise<void> {
         return;
       }
       setTimeout(tick, Math.min(1000, ms));
+    };
+    tick();
+  });
+}
+
+// The wait between accounts, re-read on every tick so a gap changed from the panel takes
+// effect on the wait already running. See sleepGap in bulkTasks.
+function sleepGap(batch: BulkAddBatch, item: BulkAddItem): Promise<void> {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const tick = () => {
+      const left = batch.gapSeconds * 1000 - (Date.now() - start);
+      if (batch.cancelled || left <= 0) {
+        resolve();
+        return;
+      }
+      item.message = `Waiting ${Math.ceil(left / 1000)}s before authenticating`;
+      setTimeout(tick, Math.min(1000, left));
     };
     tick();
   });
@@ -537,8 +565,7 @@ async function runBatch(
 
       if (authenticatedAny) {
         item.status = "waiting";
-        item.message = `Waiting ${Math.round(config.betweenAccountsMs / 1000)}s before authenticating`;
-        await sleep(config.betweenAccountsMs, batch);
+        await sleepGap(batch, item);
         if (batch.cancelled) break;
       }
 
@@ -735,6 +762,7 @@ export function startBulkAdd(
     running: true,
     cancelled: false,
     paused: false,
+    gapSeconds: config.betweenAccountsMs / 1000,
     total: items.length,
     items,
   };

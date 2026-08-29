@@ -4,6 +4,7 @@ import {
   getBulkAddStatus,
   pauseBulkAdd,
   resumeBulkAdd,
+  setBulkAddGap,
 } from "./bulkAdd";
 import {
   cancelBulkProfile,
@@ -11,6 +12,7 @@ import {
   getBulkProfileStatus,
   pauseBulkProfile,
   resumeBulkProfile,
+  setBulkProfileGap,
 } from "./bulkProfile";
 import type { BulkTask, BulkTaskItem, BulkTaskItemStatus } from "./bulkTasks";
 
@@ -64,6 +66,7 @@ function adapt(
     running: boolean;
     cancelled: boolean;
     paused: boolean;
+    gapSeconds?: number;
     total: number;
     items: LegacyItem[];
   } | null,
@@ -81,7 +84,7 @@ function adapt(
     state: batch.running ? "running" : batch.cancelled ? "cancelled" : "completed",
     cancelRequested: batch.cancelled,
     paused: batch.paused,
-    gapSeconds: 0,
+    gapSeconds: batch.gapSeconds ?? 0,
     total: batch.total,
     items: adaptItems(batch.items),
   };
@@ -113,6 +116,13 @@ export function pauseLegacyBulkTask(id: string): boolean {
 export function resumeLegacyBulkTask(id: string): boolean {
   if (getBulkAddStatus()?.id === id) return resumeBulkAdd();
   if (getBulkProfileStatus()?.id === id) return resumeBulkProfile();
+  return false;
+}
+
+/** True when the id belonged to a running legacy batch and its gap was changed. */
+export function setLegacyBulkTaskGap(id: string, gapSeconds: number): boolean {
+  if (getBulkAddStatus()?.id === id) return setBulkAddGap(gapSeconds);
+  if (getBulkProfileStatus()?.id === id) return setBulkProfileGap(gapSeconds);
   return false;
 }
 

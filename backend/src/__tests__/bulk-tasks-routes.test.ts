@@ -227,6 +227,42 @@ describe("bulk task endpoints", () => {
     expect(again.body.cancelled).toBe(false);
   });
 
+  it("changes the gap mid-run, and rejects a bad one", async () => {
+    const ids = [insertAccount("A_1"), insertAccount("A_2")];
+    cleanAccount.mockImplementation(
+      () =>
+        new Promise((resolve) =>
+          setTimeout(
+            () => resolve({ left: 0, deleted: 0, contacts: 0, folders: 0, failed: [] }),
+            100,
+          ),
+        ),
+    );
+
+    const started = await postJson("/bulk-tasks/clean", { ids, gapSeconds: 30 });
+    expect(started.status).toBe(201);
+
+    // The first account is done and the queue is sitting in the 30s gap
+    await waitForItemStatus(started.body.id, 1, "waiting");
+
+    const bad = await postJson(`/bulk-tasks/${started.body.id}/gap`, {
+      gapSeconds: -5,
+    });
+    expect(bad.status).toBe(400);
+
+    const set = await postJson(`/bulk-tasks/${started.body.id}/gap`, {
+      gapSeconds: 90,
+    });
+    expect(set.body).toEqual({ updated: true, gapSeconds: 90 });
+
+    // Cutting the gap releases the wait already running, so the queue finishes now
+    // rather than 90s from here
+    await postJson(`/bulk-tasks/${started.body.id}/gap`, { gapSeconds: 0 });
+    const finished = await waitForState(started.body.id, "completed");
+    expect(finished.gapSeconds).toBe(0);
+    expect(finished.items.map((i: any) => i.status)).toEqual(["done", "done"]);
+  });
+
   it("pauses a running task between items and resumes it", async () => {
     const ids = [insertAccount("A_1"), insertAccount("A_2")];
     cleanAccount.mockImplementation(
