@@ -240,6 +240,8 @@ export type CustomAction = CustomActionCommon &
         checkMembership?: boolean;
         // When set, after joining, wait for an in-group verification message and click the
         // button whose text contains this string (bot-gated groups). verifyWaitMs bounds the wait.
+        // `{aiBtn}` / `{aiBtn:hint}` instead lets the AI read the prompt and pick the button,
+        // for a verification whose answer is only in the message (an arithmetic question, say).
         verifyButton?: string;
         verifyWaitMs?: number;
         /**

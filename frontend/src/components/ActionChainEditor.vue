@@ -240,8 +240,14 @@
       </div>
       <div class="form-group" style="margin-bottom:0;margin-top:8px">
         <label class="form-label">{{ t('jobs.custom.labelVerifyButton') }}</label>
-        <input v-model.trim="action.verifyButton" class="form-input" :placeholder="t('jobs.custom.verifyButtonPlaceholder')" />
-        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.verifyButtonHint') }}</div>
+        <input v-if="!verifyUsesAi(action.verifyButton)" v-model.trim="action.verifyButton" class="form-input" :placeholder="t('jobs.custom.verifyButtonPlaceholder')" />
+        <input v-else class="form-input" :value="verifyAiHint(action.verifyButton)" :placeholder="t('jobs.aiHintPlaceholder')" @input="setVerifyAiHint(action, ($event.target as HTMLInputElement).value)" />
+        <label class="form-checkbox-label" style="margin-top:6px">
+          <input type="checkbox" :disabled="aiKeyMissing" :checked="verifyUsesAi(action.verifyButton)" @change="setVerifyAi(action, ($event.target as HTMLInputElement).checked)" />
+          {{ t('jobs.custom.labelVerifyAiBtn') }}{{ aiKeyMissing ? ' (' + t('jobs.noApiKey') + ')' : '' }}
+        </label>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ verifyUsesAi(action.verifyButton) ? t('jobs.custom.verifyAiBtnHint') : t('jobs.custom.verifyButtonHint') }}</div>
+        <div v-if="aiKeyMissing && verifyUsesAi(action.verifyButton)" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0;margin-top:8px">
         <label class="form-checkbox-label">
@@ -657,6 +663,21 @@ const typeNote = (ty: CustomActionType) => {
   if (NEEDS_AI.has(ty) && props.aiKeyMissing) return ` (${t('jobs.noApiKey')})`;
   if (NEEDS_BROWSER.has(ty) && props.cfBrowserMissing) return ` (${t('jobs.noCfBrowser')})`;
   return '';
+};
+
+// join_group's verify button doubles as an {aiBtn} placeholder: the checkbox swaps the
+// literal button text for one, and the field beside it then edits the hint the AI is given.
+// Matches the backend's reading exactly, so `{aiBtn:}` stays literal button text here too.
+const AI_BTN_RE = /^\{aiBtn(?::(.+))?\}$/;
+const verifyUsesAi = (value: string) => AI_BTN_RE.test((value ?? '').trim());
+const verifyAiHint = (value: string) => (value ?? '').trim().match(AI_BTN_RE)?.[1] ?? '';
+const setVerifyAi = (action: CustomActionForm, on: boolean) => {
+  action.verifyButton = on ? '{aiBtn}' : '';
+};
+// Kept as typed rather than trimmed on every keystroke, which would eat the space between
+// words. An empty hint goes back to a bare {aiBtn}: the backend reads `{aiBtn:}` as literal text.
+const setVerifyAiHint = (action: CustomActionForm, hint: string) => {
+  action.verifyButton = hint.trim() ? `{aiBtn:${hint}}` : '{aiBtn}';
 };
 
 /** A check settles its own outcome, and the two terminals have no failure to carry past. */

@@ -433,7 +433,10 @@ async function waitForNewMessageInChat(
 }
 
 type GroupVerifyOpts = {
-  /** Button text to match in the group prompt; partial match, blank takes the sole button. */
+  /**
+   * Button text to match in the group prompt; partial match, blank takes the sole button.
+   * `{aiBtn}` (or `{aiBtn:hint}`) hands the choice to the AI, which reads the prompt.
+   */
   buttonMatch: string;
   /** Bounds the wait for the in-group prompt to appear. */
   promptWaitMs: number;
@@ -446,6 +449,92 @@ type GroupVerifyOpts = {
   /** Also accept a prompt naming this account through a masked name ("阿**2"). */
   maskedName?: boolean;
 };
+
+// The admin's verdict itself, not a member's "通过验证" -- so only an exact label counts,
+// and only next to a decline, which is what marks the pair as the admins' rather than ours.
+const VERIFY_ADMIN_VERDICT = /^(通过|同意|approve|accept)$/i;
+
+/**
+ * What the model is shown of a verification prompt's keyboard when `{aiBtn}` stands in
+ * for the button text. The admin controls riding along with these prompts are withheld:
+ * pressing 拒绝 fails the verification outright and 通过 is not this account's to press,
+ * and no wording of the task is worth the risk of the model reaching for either.
+ */
+export function verifyAiButtonRows(rows: Api.TypeKeyboardButtonRow[]): string[][] {
+  const labels = rows.flatMap((row) =>
+    row.buttons.map((b) => ((b.text as string) ?? "").trim()),
+  );
+  const adminPair = labels.some((text) => VERIFY_DECLINE.test(text));
+  const offered = (text: string) =>
+    !!text &&
+    !VERIFY_DECLINE.test(text) &&
+    !(adminPair && VERIFY_ADMIN_VERDICT.test(text));
+  return rows
+    .map((row) => row.buttons.map((b) => ((b.text as string) ?? "").trim()).filter(offered))
+    .filter((row) => row.length > 0);
+}
+
+// The default task, for an `{aiBtn}` given no hint of its own.
+const VERIFY_AI_TASK =
+  "complete the group entry verification for the member who has just joined: read the prompt " +
+  "and press the button that answers it -- for an arithmetic question, the one carrying the " +
+  "correct result. Never press a button that approves, rejects, reports or bans a member: " +
+  "those belong to the group's admins";
+
+// A model that answers with something no button carries gets another go or two -- these
+// bots ban on a two-minute deadline, so the retries have to stay cheap.
+const VERIFY_AI_RETRIES = 2;
+
+/**
+ * Lets the model read the prompt and name the button to press, for a verification whose
+ * answer is only knowable from the message itself -- an arithmetic question answered by one
+ * of a row of numbers, where no fixed button text could have been configured in advance.
+ * Returns undefined when the prompt offers nothing pressable; AI failures throw, since a
+ * join left unverified is worth reporting rather than passing over quietly.
+ */
+async function pickVerifyButtonWithAI(
+  client: TelegramClient,
+  prompt: Api.Message,
+  flat: Api.TypeKeyboardButton[],
+  hint: string | undefined,
+  step: CustomStepLog,
+  signal?: AbortSignal,
+): Promise<Api.TypeKeyboardButton | undefined> {
+  const rows = verifyAiButtonRows(
+    ((prompt as any).replyMarkup as Api.ReplyInlineMarkup).rows,
+  );
+  const choices = rows.flat();
+  if (!choices.length) return undefined;
+  const byText = (text: string) =>
+    flat.find((b) => ((b.text as string) ?? "").trim() === text);
+  // Nothing to weigh up, and the deadline is short -- skip the round trip.
+  if (choices.length === 1) return byText(choices[0]);
+
+  // The question is often drawn in an image rather than written out, so the prompt goes
+  // to the model as the message renders, pictures included.
+  const parsed = await parseMessages([prompt], client, signal);
+  if (parsed.html) step.preClickHtml = parsed.html;
+  if (parsed.images.length) step.preClickImage = parsed.images[0];
+  if (parsed.hasMedia) step.preClickHasMedia = parsed.hasMedia;
+  if (parsed.buttons.length) step.preClickButtons = parsed.buttons;
+
+  const aiStart = Date.now();
+  try {
+    const picked = await selectButtonWithAI(
+      rows,
+      parsed.html || prompt.message || "",
+      parsed.images,
+      hint ?? VERIFY_AI_TASK,
+      VERIFY_AI_RETRIES,
+    );
+    step.aiPrompt = picked.prompt;
+    step.aiResponse = picked.response;
+    if (picked.retries.length) step.aiRetries = picked.retries;
+    return byText(picked.button);
+  } finally {
+    step.aiDurationMs = Date.now() - aiStart;
+  }
+}
 
 // Some groups post an in-group verification message with a button that must be clicked to
 // gain real access after joining. Best-effort: waits for that message, clicks the button whose
@@ -533,17 +622,33 @@ async function clickGroupVerification(
 
   const rows = ((buttonsMsg as any).replyMarkup as Api.ReplyInlineMarkup).rows;
   const flat = rows.flatMap((r) => r.buttons);
-  // `|`-separated wordings all count, so one job covers a bot that words the button in
-  // whichever language the joining account is set to.
-  const wantedLabels = parseLabelAlternatives(buttonMatch);
-  let target = wantedLabels.length
-    ? flat.find((b: any) => wantedLabels.some((w) => ((b.text as string) ?? "").includes(w)))
-    : undefined;
-  // Fall back to the sole button for single-button verifications.
-  if (!target && flat.length === 1) target = flat[0];
-  if (!target) {
-    step.result = `${step.result} (verification button not found)`;
-    return;
+  let target: Api.TypeKeyboardButton | undefined;
+  if (isAiBtn(buttonMatch)) {
+    target = await pickVerifyButtonWithAI(
+      client,
+      buttonsMsg,
+      flat,
+      parseAiBtnHint(buttonMatch),
+      step,
+      signal,
+    );
+    if (!target) {
+      step.result = `${step.result} (no verification button for the AI to pick)`;
+      return;
+    }
+  } else {
+    // `|`-separated wordings all count, so one job covers a bot that words the button in
+    // whichever language the joining account is set to.
+    const wantedLabels = parseLabelAlternatives(buttonMatch);
+    target = wantedLabels.length
+      ? flat.find((b: any) => wantedLabels.some((w) => ((b.text as string) ?? "").includes(w)))
+      : undefined;
+    // Fall back to the sole button for single-button verifications.
+    if (!target && flat.length === 1) target = flat[0];
+    if (!target) {
+      step.result = `${step.result} (verification button not found)`;
+      return;
+    }
   }
 
   step.clickedButton = (target as any).text as string;
