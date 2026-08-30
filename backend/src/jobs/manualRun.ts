@@ -14,6 +14,8 @@ import {
   clearLiveDetail,
 } from "./cancellation";
 import { rowToAccount, rowToJob, type JobAccountRow, type JobRow } from "./jobRows";
+import { recordJobSuccess } from "./jobSuccess";
+import { refreshScheduler } from "../scheduler";
 import type { TgAccount } from "../types";
 
 // Manual ("Run now") job execution, shared by the trigger route and the
@@ -85,17 +87,9 @@ export function startManualJobRun(jobId: number | string): ManualRunStart {
       db.prepare(
         "UPDATE job_logs SET status = 'success', message = ?, detail = ? WHERE id = ? AND status = 'running'",
       ).run(completedMessage(warnings), detail, logId);
-      // Durable stamp; job_logs is pruned by log_retention_days. Only moves
-      // forward so a slow run finishing after a later one can't rewind it.
-      // Isolated: a failure here must not demote an otherwise successful run.
-      try {
-        db.prepare(
-          `UPDATE jobs SET last_success_at = ?
-           WHERE id = ? AND (last_success_at IS NULL OR last_success_at < ?)`,
-        ).run(ranAt, job.id, ranAt);
-      } catch (e) {
-        console.warn(`[jobs] "${job.name}" last_success_at stamp failed:`, e);
-      }
+      // Stamps the success and, for a one-time job, switches it off. A switched-off job
+      // still holds a timer from the last refresh, so drop it.
+      if (recordJobSuccess(job, ranAt)) refreshScheduler();
       void notifyJobEvent(
         "success",
         buildSuccessMessage(job.name, job.jobType),

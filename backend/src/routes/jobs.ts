@@ -193,6 +193,7 @@ router.post("/", (req, res) => {
     templateId,
     runEveryDays,
     runEveryDaysMax,
+    oneTime,
     icon,
   } = req.body as Record<string, any>;
 
@@ -218,8 +219,8 @@ router.post("/", (req, res) => {
       `
     INSERT INTO jobs
       (name, account_id, job_type, bot_username, schedule_window_start, schedule_window_end,
-       timezone, reply_timeout_ms, retry_max, enabled, config, start_command, checkin_button, template_id, run_every_days, run_every_days_max)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       timezone, reply_timeout_ms, retry_max, enabled, config, start_command, checkin_button, template_id, run_every_days, run_every_days_max, one_time)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
     )
     .run(
@@ -239,6 +240,7 @@ router.post("/", (req, res) => {
       templateId ? Number(templateId) : null,
       runEvery.min,
       runEvery.max,
+      oneTime ? 1 : 0,
     );
 
   const row = db
@@ -363,6 +365,7 @@ router.put("/:id", (req, res) => {
     templateId,
     runEveryDays,
     runEveryDaysMax,
+    oneTime,
     icon,
   } = req.body as Record<string, any>;
 
@@ -383,7 +386,8 @@ router.put("/:id", (req, res) => {
       name = ?, account_id = ?, job_type = ?, bot_username = ?,
       schedule_window_start = ?, schedule_window_end = ?, timezone = ?,
       reply_timeout_ms = ?, retry_max = ?, enabled = ?, config = ?,
-      start_command = ?, checkin_button = ?, template_id = ?, run_every_days = ?, run_every_days_max = ?
+      start_command = ?, checkin_button = ?, template_id = ?, run_every_days = ?, run_every_days_max = ?,
+      one_time = ?
     WHERE id = ?
   `,
   ).run(
@@ -410,6 +414,9 @@ router.put("/:id", (req, res) => {
     resolvedTemplateId,
     runEvery.min,
     runEvery.max,
+    // Template-controlled, like the cadence beside it: a linked job follows its template,
+    // which pushes the value down on every template save
+    isLinked ? existing.one_time : (oneTime !== undefined ? (oneTime ? 1 : 0) : existing.one_time),
     req.params.id,
   );
 

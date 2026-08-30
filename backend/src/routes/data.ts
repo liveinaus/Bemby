@@ -122,6 +122,7 @@ type JobRow = {
   run_every_days_max: number | null;
   retired: string | null;
   last_success_at: string | null;
+  one_time: number;
 };
 
 type TemplateRow = {
@@ -138,6 +139,7 @@ type TemplateRow = {
   checkin_button: string;
   run_every_days: number;
   run_every_days_max: number | null;
+  one_time: number;
 };
 
 type SettingRow = { key: string; value: string };
@@ -192,6 +194,8 @@ export type ExportPayload = {
     checkinButton: string;
     runEveryDays?: number;
     runEveryDaysMax?: number | null;
+    /** Pushed down to every linked job; absent in older backups. */
+    oneTime?: boolean;
   }>;
   jobs: Array<{
     /** Index into the accounts array; null for jobs that don't require an account */
@@ -216,6 +220,8 @@ export type ExportPayload = {
     retired?: string | null;
     /** Last successful run, which the run-every-days spacing is measured from. */
     lastSuccessAt?: string | null;
+    /** Switches itself off after a successful run; absent in older backups. */
+    oneTime?: boolean;
   }>;
   aiSuppliers?: Array<{
     name: string;
@@ -341,6 +347,7 @@ router.post('/export', (req, res) => {
       checkinButton: t.checkin_button,
       runEveryDays: t.run_every_days ?? 1,
       runEveryDaysMax: t.run_every_days_max ?? null,
+      oneTime: t.one_time === 1,
     })),
     jobs: jobs.map(j => ({
       accountIndex: j.account_id != null ? (accountIdToIndex.get(j.account_id) ?? null) : null,
@@ -361,6 +368,7 @@ router.post('/export', (req, res) => {
       runEveryDaysMax: j.run_every_days_max ?? null,
       retired: j.retired ?? null,
       lastSuccessAt: j.last_success_at ?? null,
+      oneTime: j.one_time === 1,
     })),
     aiSuppliers: aiSuppliers.map(s => ({
       name: s.name,
@@ -531,8 +539,8 @@ router.post('/import', async (req, res) => {
         const result = db.prepare(
           `INSERT INTO job_templates
              (name, job_type, bot_username, timezone, reply_timeout_ms, retry_max, enabled, config,
-              start_command, checkin_button, run_every_days, run_every_days_max)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              start_command, checkin_button, run_every_days, run_every_days_max, one_time)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
           t.name,
           t.jobType ?? 'checkin',
@@ -547,6 +555,7 @@ router.post('/import', async (req, res) => {
           t.checkinButton ?? '签到',
           t.runEveryDays ?? 1,
           t.runEveryDaysMax ?? null,
+          t.oneTime ? 1 : 0,
         );
 
         templateIndexToId.set(i, result.lastInsertRowid as number);
@@ -563,8 +572,8 @@ router.post('/import', async (req, res) => {
         `INSERT INTO jobs
            (account_id, template_id, name, job_type, bot_username, schedule_window_start, schedule_window_end,
             timezone, reply_timeout_ms, retry_max, enabled, config, start_command, checkin_button,
-            run_every_days, run_every_days_max, retired, last_success_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            run_every_days, run_every_days_max, retired, last_success_at, one_time)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         resolvedAccountId,
         resolvedTemplateId,
@@ -585,6 +594,7 @@ router.post('/import', async (req, res) => {
         // A retired job must not come back live; older backups have no such jobs
         j.retired ?? null,
         j.lastSuccessAt ?? null,
+        j.oneTime ? 1 : 0,
       );
       results.jobsImported++;
     }

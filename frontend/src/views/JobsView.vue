@@ -117,6 +117,7 @@
                 >
                   {{ j.enabled ? t('common.yes') : t('common.no') }}
                 </span>
+                <span v-if="j.oneTime" class="badge badge-grey" :title="t('jobs.oneTimeHint')">{{ t('jobs.badgeOneTime') }}</span>
               </td>
               <td @click.stop>
                 <!-- desktop: icon buttons -->
@@ -654,6 +655,16 @@
           </div>
         </template>
 
+        <!-- Last in the body, on the right: it applies to every job type, and a linked
+             job follows its template -->
+        <div class="one-time-row">
+          <label class="form-check">
+            <input v-model="form.oneTime" type="checkbox" :disabled="!!form.templateId" />
+            <span>{{ t('jobs.labelOneTime') }}</span>
+          </label>
+          <div class="one-time-hint">{{ form.templateId ? t('jobs.oneTimeTemplateHint') : t('jobs.oneTimeHint') }}</div>
+        </div>
+
         </div><!-- end modal-body -->
         <div class="modal-footer">
           <button class="btn btn-ghost" @click="showForm = false"><i class="fa-solid fa-xmark"></i> {{ t('common.cancel') }}</button>
@@ -1019,6 +1030,7 @@ const form = reactive({
   templateId: null as number | null,
   runEveryDays: 1,
   runEveryDaysMax: null as number | null,
+  oneTime: false,
   icon: null as string | null,
 });
 
@@ -1335,6 +1347,7 @@ function applyTemplate(tpl: JobTemplate) {
   form.retryMax = tpl.retryMax;
   form.runEveryDays = tpl.runEveryDays ?? 1;
   form.runEveryDaysMax = tpl.runEveryDaysMax ?? null;
+  form.oneTime = tpl.oneTime ?? false;
   runEveryDaysText.value = formatRunEvery(tpl.runEveryDays ?? 1, tpl.runEveryDaysMax);
   setCmdState(tpl.startCommand === '/start' ? '' : (tpl.startCommand ?? ''));
   setBtnState(tpl.checkinButton === '签到' ? '' : (tpl.checkinButton ?? ''));
@@ -1519,6 +1532,7 @@ function openAdd() {
     templateId: null,
     runEveryDays: 1,
     runEveryDaysMax: null,
+    oneTime: false,
     icon: null,
   });
   runEveryDaysText.value = '1';
@@ -1552,6 +1566,7 @@ function openEdit(j: Job) {
     templateId: j.templateId ?? null,
     runEveryDays: j.runEveryDays ?? 1,
     runEveryDaysMax: j.runEveryDaysMax ?? null,
+    oneTime: j.oneTime ?? false,
     icon: j.icon ?? null,
   });
   runEveryDaysText.value = formatRunEvery(j.runEveryDays ?? 1, j.runEveryDaysMax);
@@ -2199,6 +2214,23 @@ tbody tr:nth-child(even):not(.row-selected) td {
   margin-left: 5px;
   vertical-align: middle;
   letter-spacing: 0.03em;
+}
+
+/* Sits alone at the foot of the form, right-aligned, away from the fields it does not belong to */
+.one-time-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.one-time-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: right;
 }
 
 .template-summary-card {

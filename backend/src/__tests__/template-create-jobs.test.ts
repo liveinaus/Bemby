@@ -39,7 +39,8 @@ const SCHEMA = `
     checkin_button   TEXT NOT NULL DEFAULT '签到',
     created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
     run_every_days   INTEGER NOT NULL DEFAULT 7,
-    run_every_days_max INTEGER
+    run_every_days_max INTEGER,
+    one_time         INTEGER NOT NULL DEFAULT 0
   );
   CREATE TABLE jobs (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,7 +62,8 @@ const SCHEMA = `
     run_every_days        INTEGER NOT NULL DEFAULT 1,
     retired               TEXT,
     run_every_days_max    INTEGER,
-    last_success_at       TEXT
+    last_success_at       TEXT,
+    one_time              INTEGER NOT NULL DEFAULT 0
   );
 `;
 

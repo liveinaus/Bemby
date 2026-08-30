@@ -23,6 +23,7 @@ import {
 } from "./jobs/cancellation";
 import { toMinutes, pickNextRun } from "./scheduler-utils";
 import { collectRunWarnings, completedMessage } from "./jobs/runWarnings";
+import { recordJobSuccess } from "./jobs/jobSuccess";
 
 type ScheduleEntry = {
   job: Job;
@@ -234,6 +235,7 @@ export function loadEligibleJobs(): Array<{
       checkinButton: row.checkin_button || "签到",
       runEveryDays: row.run_every_days ?? 1,
       runEveryDaysMax: row.run_every_days_max ?? null,
+      oneTime: Boolean(row.one_time),
       icon: iconFromConfig(row.config),
     } as Job,
     account:
@@ -297,6 +299,7 @@ export async function executeJob(
         templateId: freshJob.template_id ?? null,
         runEveryDays: freshJob.run_every_days ?? 1,
         runEveryDaysMax: freshJob.run_every_days_max ?? null,
+        oneTime: Boolean(freshJob.one_time),
       };
     }
 
@@ -345,17 +348,9 @@ export async function executeJob(
       "UPDATE job_logs SET status = 'success', message = ?, detail = ? WHERE id = ? AND status = 'running'",
     ).run(completedMessage(warnings), detail, logId);
     if (warnings.length) console.warn(`[scheduler] "${job.name}" completed with warnings: ${warnings.join('; ')}`);
-    // Durable stamp; job_logs is pruned by log_retention_days. Only moves
-    // forward so a slow run finishing after a later one can't rewind it.
-    // Isolated: a failure here must not demote an otherwise successful run.
-    try {
-      db.prepare(
-        `UPDATE jobs SET last_success_at = ?
-         WHERE id = ? AND (last_success_at IS NULL OR last_success_at < ?)`,
-      ).run(ranAt, job.id, ranAt);
-    } catch (e) {
-      console.warn(`[scheduler] "${job.name}" last_success_at stamp failed:`, e);
-    }
+    // Stamps the success and, for a one-time job, switches it off. The finally block
+    // below re-reads `enabled`, so a job switched off here does not re-arm its timer.
+    recordJobSuccess(job, ranAt);
     console.log(`[scheduler] "${job.name}" completed`);
     void notifyJobEvent(
       "success",

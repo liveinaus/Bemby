@@ -740,6 +740,8 @@ function shareShape(tpl: JobTemplate): Record<string, unknown> {
     ...(SHARE_KEYS_BY_TYPE[tpl.jobType] ?? []),
     // Only a range has an upper bound; "every N days" leaves it off rather than sharing a null
     ...(tpl.runEveryDaysMax != null ? (['runEveryDaysMax'] as (keyof JobTemplate)[]) : []),
+    // Likewise the default: only a template that actually runs once says so
+    ...(tpl.oneTime ? (['oneTime'] as (keyof JobTemplate)[]) : []),
     'config',
   ];
   return Object.fromEntries(keys.map(k => [k, tpl[k]]));

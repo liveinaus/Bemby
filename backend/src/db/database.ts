@@ -491,6 +491,16 @@ runOnce("jobs-last-success-at-backfill", () => {
   `);
 });
 
+// "One time job": once a run succeeds the job switches itself off. Set on the template
+// too, which pushes its value down to every linked job. Added after the jobs table
+// rebuild above so its positional `SELECT *` copy isn't broken.
+try {
+  db.exec("ALTER TABLE jobs ADD COLUMN one_time INTEGER NOT NULL DEFAULT 0");
+} catch {}
+try {
+  db.exec("ALTER TABLE job_templates ADD COLUMN one_time INTEGER NOT NULL DEFAULT 0");
+} catch {}
+
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS tg_message_cache (

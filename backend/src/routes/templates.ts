@@ -23,6 +23,7 @@ type TemplateRow = {
   created_at: string;
   run_every_days: number;
   run_every_days_max: number | null;
+  one_time: number;
 };
 
 // Normalise a run-every-days range: min >= 1; max kept only when a valid integer
@@ -50,6 +51,7 @@ function rowToTemplate(row: TemplateRow): JobTemplate {
     createdAt: row.created_at,
     runEveryDays: row.run_every_days ?? 1,
     runEveryDaysMax: row.run_every_days_max ?? null,
+    oneTime: Boolean(row.one_time),
     // Stored inside config; surfaced separately so callers never touch the JSON
     icon: iconFromConfig(row.config),
   };
@@ -79,7 +81,8 @@ export function syncLinkedJobs(templateId: number, t: TemplateRow) {
       start_command = ?,
       checkin_button = ?,
       run_every_days = ?,
-      run_every_days_max = ?
+      run_every_days_max = ?,
+      one_time = ?
     WHERE template_id = ?
   `).run(
     t.job_type,
@@ -91,6 +94,7 @@ export function syncLinkedJobs(templateId: number, t: TemplateRow) {
     t.checkin_button,
     t.run_every_days ?? 1,
     t.run_every_days_max ?? null,
+    t.one_time ?? 0,
     templateId,
   );
 
@@ -205,6 +209,7 @@ router.post('/', (req, res) => {
     checkinButton,
     runEveryDays,
     runEveryDaysMax,
+    oneTime,
     icon,
   } = req.body as Record<string, any>;
 
@@ -216,8 +221,8 @@ router.post('/', (req, res) => {
   const runEvery = normalizeRunEvery(runEveryDays, runEveryDaysMax);
   const result = db.prepare(`
     INSERT INTO job_templates
-      (name, job_type, bot_username, timezone, reply_timeout_ms, retry_max, config, start_command, checkin_button, run_every_days, run_every_days_max)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (name, job_type, bot_username, timezone, reply_timeout_ms, retry_max, config, start_command, checkin_button, run_every_days, run_every_days_max, one_time)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     name,
     jobType ?? 'checkin',
@@ -230,6 +235,7 @@ router.post('/', (req, res) => {
     (checkinButton as string | undefined)?.trim() || '签到',
     runEvery.min,
     runEvery.max,
+    oneTime ? 1 : 0,
   );
 
   const row = db.prepare('SELECT * FROM job_templates WHERE id = ?').get(result.lastInsertRowid) as TemplateRow;
@@ -261,8 +267,8 @@ router.post('/:id/duplicate', (req, res) => {
   // is dated when it was made rather than inheriting the source's date.
   const result = db.prepare(`
     INSERT INTO job_templates
-      (name, job_type, bot_username, timezone, reply_timeout_ms, retry_max, enabled, config, start_command, checkin_button, run_every_days, run_every_days_max)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (name, job_type, bot_username, timezone, reply_timeout_ms, retry_max, enabled, config, start_command, checkin_button, run_every_days, run_every_days_max, one_time)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     copyName(source.name),
     source.job_type,
@@ -276,6 +282,7 @@ router.post('/:id/duplicate', (req, res) => {
     source.checkin_button,
     source.run_every_days,
     source.run_every_days_max,
+    source.one_time,
   );
 
   const row = db.prepare('SELECT * FROM job_templates WHERE id = ?').get(result.lastInsertRowid) as TemplateRow;
@@ -302,6 +309,7 @@ router.put('/:id', (req, res) => {
     checkinButton,
     runEveryDays,
     runEveryDaysMax,
+    oneTime,
     icon,
   } = req.body as Record<string, any>;
 
@@ -329,13 +337,15 @@ router.put('/:id', (req, res) => {
       : existing.checkin_button,
     run_every_days: runEvery.min,
     run_every_days_max: runEvery.max,
+    one_time: oneTime !== undefined ? (oneTime ? 1 : 0) : existing.one_time,
   };
 
   db.prepare(`
     UPDATE job_templates SET
       name = ?, job_type = ?, bot_username = ?, timezone = ?,
       reply_timeout_ms = ?, retry_max = ?, enabled = ?,
-      config = ?, start_command = ?, checkin_button = ?, run_every_days = ?, run_every_days_max = ?
+      config = ?, start_command = ?, checkin_button = ?, run_every_days = ?, run_every_days_max = ?,
+      one_time = ?
     WHERE id = ?
   `).run(
     updated.name,
@@ -350,6 +360,7 @@ router.put('/:id', (req, res) => {
     updated.checkin_button,
     updated.run_every_days,
     updated.run_every_days_max,
+    updated.one_time,
     req.params.id,
   );
 
@@ -442,8 +453,8 @@ router.post('/:id/create-jobs', (req, res) => {
           schedule_window_start, schedule_window_end, timezone,
           reply_timeout_ms, retry_max, enabled, config,
           start_command, checkin_button, template_id,
-          run_every_days, run_every_days_max
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          run_every_days, run_every_days_max, one_time
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         j.name,
         j.accountId,
@@ -463,6 +474,7 @@ router.post('/:id/create-jobs', (req, res) => {
         // without it every job created here would start out on the column default of 1
         template.run_every_days ?? 1,
         template.run_every_days_max ?? null,
+        template.one_time ?? 0,
       );
       createdIds.push(Number(result.lastInsertRowid));
     }

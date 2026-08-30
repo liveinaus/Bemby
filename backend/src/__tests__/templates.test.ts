@@ -59,7 +59,8 @@ const SCHEMA = `
     checkin_button   TEXT    NOT NULL DEFAULT '签到',
     created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
     run_every_days   INTEGER NOT NULL DEFAULT 1,
-    run_every_days_max INTEGER
+    run_every_days_max INTEGER,
+    one_time         INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS jobs (
@@ -80,7 +81,8 @@ const SCHEMA = `
     checkin_button        TEXT    NOT NULL DEFAULT '签到',
     template_id           INTEGER REFERENCES job_templates(id) ON DELETE SET NULL,
     run_every_days        INTEGER NOT NULL DEFAULT 1,
-    run_every_days_max    INTEGER
+    run_every_days_max    INTEGER,
+    one_time              INTEGER NOT NULL DEFAULT 0
   );
 `;
 
@@ -103,6 +105,7 @@ type TemplateRow = {
   created_at: string;
   run_every_days: number;
   run_every_days_max: number | null;
+  one_time: number;
 };
 
 type JobRow = {
@@ -119,6 +122,7 @@ type JobRow = {
   template_id: number | null;
   account_id: number | null;
   run_every_days: number;
+  one_time: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -367,6 +371,21 @@ describe('Template update -- syncLinkedJobs', () => {
     syncLinkedJobs(t.id, { ...t, config: newConfig });
 
     expect(getJob(job.id).config).toBe(newConfig);
+  });
+
+  it('pushes the one-time flag down to every linked job, and back off again', () => {
+    const t = insertTemplate();
+    const job = insertJob({ templateId: t.id });
+    const unlinked = insertJob();
+
+    testDb.prepare('UPDATE job_templates SET one_time = 1 WHERE id = ?').run(t.id);
+    syncLinkedJobs(t.id, { ...t, one_time: 1 });
+    expect(getJob(job.id).one_time).toBe(1);
+    expect(getJob(unlinked.id).one_time).toBe(0);
+
+    testDb.prepare('UPDATE job_templates SET one_time = 0 WHERE id = ?').run(t.id);
+    syncLinkedJobs(t.id, { ...t, one_time: 0 });
+    expect(getJob(job.id).one_time).toBe(0);
   });
 
   it('does not modify jobs linked to a different template', () => {

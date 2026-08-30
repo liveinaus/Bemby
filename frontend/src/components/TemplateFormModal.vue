@@ -423,6 +423,16 @@
           :hint="proxyHint"
         />
 
+        <!-- Last in the body, on the right: it applies to every job type, and every
+             template save pushes it down to the linked jobs -->
+        <div class="one-time-row">
+          <label class="form-check">
+            <input v-model="form.oneTime" type="checkbox" />
+            <span>{{ t('jobs.labelOneTime') }}</span>
+          </label>
+          <div class="one-time-hint">{{ t('templates.oneTimeHint') }}</div>
+        </div>
+
       </div><!-- end modal-body -->
       <div class="modal-footer">
         <button class="btn btn-ghost" @click="emit('close')"><i class="fa-solid fa-xmark"></i> {{ t('common.cancel') }}</button>
@@ -497,6 +507,7 @@ const form = reactive({
   retryMax: 5,
   runEveryDays: 1,
   runEveryDaysMax: null as number | null,
+  oneTime: false,
   icon: null as string | null,
 });
 
@@ -735,6 +746,7 @@ function resetForm() {
     retryMax: Number(settings.value?.default_max_retry ?? 5),
     runEveryDays: 1,
     runEveryDaysMax: null,
+    oneTime: false,
     icon: null,
   });
   runEveryDaysText.value = '1';
@@ -763,6 +775,7 @@ function loadFromTemplate(tpl: JobTemplate) {
     retryMax: tpl.retryMax ?? Number(settings.value?.default_max_retry ?? 5),
     runEveryDays: tpl.runEveryDays ?? 1,
     runEveryDaysMax: tpl.runEveryDaysMax ?? null,
+    oneTime: tpl.oneTime ?? false,
     icon: tpl.icon ?? null,
   });
   runEveryDaysText.value = formatRunEvery(tpl.runEveryDays ?? 1, tpl.runEveryDaysMax);
@@ -1055,6 +1068,23 @@ onMounted(async () => {
   align-items: center;
   gap: 8px;
   color: var(--text-tertiary);
+}
+
+/* Sits alone at the foot of the form, right-aligned, away from the fields it does not belong to */
+.one-time-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.one-time-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  text-align: right;
 }
 
 </style>

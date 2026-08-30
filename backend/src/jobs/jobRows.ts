@@ -26,6 +26,7 @@ export type JobRow = {
   run_every_days_max: number | null;
   retired: string | null;
   last_success_at: string | null;
+  one_time: number;
   account_name?: string;
   /** Joined in by the list query, for working out the job's effective exit. */
   account_proxy_id?: string | null;
@@ -90,6 +91,7 @@ export function rowToJob(row: JobRow): Job & { accountName?: string } {
     runEveryDaysMax: row.run_every_days_max ?? null,
     retired: row.retired ?? null,
     lastSuccessAt: row.last_success_at ?? null,
+    oneTime: Boolean(row.one_time),
     // Stored inside config; surfaced as its own field so callers never touch the JSON
     icon: iconFromConfig(row.config),
   };

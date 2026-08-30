@@ -1226,6 +1226,8 @@ export type Job = {
   retired?: string | null;
   /** ISO timestamp of the last successful run; null when it has never succeeded */
   lastSuccessAt?: string | null;
+  /** Switch the job off as soon as a run succeeds. Off by default. */
+  oneTime?: boolean;
   /** Icon-font class name, or "custom:<file>" for an uploaded one; null uses the default. */
   icon?: string | null;
   /** Exit the job leaves by; sent with list responses only. */
@@ -1248,6 +1250,8 @@ export type JobTemplate = {
   linkedJobCount?: number;
   runEveryDays: number;
   runEveryDaysMax?: number | null;
+  /** Switch a job off as soon as a run succeeds; pushed down to every linked job. */
+  oneTime?: boolean;
   /** Icon jobs created from this template start with; see Job.icon. */
   icon?: string | null;
 };

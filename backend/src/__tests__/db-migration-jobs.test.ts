@@ -83,6 +83,7 @@ const ALTER_MIGRATIONS = [
 const POST_REBUILD_ALTERS = [
   "ALTER TABLE jobs ADD COLUMN run_every_days_max INTEGER",
   "ALTER TABLE jobs ADD COLUMN last_success_at TEXT",
+  "ALTER TABLE jobs ADD COLUMN one_time INTEGER NOT NULL DEFAULT 0",
 ];
 
 // The jobs_v2 swap block from database.ts — must list every column that ALTER_MIGRATIONS adds.
@@ -250,6 +251,38 @@ describe('jobs account_id nullable migration', () => {
   });
 });
 
+// job_templates is never rebuilt, so its columns are plain ALTERs on whatever the
+// installed version left behind.
+describe('job_templates one_time upgrade', () => {
+  const TEMPLATE_ALTERS = [
+    "ALTER TABLE job_templates ADD COLUMN run_every_days_max INTEGER",
+    "ALTER TABLE job_templates ADD COLUMN one_time INTEGER NOT NULL DEFAULT 0",
+  ];
+
+  function runTemplateAlters(db: DB) {
+    for (const sql of TEMPLATE_ALTERS) {
+      try { db.exec(sql); } catch { /* already exists on re-run */ }
+    }
+  }
+
+  it('leaves templates written by an older version switched off', () => {
+    const db = buildFreshDb();
+    db.prepare("INSERT INTO job_templates (name, bot_username) VALUES ('T', 'bot')").run();
+
+    runTemplateAlters(db);
+
+    const tpl = db.prepare("SELECT * FROM job_templates WHERE name = 'T'").get() as any;
+    expect(tpl.one_time).toBe(0);
+    expect(tpl.run_every_days).toBe(1);
+  });
+
+  it('is idempotent across restarts', () => {
+    const db = buildFreshDb();
+    expect(() => runTemplateAlters(db)).not.toThrow();
+    expect(() => runTemplateAlters(db)).not.toThrow();
+  });
+});
+
 describe('jobs columns added after the jobs_v2 rebuild', () => {
   function runPostRebuildAlters(db: DB) {
     for (const sql of POST_REBUILD_ALTERS) {
@@ -273,6 +306,8 @@ describe('jobs columns added after the jobs_v2 rebuild', () => {
     // New columns land as NULL, not as a shifted copy of a neighbouring column
     expect(job.run_every_days_max).toBeNull();
     expect(job.last_success_at).toBeNull();
+    // one_time carries a NOT NULL default, so an upgraded row reads as off rather than null
+    expect(job.one_time).toBe(0);
     expect(db.prepare('SELECT COUNT(*) AS n FROM job_logs').get()).toEqual({ n: 1 });
   });
 
@@ -303,6 +338,7 @@ describe('jobs columns added after the jobs_v2 rebuild', () => {
     runPostRebuildAlters(db);
 
     expect(jobsColumns(db)).toContain('last_success_at');
+    expect(jobsColumns(db)).toContain('one_time');
     expect((db.prepare('PRAGMA table_info(jobs)').all() as ColInfo[])
       .find(c => c.name === 'account_id')?.notnull).toBe(0);
   });
