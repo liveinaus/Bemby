@@ -449,6 +449,53 @@ export type CustomAction = CustomActionCommon &
         profileId?: string;
       }
     | {
+        // Open a link the chat has just offered -- on an inline button, or written into the
+        // message -- in the installed browser, and drive it with the same page sub-steps as
+        // `open_url`. The case it exists for: a bot that answers with a verification link
+        // whose address carries a one-time token, so nothing about it can be typed in
+        // advance. What the page leaves behind (a solved captcha) is what the chat then
+        // accepts, so the step after this one is usually the bot's own "Done" button.
+        type: "open_message_url";
+        /** Whose chat to read the link from. Blank reads the job's bot. */
+        contact?: string;
+        /**
+         * Which link to take: matched against the button label or the words the link sits
+         * under, and against the address itself. `|` separates alternatives. Blank takes
+         * the first link the message offers.
+         */
+        linkText?: string;
+        /**
+         * Only a message whose text contains this is read, so an older link in the same
+         * chat is never reopened. Blank takes the newest message carrying one.
+         */
+        messageContains?: string;
+        /** Messages considered, relative to the last one sent. Same meaning as `wait_reply`. */
+        scope?: number;
+        /**
+         * How long to wait for a message carrying the link, when none is in view yet.
+         * Blank/0 gives it the default short wait.
+         */
+        linkWaitMs?: number;
+        /** Sub-steps run on the page once it is up, in order. */
+        steps?: WebStep[];
+        successContains?: string;
+        failContains?: string;
+        maxRetries?: number;
+        /**
+         * Budget for the browser part of this action, across every proxy tried.
+         * Blank/0 uses the built-in default (5 minutes).
+         */
+        maxWaitMs?: number;
+        /** Proxy the browser exits through: a proxy list id, "direct" for none, or "random" for a draw from `proxyPool`. Blank uses the job's. */
+        proxyId?: string;
+        /** Ids a "random" pick draws from. Empty draws from the whole proxy list. */
+        proxyPool?: string[];
+        /** Work through the rest of the proxy list when an exit is refused. Defaults to true. */
+        tryAllProxies?: boolean;
+        /** Browser profile to run on; same naming as `open_url`. Blank takes the Settings default. */
+        profileId?: string;
+      }
+    | {
         type: "subscribe_channel";
         channelId: string;
         checkMembership?: boolean;

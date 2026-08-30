@@ -623,6 +623,37 @@ export type CustomAction = CustomActionCommon &
        */
       profileId?: string;
     }
+  | {
+      /**
+       * Open a link the chat has just offered -- on a button, or written into the message --
+       * and drive the page with the same sub-steps as `open_url`. For a verification link
+       * whose address carries a one-time token and so cannot be typed in advance.
+       */
+      type: "open_message_url";
+      /** Whose chat to read the link from. Blank reads the job's bot. */
+      contact?: string;
+      /** Which link to take, matched against its label and its address. Blank takes the first. */
+      linkText?: string;
+      /** Only a message whose text contains this is read. */
+      messageContains?: string;
+      scope?: number;
+      /** How long to wait for a message carrying the link. 0/blank uses the default. */
+      linkWaitMs?: number;
+      steps?: WebStep[];
+      successContains?: string;
+      failContains?: string;
+      maxRetries?: number;
+      /** Budget for the browser part, across every proxy tried. 0/blank uses the default. */
+      maxWaitMs?: number;
+      /** Proxy the browser exits through: a proxy id, or "direct". Blank uses the job proxy. */
+      proxyId?: string;
+      /** Ids a "random" pick draws from. Empty draws from the whole proxy list. */
+      proxyPool?: string[];
+      /** Work through the rest of the proxy list when an exit is refused. */
+      tryAllProxies?: boolean;
+      /** Browser profile to run on; same naming as `open_url`. */
+      profileId?: string;
+    }
   | { type: "subscribe_channel"; channelId: string; checkMembership?: boolean }
   | ({
       /**

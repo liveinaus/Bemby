@@ -15,7 +15,10 @@ import {
   isAiBtn,
   parseAiBtnHint,
   hasAiInput,
+  hasAiInputHint,
+  parseAiInputHint,
   parseAiInputLength,
+  buildAiInputPrompt,
   buildCaptchaPrompt,
   htmlToText,
 } from "../jobs/checkin";
@@ -327,5 +330,96 @@ describe("htmlToText", () => {
 
   it("handles nested tags", () => {
     expect(htmlToText("<div><span>text</span></div>")).toBe("text");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseAiInputHint -- the hinted placeholder, which is not {aiInput}
+// ---------------------------------------------------------------------------
+
+describe("parseAiInputHint", () => {
+  it("leaves {aiInput} alone: it is a captcha reader and stays one", () => {
+    expect(hasAiInputHint("{aiInput}")).toBe(false);
+    expect(hasAiInputHint("{aiInput:4}")).toBe(false);
+    expect(parseAiInputHint("{aiInput:4}")).toBeUndefined();
+    // ...and the captcha one does not answer for the hinted placeholder either
+    expect(hasAiInput("{aiInputWithCustomHint:say hello}")).toBe(false);
+  });
+
+  it("reads the hint", () => {
+    expect(parseAiInputHint("{aiInputWithCustomHint:answer the question}")).toEqual({
+      hint: "answer the question",
+    });
+    expect(parseAiInputHint("{aiInputWithCustomHint:回答上面的算术题，只回数字}")).toEqual({
+      hint: "回答上面的算术题，只回数字",
+    });
+  });
+
+  it("still reads the earlier `Hit` spelling, so a job saved with it keeps working", () => {
+    expect(parseAiInputHint("{aiInputWithCustomHit:answer it}")).toEqual({
+      hint: "answer it",
+    });
+    expect(hasAiInputHint("{aiInputWithCustomHit:4-6:answer it}")).toBe(true);
+  });
+
+  it("reads a leading range, either side of it optional", () => {
+    expect(parseAiInputHint("{aiInputWithCustomHint:4-6:answer it}")).toEqual({
+      hint: "answer it",
+      minLen: 4,
+      maxLen: 6,
+    });
+    expect(parseAiInputHint("{aiInputWithCustomHint:4-:answer it}")).toEqual({
+      hint: "answer it",
+      minLen: 4,
+    });
+    expect(parseAiInputHint("{aiInputWithCustomHint:-6:answer it}")).toEqual({
+      hint: "answer it",
+      maxLen: 6,
+    });
+  });
+
+  it("only takes a leading segment that reads as a range, so a hint may have colons", () => {
+    expect(parseAiInputHint("{aiInputWithCustomHint:reply with: yes}")).toEqual({
+      hint: "reply with: yes",
+    });
+    expect(parseAiInputHint("{aiInputWithCustomHint:2-6:reply with: yes}")).toEqual({
+      hint: "reply with: yes",
+      minLen: 2,
+      maxLen: 6,
+    });
+  });
+
+  it("is nothing without a hint, whatever the range says", () => {
+    expect(parseAiInputHint("{aiInputWithCustomHint:}")).toBeUndefined();
+    expect(parseAiInputHint("{aiInputWithCustomHint:   }")).toBeUndefined();
+    expect(parseAiInputHint("{aiInputWithCustomHint:4-6:}")).toBeUndefined();
+  });
+});
+
+describe("buildAiInputPrompt", () => {
+  it("carries the hint and the message, and says whether images came with it", () => {
+    const prompt = buildAiInputPrompt({ hint: "answer the sum" }, "What is 3+5?", false);
+    expect(prompt).toContain("answer the sum");
+    expect(prompt).toContain("What is 3+5?");
+    expect(prompt).not.toContain("image(s) attached");
+    expect(prompt).not.toContain("must be");
+    expect(buildAiInputPrompt({ hint: "read it" }, "see the picture", true)).toContain(
+      "image(s) attached",
+    );
+  });
+
+  it("tells the model the length it is being held to", () => {
+    expect(buildAiInputPrompt({ hint: "x", minLen: 4, maxLen: 6 }, "", false)).toContain(
+      "between 4 and 6 characters",
+    );
+    expect(buildAiInputPrompt({ hint: "x", minLen: 5, maxLen: 5 }, "", false)).toContain(
+      "exactly 5 characters",
+    );
+    expect(buildAiInputPrompt({ hint: "x", minLen: 3 }, "", false)).toContain(
+      "at least 3 characters",
+    );
+    expect(buildAiInputPrompt({ hint: "x", maxLen: 8 }, "", false)).toContain(
+      "at most 8 characters",
+    );
   });
 });

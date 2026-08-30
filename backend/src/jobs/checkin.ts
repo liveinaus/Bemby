@@ -293,15 +293,77 @@ async function callAIWithFallback(
   throw lastError;
 }
 
+/** The captcha placeholder, unchanged: `{aiInput}` reads one, `{aiInput:4}` says how long. */
+export const AI_INPUT_RE = /\{aiInput(?::\d+)?\}/;
+
 /** Returns true if a command template contains an {aiInput} or {aiInput:N} placeholder */
 export function hasAiInput(template: string): boolean {
-  return /\{aiInput(?::\d+)?\}/.test(template);
+  return AI_INPUT_RE.test(template);
 }
 
 /** Extracts the expected length from {aiInput:N}, returns undefined for plain {aiInput} */
 export function parseAiInputLength(template: string): number | undefined {
   const m = template.match(/\{aiInput:(\d+)\}/);
   return m ? parseInt(m[1], 10) : undefined;
+}
+
+/**
+ * The other AI placeholder: `{aiInputWithCustomHint:<hint>}`, where the hint says what to
+ * write rather than what to read. Kept apart from `{aiInput}` on purpose -- that one is a
+ * captcha reader and stays one, so a job written against it cannot change meaning here.
+ *
+ * A length range may lead the payload: `{aiInputWithCustomHint:4-6:<hint>}` asks for an
+ * answer of 4 to 6 characters, and either side may be left off (`4-`, `-6`). It is told to
+ * the model and checked on the way back, so an answer that ran on into an explanation fails
+ * the step rather than being sent to the bot.
+ *
+ * `Hit` is read as `Hint` too: the placeholder went out under that spelling briefly, and a
+ * job saved with it should not quietly stop working.
+ */
+export const AI_INPUT_HINT_RE = /\{aiInputWithCustomHi(?:n)?t:([^}]*)\}/;
+
+/** A hinted input as the placeholder spells it out. */
+export type AiInputHint = { hint: string; minLen?: number; maxLen?: number };
+
+/** Returns true if a command template carries an {aiInputWithCustomHint:...} placeholder */
+export function hasAiInputHint(template: string): boolean {
+  return AI_INPUT_HINT_RE.test(template);
+}
+
+/**
+ * Reads the payload of `{aiInputWithCustomHint:...}`: an optional `min-max:` in front, and
+ * the hint itself. A hint may carry colons of its own -- only a leading segment that reads
+ * as a range is taken as one.
+ */
+export function parseAiInputHint(template: string): AiInputHint | undefined {
+  const payload = template.match(AI_INPUT_HINT_RE)?.[1];
+  if (payload == null) return undefined;
+
+  const ranged = payload.match(/^\s*(\d*)-(\d*)\s*:([\s\S]*)$/);
+  if (ranged && (ranged[1] || ranged[2])) {
+    const hint = ranged[3].trim();
+    if (!hint) return undefined;
+    return {
+      hint,
+      ...(ranged[1] ? { minLen: parseInt(ranged[1], 10) } : {}),
+      ...(ranged[2] ? { maxLen: parseInt(ranged[2], 10) } : {}),
+    };
+  }
+
+  const hint = payload.trim();
+  return hint ? { hint } : undefined;
+}
+
+/** How an answer's length is described, for the prompt and for the error when it is wrong. */
+export function aiInputLengthRule(spec: AiInputHint): string {
+  const { minLen, maxLen } = spec;
+  if (minLen && maxLen)
+    return minLen === maxLen
+      ? `exactly ${minLen} characters`
+      : `between ${minLen} and ${maxLen} characters`;
+  if (minLen) return `at least ${minLen} characters`;
+  if (maxLen) return `at most ${maxLen} characters`;
+  return "";
 }
 
 type AiInputResult = { text: string; prompt: string; response: string };
@@ -324,6 +386,45 @@ export async function recognizeCaptchaWithAI(
   const { response: recognized } = await callAIWithFallback(images, prompt, AI_ANSWER_MAX_TOKENS);
   if (!recognized) throw new Error('AI returned empty response for captcha recognition');
   return { text: recognized, prompt, response: recognized };
+}
+
+/** The prompt behind `{aiInputWithCustomHint:...}`, so a caller can log it before the fetch. */
+export function buildAiInputPrompt(
+  spec: AiInputHint,
+  text: string,
+  hasImages: boolean,
+): string {
+  const rule = aiInputLengthRule(spec);
+  return (
+    `Task: "${spec.hint}".\n\nThe message:\n${text}\n\n` +
+    (hasImages ? "The image(s) attached to it are included.\n\n" : "") +
+    `Write the reply to send back, following the task.` +
+    (rule ? ` The reply must be ${rule}.` : "") +
+    ` You MUST reply with ONLY the text to send, nothing else -- no quotes, no ` +
+    `explanation, no thinking logic.`
+  );
+}
+
+/**
+ * Answers the message in words, for `{aiInputWithCustomHint:<hint>}`. Unlike the captcha read
+ * this is given the message itself as well as its images: what to reply is usually in the
+ * wording ("what is 3+5?", "type the third word above"), not in a picture.
+ */
+export async function answerWithAI(
+  images: string[],
+  html: string,
+  spec: AiInputHint,
+): Promise<AiInputResult> {
+  if (!resolveAICreds().apiKey)
+    throw new Error(
+      '{aiInputWithCustomHint} requires an AI API key -- configure it in Settings',
+    );
+
+  const prompt = buildAiInputPrompt(spec, htmlToText(html), images.length > 0);
+  const { response } = await callAIWithFallback(images, prompt, AI_ANSWER_MAX_TOKENS);
+  const text = response?.trim() ?? "";
+  if (!text) throw new Error("AI returned an empty answer for {aiInputWithCustomHint}");
+  return { text, prompt, response };
 }
 
 type AiSelectionResult = { button: string; prompt: string; response: string; retries: string[] };

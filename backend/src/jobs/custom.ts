@@ -13,9 +13,17 @@ import {
   waitForNewBotMessage,
   isAiBtn,
   parseAiBtnHint,
+  AI_INPUT_HINT_RE,
+  AI_INPUT_RE,
+  aiInputLengthRule,
   hasAiInput,
+  hasAiInputHint,
+  parseAiInputHint,
   parseAiInputLength,
   recognizeCaptchaWithAI,
+  answerWithAI,
+  buildAiInputPrompt,
+  htmlToText,
   buildCaptchaPrompt,
   findUrlButton,
   callAI,
@@ -46,6 +54,7 @@ import {
   webButtonOf,
   type WebButton,
 } from "../tg/miniApp";
+import { pickMessageLink, type MessageLink } from "../tg/messageLinks";
 import { resolvePeerTarget } from "../tg/peerTarget";
 import {
   cfMaxCandidates,
@@ -392,6 +401,117 @@ function waitBudget(maxWaitMs?: number): () => number {
   const deadline =
     Date.now() + (maxWaitMs && maxWaitMs > 0 ? maxWaitMs : DEFAULT_ACTION_WAIT_MS);
   return () => Math.max(MIN_WAIT_SLICE_MS, deadline - Date.now());
+}
+
+/**
+ * Fills whichever AI placeholder the content carries from the message the bot last sent:
+ * `{aiInput}` / `{aiInput:N}` reads a captcha off its image, `{aiInputWithCustomHint:<hint>}`
+ * has the model read the message and write the reply the hint asks for -- which is what a
+ * bot asking its question in words needs. Content carrying neither is handed back untouched.
+ */
+async function fillAiInput(
+  client: TelegramClient,
+  messages: Api.Message[],
+  content: string,
+  step: CustomStepLog,
+  signal?: AbortSignal,
+): Promise<string> {
+  const spec = hasAiInputHint(content) ? parseAiInputHint(content) : undefined;
+  if (!spec && !hasAiInput(content)) return content;
+
+  const length = spec ? undefined : parseAiInputLength(content);
+  const parsed = await parseMessages(messages, client, signal);
+  if (parsed.images[0]) step.preClickImage = parsed.images[0];
+  // The wording is what a hinted answer is worked out from, so the log keeps it
+  if (spec && parsed.html) step.preClickHtml = parsed.html;
+
+  // Logged before the call, so a run that fails on the AI still shows what it was asked
+  step.aiPrompt = spec
+    ? buildAiInputPrompt(spec, htmlToText(parsed.html ?? ""), parsed.images.length > 0)
+    : buildCaptchaPrompt(length);
+
+  const aiStart = Date.now();
+  const answer = await (spec
+    ? answerWithAI(parsed.images, parsed.html ?? "", spec)
+    : recognizeCaptchaWithAI(parsed.images, length))
+    .then((r) => {
+      step.aiResponse = r.response;
+      return r;
+    })
+    .finally(() => {
+      step.aiDurationMs = Date.now() - aiStart;
+    });
+
+  // A captcha is held to the length it was said to be; a hinted answer to the range the
+  // placeholder asked for. Either way a wrong length is the step failing rather than a
+  // half-read answer going out to the bot.
+  if (length && answer.text.length !== length) {
+    throw new Error(
+      `AI returned ${answer.text.length} chars ("${answer.text}") but expected ${length}`,
+    );
+  }
+  if (spec && (spec.minLen || spec.maxLen)) {
+    const n = answer.text.length;
+    if ((spec.minLen && n < spec.minLen) || (spec.maxLen && n > spec.maxLen)) {
+      throw new Error(
+        `AI answered ${n} chars ("${answer.text.slice(0, 80)}") but the step asks for ` +
+          `${aiInputLengthRule(spec)}`,
+      );
+    }
+  }
+  return content.replace(spec ? AI_INPUT_HINT_RE : AI_INPUT_RE, answer.text);
+}
+
+/**
+ * Waits for a message in a chat that offers a link the picker accepts. Edits count as
+ * arrivals: a bot that sends its text first and then edits the link in is making the same
+ * offer as one that sends both at once. Resolves null on timeout or abort -- what a missing
+ * link means is the caller's to say.
+ */
+async function waitForLinkInChat(
+  client: TelegramClient,
+  chat: Api.TypeEntityLike,
+  maxMs: number,
+  pick: (msg: Api.Message) => MessageLink | undefined,
+  signal?: AbortSignal,
+): Promise<{ msg: Api.Message; link: MessageLink } | null> {
+  const chatPeerId = await client.getPeerId(chat).catch(() => null);
+
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve(null);
+      return;
+    }
+
+    const finish = (found: { msg: Api.Message; link: MessageLink } | null) => {
+      clearTimeout(timer);
+      client.removeEventHandler(handler, new NewMessage({}));
+      client.removeEventHandler(editHandler, new Raw({}));
+      signal?.removeEventListener("abort", onAbort);
+      resolve(found);
+    };
+
+    const timer = setTimeout(() => finish(null), maxMs);
+    const onAbort = () => finish(null);
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    // The chat is matched by id here rather than through NewMessage({ chats }), which
+    // stringifies an entity to "[object Object]" and throws while resolving it.
+    const consider = (msg: Api.Message | undefined) => {
+      if (!msg?.peerId || (chatPeerId != null && utils.getPeerId(msg.peerId) !== chatPeerId))
+        return;
+      const link = pick(msg);
+      if (link) finish({ msg, link });
+    };
+
+    const handler = async (event: NewMessageEvent) => consider(event.message as Api.Message);
+    const editHandler = async (update: any) => {
+      if (isEditUpdate(update)) consider(update.message as Api.Message);
+    };
+
+    client.addEventHandler(handler, new NewMessage({}));
+    client.addEventHandler(editHandler, new Raw({}));
+  });
 }
 
 // Waits for the next new message arriving in a specific chat. Never rejects -- resolves null
@@ -1146,6 +1266,8 @@ export function stepNeedingBot(
       // bot what it pins beside the composer. Neither has anything to work from otherwise.
       case "open_mini_app":
       case "open_bot_menu_app":
+      // And this one reads a chat for the link it opens, so it needs to know whose.
+      case "open_message_url":
         return !a.contact?.trim();
       case "open_mini_app_url":
       case "send_contact_message":
@@ -1441,38 +1563,13 @@ export async function runCustom(
               }
 
               case "send_command": {
-                let content = action.content;
-                if (hasAiInput(content)) {
-                  const length = parseAiInputLength(content);
-                  const parsed = await parseMessages(
-                    lastMessages,
-                    client,
-                    signal,
-                  );
-                  if (parsed.images[0]) step.preClickImage = parsed.images[0];
-                  step.aiPrompt = buildCaptchaPrompt(length);
-                  const aiStart = Date.now();
-                  const aiResult = await recognizeCaptchaWithAI(
-                    parsed.images,
-                    length,
-                  )
-                    .then((r) => {
-                      step.aiResponse = r.response;
-                      return r;
-                    })
-                    .finally(() => {
-                      step.aiDurationMs = Date.now() - aiStart;
-                    });
-                  if (length && aiResult.text.length !== length) {
-                    throw new Error(
-                      `AI returned ${aiResult.text.length} chars ("${aiResult.text}") but expected ${length}`,
-                    );
-                  }
-                  content = content.replace(
-                    /\{aiInput(?::\d+)?\}/,
-                    aiResult.text,
-                  );
-                }
+                const content = await fillAiInput(
+                  client,
+                  lastMessages,
+                  action.content,
+                  step,
+                  signal,
+                );
                 const expanded = expandCommand(content);
                 step.label = `Send: "${expanded}"`;
                 const sentCmd = await client.sendMessage(botUsername, {
@@ -1488,38 +1585,13 @@ export async function runCustom(
               case "send_contact_message": {
                 const contact = action.contact.trim();
                 const entity = await resolvePeerTarget(client, contact);
-                let content = action.content;
-                if (hasAiInput(content)) {
-                  const length = parseAiInputLength(content);
-                  const parsed = await parseMessages(
-                    lastMessages,
-                    client,
-                    signal,
-                  );
-                  if (parsed.images[0]) step.preClickImage = parsed.images[0];
-                  step.aiPrompt = buildCaptchaPrompt(length);
-                  const aiStart = Date.now();
-                  const aiResult = await recognizeCaptchaWithAI(
-                    parsed.images,
-                    length,
-                  )
-                    .then((r) => {
-                      step.aiResponse = r.response;
-                      return r;
-                    })
-                    .finally(() => {
-                      step.aiDurationMs = Date.now() - aiStart;
-                    });
-                  if (length && aiResult.text.length !== length) {
-                    throw new Error(
-                      `AI returned ${aiResult.text.length} chars ("${aiResult.text}") but expected ${length}`,
-                    );
-                  }
-                  content = content.replace(
-                    /\{aiInput(?::\d+)?\}/,
-                    aiResult.text,
-                  );
-                }
+                const content = await fillAiInput(
+                  client,
+                  lastMessages,
+                  action.content,
+                  step,
+                  signal,
+                );
                 const expanded = expandCommand(content);
                 step.label = `Send to ${contact}: "${expanded}"`;
                 const sentContact = await client.sendMessage(entity, {
@@ -3387,11 +3459,94 @@ export async function runCustom(
                 break;
               }
 
+              case "open_message_url":
               case "open_url": {
-                // Placeholders are expanded the same way a command's are, so a URL can carry
-                // a random query value per run
-                const url = expandCommand(action.url ?? "").trim();
+                // Both open a page in the browser and differ only in where the address comes
+                // from -- one is typed, the other read off a message -- so the resolution is
+                // per type and everything past it is shared.
                 const webSteps = action.steps ?? [];
+                const stepsNote = webSteps.length
+                  ? ` (${webSteps.length} page step${webSteps.length > 1 ? "s" : ""})`
+                  : "";
+                let url: string;
+                // What the log calls the thing that was opened: the wording the link was
+                // offered under, which is what the operator sees in the chat
+                let linkLabel = "";
+
+                if (action.type === "open_message_url") {
+                  const contact = action.contact?.trim() ?? "";
+                  const target = contact || botUsername;
+                  const want = action.linkText?.trim() ?? "";
+                  const mustContain = action.messageContains?.trim() ?? "";
+                  step.label = `Open link${want ? ` "${want}"` : ""} from ${target || "the bot"}${stepsNote}`;
+                  if (!target)
+                    throw new Error(
+                      "No contact to read a link from, and the job has no bot",
+                    );
+
+                  const entity: Api.TypeEntityLike = contact
+                    ? await resolvePeerTarget(client, contact)
+                    : botUsername;
+                  const anchor = contact ? contactAnchors.get(contact) : sendAnchor;
+                  const minId = await resolveScopeFloor(
+                    client,
+                    entity,
+                    anchor?.msgId ?? 0,
+                    action.scope,
+                  );
+                  // Our own messages carry links too (a command we sent back), and a stale
+                  // link from an earlier turn is exactly what the scope floor keeps out
+                  const pick = (m: Api.Message): MessageLink | undefined =>
+                    m && !m.out && m.id >= minId && msgTextMatches(m, mustContain)
+                      ? pickMessageLink(m, want)
+                      : undefined;
+
+                  // Newest first: the link the bot has just sent, not one further back
+                  const recent = (await client.getMessages(entity, {
+                    limit: 10,
+                  })) as Api.Message[];
+                  let hit: { msg: Api.Message; link: MessageLink } | null = null;
+                  for (const m of recent) {
+                    const link = pick(m);
+                    if (link) {
+                      hit = { msg: m, link };
+                      break;
+                    }
+                  }
+                  if (!hit)
+                    hit = await waitForLinkInChat(
+                      client,
+                      entity,
+                      waitBudget(action.linkWaitMs)(),
+                      pick,
+                      signal,
+                    );
+                  if (signal?.aborted) throw new Error("Job cancelled");
+                  if (!hit)
+                    throw new Error(
+                      `No link${want ? ` matching "${want}"` : ""} from ${target}` +
+                        `${mustContain ? ` in a message containing "${mustContain}"` : ""}. ` +
+                        "Mini App buttons and t.me links are not web pages; the Mini App " +
+                        "actions open those.",
+                    );
+
+                  url = hit.link.url;
+                  linkLabel = hit.link.text;
+                  if (hit.link.fromButton) step.clickedButton = hit.link.text;
+                  // The message the link was taken from, so the log shows the offer as it
+                  // was made rather than just the address that came out of it
+                  const parsed = await parseMessages([hit.msg], client, signal);
+                  if (parsed.html) step.preClickHtml = parsed.html;
+                  if (parsed.buttons.length) step.preClickButtons = parsed.buttons;
+                } else {
+                  // Placeholders are expanded the same way a command's are, so a URL can carry
+                  // a random query value per run
+                  url = expandCommand(action.url ?? "").trim();
+                  // Named before the checks below, so a misconfigured URL still logs a step
+                  // that says which one it was
+                  step.label = `Open ${url || "(no URL)"}${stepsNote}`;
+                }
+
                 const cfHost = (() => {
                   try {
                     return new URL(url).host;
@@ -3399,9 +3554,8 @@ export async function runCustom(
                     return "";
                   }
                 })();
-                // Named before the checks below, so a misconfigured URL still logs a step
-                // that says which one it was
-                step.label = `Open ${cfHost || url || "(no URL)"}${webSteps.length ? ` (${webSteps.length} page step${webSteps.length > 1 ? "s" : ""})` : ""}`;
+                if (action.type === "open_url" && cfHost)
+                  step.label = `Open ${cfHost}${stepsNote}`;
                 if (!url) throw new Error("No URL configured for this step");
                 if (!/^https?:\/\//i.test(url))
                   throw new Error(`URL must start with http:// or https:// (got "${url}")`);
@@ -3676,9 +3830,14 @@ export async function runCustom(
                   );
                 }
                 const ran = (cf.webSteps ?? []).filter((s) => s.outcome).length;
+                // The link's own wording is worth keeping: the address is a one-time token,
+                // so the label is the only part of it a later read will recognise
+                const opened = linkLabel
+                  ? `"${linkLabel}" (${cf.finalHost})`
+                  : cf.finalHost;
                 step.result = webSteps.length
-                  ? `Opened ${cf.finalHost}, ran ${ran}/${webSteps.length} page step(s)`
-                  : `Opened ${cf.finalHost}`;
+                  ? `Opened ${opened}, ran ${ran}/${webSteps.length} page step(s)`
+                  : `Opened ${opened}`;
 
                 if (textSaysFail(cf.text, action.failContains)) {
                   throw new Error(`Page indicates failure: "${expandDatePlaceholders(action.failContains ?? "")}" detected`);

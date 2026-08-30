@@ -1306,7 +1306,10 @@
                     >
                     等），以及 <code>{aiInput}</code> /
                     <code>{aiInput:N}</code>——自动将上一条消息中的图片发给 AI
-                    识别，将识别出的字符填入发送内容。支持独立的<strong>最大重试次数</strong>配置。
+                    识别，将识别出的字符填入发送内容。另有
+                    <code>{aiInputWithCustomHint:提示}</code>：把提示连同机器人最近一条消息（文字与图片）交给
+                    AI，AI 写出什么就发送什么，适用于机器人用文字提问（算术题、按说明作答）的情况；可写成
+                    <code>{aiInputWithCustomHint:4-6:提示}</code> 限定回答长度（两端可只填其一），该范围会写进提示，返回结果超出范围时本步骤失败，避免把带解释的长句发出去。两个占位符互不影响。支持独立的<strong>最大重试次数</strong>配置。
                   </td>
                 </tr>
                 <tr>
@@ -1452,6 +1455,9 @@
             </div>
             <p class="help-para">
               自定义任务可打开小程序并在其中操作：<strong>打开小程序</strong>（在最近消息里找按钮）、<strong>打开小程序（网址）</strong>（<code>t.me/&lt;机器人&gt;/&lt;应用&gt;</code> 链接由链接自身确定机器人，普通 https 地址由“所属机器人”签名）、<strong>打开机器人菜单小程序</strong>（贴在输入框旁的那个，聊天记录里找不到）。
+            </p>
+            <p class="help-para">
+              网页则有两种打开方式：地址固定时用<strong>打开网页</strong>；地址由机器人临时给出时用<strong>打开消息中的链接</strong>——它从对话最近的消息里取链接（按钮上的，或正文里的文字链接），在浏览器中打开并按子步骤操作。机器人发来的人机验证链接就属于后者：地址带一次性令牌，无法事先填写。可用“链接文字”指定取哪一个（同时匹配链接文字与网址，多个写法用 <code>|</code> 分隔），用“链接所在消息需包含”避免取到旧链接。页面验证完成后，回到对话点击机器人的“Done”按钮即可，用<strong>点击按钮</strong>动作作为下一步。小程序按钮与 t.me 链接不会被当作网页，请改用上面的小程序动作。
             </p>
             <p class="help-para">
               打开后可编排<strong>子步骤</strong>：点击、填写、等待元素、滚动（元素或页面）、断言文字；标签支持多语言候选（同一按钮在不同语言下的写法），也支持 CSS 选择器。小程序在流程中途弹出 Cloudflare Turnstile 人机验证时，用 <code>{turnstile}</code> 步骤勾选复选框，它通过浏览器协议定位组件，无需 AI 判断坐标；IP 良好时验证会自动通过、页面上不出现复选框，此时该步骤同样算成功。地址由 Telegram 按本任务的账户签名，并在已安装的指纹修补浏览器中打开，因此能通过 Cloudflare 验证；<strong>浏览器代理</strong>决定出口 IP（与 Telegram 连接分开），可开启“依次尝试其他代理”。凡是可以选择代理的位置，都可以选择<strong>随机代理</strong>：每次运行从勾选的随机池中抽取一个（不勾选则从整个代理列表抽取），被拒绝时的轮换也只在该池内进行。随机池可按<strong>供应商</strong>整体勾选，代表其当前的全部代理，同步后新增或删除的代理会自动跟随。健康检查失败的代理会被<strong>停用</strong>，抽取、供应商与轮换都会跳过；导入或刷新代理列表后会立即测试一次，也可在“设置 → 代理”中设置自动测试间隔，并可额外要求能访问 challenges.cloudflare.com 或指定网址。测试失败而停用的代理仍会参与每次测试，通过后自动恢复；此外可在代理列表中<strong>手动关闭</strong>某个代理，手动关闭不会被自动测试覆盖，只能手动启用。还可开启<strong>使用前先检查代理</strong>：任务运行前测试即将使用的代理，随机池按抽取顺序依次检查并使用第一个可用的；若只剩一个代理且检查失败，任务直接失败，不会改用本机 IP 出网。
@@ -1768,7 +1774,18 @@
                     <code>{aiInput}</code> / <code>{aiInput:N}</code> -- the
                     image from the previous bot message is sent to AI, the
                     recognised characters are substituted into the message
-                    before sending. Has its own
+                    before sending.
+                    <code>{aiInputWithCustomHint:a hint}</code> is the other one:
+                    the hint goes to the model with the bot's last message --
+                    its wording and any image -- and whatever comes back is
+                    sent, which is what a bot that asks its question in words
+                    needs (an arithmetic question, or one answered by following
+                    instructions in the message). Write it as
+                    <code>{aiInputWithCustomHint:4-6:a hint}</code> to hold the
+                    answer to a length, either end optional: the range goes into
+                    the prompt and an answer outside it fails the step rather
+                    than sending the bot a sentence with an explanation in it.
+                    The two placeholders are independent. Has its own
                     <strong>Max retries</strong> setting.
                   </td>
                 </tr>
@@ -1977,6 +1994,9 @@
             </div>
             <p class="help-para">
               A custom job can open a Mini App and work inside it: <strong>Open Mini App</strong> (finds the button in recent messages), <strong>Open Mini App (URL)</strong> (a <code>t.me/&lt;bot&gt;/&lt;app&gt;</code> link names its own bot; a plain https address is signed through the owning bot), and <strong>Open the bot's menu Mini App</strong> (the one pinned beside the composer, which appears nowhere in the chat history).
+            </p>
+            <p class="help-para">
+              A plain page opens one of two ways. <strong>Open web page</strong> takes an address you type. <strong>Open link from message</strong> instead reads one out of the chat -- off a button, or a link written into the message -- and opens that, which is what a verification link needs: its address carries a one-time token, so there is nothing to type in advance. <strong>Link text</strong> says which link to take (matched against the link's wording and then against the address, <code>|</code> separating alternatives) and <strong>Link message contains</strong> keeps an older link in the same chat out of reach. Once the page is done, the chat usually wants its own button pressed -- follow this step with a <strong>Click button</strong> for the bot's “Done”. Mini App buttons and t.me links are not treated as pages; the Mini App actions above open those.
             </p>
             <p class="help-para">
               Once open, <strong>sub-steps</strong> drive it: click, fill, wait for an element, scroll (an element or the page), assert text. Labels accept multi-language alternatives for a control worded differently per locale, and CSS selectors work too. A Cloudflare Turnstile checkbox the app raises partway through its flow is ticked by the <code>{turnstile}</code> step, which finds the widget through the browser's own protocol instead of guessing at coordinates; a page that shows no checkbox passes the step, because Turnstile clears itself for an address it likes. The address is signed by Telegram for this job's account and opened in the installed fingerprint-patched browser, which is what gets past Cloudflare; the <strong>browser proxy</strong> sets the exit IP (separate from the Telegram connection) and can work through the rest of the list when an exit is refused. Anywhere a proxy is picked, <strong>Random</strong> draws one per run instead, from a pool you tick or from the whole list when you tick none; a refusal then falls through that pool rather than the whole list. A pool can be ticked by <strong>supplier</strong> instead of exit by exit, which stands for whatever that provider currently lists, so a sync that adds or drops proxies is followed. An exit that fails its health check is <strong>disabled</strong> and every draw, supplier and rotation skips it. An import or refresh tests its list on arrival, Settings &rarr; Proxies sets how often the whole list is re-tested on its own, and a test can be asked to require reaching challenges.cloudflare.com or a URL of your own. Exits a test disabled are tested along with the rest, which is how one comes back. An exit can also be <strong>turned off by hand</strong> in the proxy list: no test sets or clears that, and it rejoins the draws only when you turn it back on. <strong>Check the exit before a run uses it</strong> adds a test on the run's own path: a draw takes the first candidate that answers, and a single exit that refuses fails the run rather than letting it out through the host's own address.

@@ -41,6 +41,12 @@ export type CustomActionForm = {
   contentDropdown: string;
   contentCustom: string;
   contentAiInputLength: string;
+  /** send_command: what {aiInputWithCustomHint} should write, for a question asked in words. */
+  contentAiInputHint: string;
+  /** send_command: shortest answer {aiInputWithCustomHint} may come back with. Blank = any. */
+  contentAiInputMinLen: string;
+  /** send_command: longest answer it may come back with. Blank = any. */
+  contentAiInputMaxLen: string;
   maxWaitMs: number;
   waitMs: number;
   /** ai_multiple_btn: pause between the clicks. */
@@ -83,6 +89,10 @@ export type CustomActionForm = {
   keepAppSession: boolean;
   /** open_url: the page to open */
   url: string;
+  /** open_message_url: which link to take, matched on its label and its address */
+  linkText: string;
+  /** open_message_url: how long to wait for a message carrying the link */
+  linkWaitMs: number;
   /** open_url: sub-steps run on the page once it is up */
   webSteps: WebStepForm[];
   /** Carry on with the next action when this one fails, rather than failing the job. */
@@ -118,6 +128,9 @@ export function defaultAction(): CustomActionForm {
     contentDropdown: "/start",
     contentCustom: "",
     contentAiInputLength: "",
+    contentAiInputHint: "",
+    contentAiInputMinLen: "",
+    contentAiInputMaxLen: "",
     maxWaitMs: 30000,
     waitMs: 2000,
     gapMs: 1000,
@@ -149,6 +162,8 @@ export function defaultAction(): CustomActionForm {
     profileId: "",
     keepAppSession: false,
     url: "",
+    linkText: "",
+    linkWaitMs: 30000,
     webSteps: [],
     continueOnError: false,
     cond: defaultCondition(),
@@ -185,6 +200,7 @@ export function offeredActionTypes(
     "open_mini_app_url",
     "open_bot_menu_app",
     "open_url",
+    "open_message_url",
     "end_job",
     "fail_job",
   ];
@@ -229,8 +245,8 @@ export function actionsFromConfig(actions: CustomAction[] | undefined): CustomAc
     const common = { continueOnError: a.continueOnError ?? false };
 
     if (a.type === "send_command" || a.type === "send_contact_message") {
-      const aiInputMatch = a.content.match(/^\{aiInput(?::(\d+))?\}$/);
       const contactField = a.type === "send_contact_message" ? { contact: a.contact } : {};
+      const aiInputMatch = a.content.match(/^\{aiInput(?::(\d+))?\}$/);
       if (aiInputMatch)
         return {
           ...base,
@@ -243,6 +259,27 @@ export function actionsFromConfig(actions: CustomAction[] | undefined): CustomAc
           contentAiInputLength: aiInputMatch[1] ?? "",
           maxRetries: a.maxRetries ?? 0,
         };
+      // The hinted one, with the length range that may lead its payload. Only a leading
+      // segment reading as a range counts, so a hint of its own may carry colons.
+      const aiHintMatch = a.content.match(/^\{aiInputWithCustomHi(?:n)?t:([\s\S]*)\}$/);
+      if (aiHintMatch) {
+        const payload = aiHintMatch[1];
+        const ranged = payload.match(/^\s*(\d*)-(\d*)\s*:([\s\S]*)$/);
+        const ranges = ranged && (ranged[1] || ranged[2]) ? ranged : null;
+        return {
+          ...base,
+          ...common,
+          ...contactField,
+          type: a.type,
+          content: a.content,
+          contentDropdown: "{aiInputWithCustomHint}",
+          contentCustom: "",
+          contentAiInputHint: (ranges ? ranges[3] : payload).trim(),
+          contentAiInputMinLen: ranges?.[1] ?? "",
+          contentAiInputMaxLen: ranges?.[2] ?? "",
+          maxRetries: a.maxRetries ?? 0,
+        };
+      }
       const contentDropdown = ACTION_CMD_PRESETS.has(a.content) ? a.content : "custom";
       return {
         ...base,
@@ -253,6 +290,7 @@ export function actionsFromConfig(actions: CustomAction[] | undefined): CustomAc
         contentDropdown,
         contentCustom: contentDropdown === "custom" ? a.content : "",
         contentAiInputLength: "",
+        contentAiInputHint: "",
         maxRetries: a.maxRetries ?? 0,
       };
     }
@@ -322,12 +360,21 @@ export function actionsFromConfig(actions: CustomAction[] | undefined): CustomAc
         profileId: a.profileId ?? "",
         keepAppSession: a.keepAppSession ?? false,
       };
-    if (a.type === "open_url")
+    if (a.type === "open_url" || a.type === "open_message_url")
       return {
         ...base,
         ...common,
         type: a.type,
-        url: a.url ?? "",
+        url: a.type === "open_url" ? (a.url ?? "") : "",
+        ...(a.type === "open_message_url"
+          ? {
+              contact: a.contact ?? "",
+              linkText: a.linkText ?? "",
+              messageContains: a.messageContains ?? "",
+              scope: a.scope ?? 0,
+              linkWaitMs: a.linkWaitMs ?? 30000,
+            }
+          : {}),
         webSteps: webStepsFromConfig(a.steps),
         successContains: a.successContains ?? "",
         failContains: a.failContains ?? "",
@@ -413,6 +460,14 @@ export function actionsToConfig(forms: CustomActionForm[]): CustomAction[] {
         content = a.contentAiInputLength
           ? `{aiInput:${a.contentAiInputLength}}`
           : "{aiInput}";
+      } else if (a.contentDropdown === "{aiInputWithCustomHint}") {
+        // Braces would end the placeholder early, and the range only goes in front of the
+        // hint when one of its two ends was actually given
+        const hint = a.contentAiInputHint.trim().replace(/[{}]/g, "");
+        const min = a.contentAiInputMinLen.trim();
+        const max = a.contentAiInputMaxLen.trim();
+        const range = min || max ? `${min}-${max}:` : "";
+        content = `{aiInputWithCustomHint:${range}${hint}}`;
       } else {
         content = a.contentDropdown === "custom" ? a.contentCustom : a.contentDropdown;
       }
@@ -499,11 +554,9 @@ export function actionsToConfig(forms: CustomActionForm[]): CustomAction[] {
         return { ...shared, type: "open_mini_app_url" as const, url: a.url.trim() };
       return { ...shared, type: "open_bot_menu_app" as const };
     }
-    if (a.type === "open_url")
-      return {
+    if (a.type === "open_url" || a.type === "open_message_url") {
+      const shared = {
         ...common,
-        type: "open_url" as const,
-        url: a.url.trim(),
         ...(a.webSteps.length ? { steps: webStepsToConfig(a.webSteps) } : {}),
         ...(a.successContains.trim() ? { successContains: a.successContains.trim() } : {}),
         ...(a.failContains.trim() ? { failContains: a.failContains.trim() } : {}),
@@ -513,6 +566,18 @@ export function actionsToConfig(forms: CustomActionForm[]): CustomAction[] {
         ...(a.miniAppTryAllProxies ? {} : { tryAllProxies: false }),
         ...(a.profileId ? { profileId: a.profileId } : {}),
       };
+      if (a.type === "open_url")
+        return { ...shared, type: "open_url" as const, url: a.url.trim() };
+      return {
+        ...shared,
+        type: "open_message_url" as const,
+        ...(a.contact.trim() ? { contact: a.contact.trim() } : {}),
+        ...(a.linkText.trim() ? { linkText: a.linkText.trim() } : {}),
+        ...(a.messageContains.trim() ? { messageContains: a.messageContains.trim() } : {}),
+        ...(a.scope ? { scope: a.scope } : {}),
+        ...(a.linkWaitMs > 0 ? { linkWaitMs: a.linkWaitMs } : {}),
+      };
+    }
     if (a.type === "ai_multiple_btn")
       return {
         ...common,

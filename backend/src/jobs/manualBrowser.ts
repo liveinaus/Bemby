@@ -141,7 +141,13 @@ function browserActionOf(job: Job): CustomAction | undefined {
     return undefined;
   }
   return (cfg.actions ?? []).find((a) =>
-    ["open_url", "open_mini_app", "open_mini_app_url", "open_bot_menu_app"].includes(a.type),
+    [
+      "open_url",
+      "open_message_url",
+      "open_mini_app",
+      "open_mini_app_url",
+      "open_bot_menu_app",
+    ].includes(a.type),
   );
 }
 

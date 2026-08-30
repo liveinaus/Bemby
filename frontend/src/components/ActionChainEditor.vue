@@ -24,6 +24,7 @@
             <option value="/start">/start</option>
             <option value="/checkin">/checkin</option>
             <option value="{aiInput}" :disabled="aiKeyMissing">{{ t('jobs.aiInputOption') }}{{ aiKeyMissing ? ' (' + t('jobs.noApiKey') + ')' : '' }}</option>
+            <option value="{aiInputWithCustomHint}" :disabled="aiKeyMissing">{{ t('jobs.aiInputHintOption') }}{{ aiKeyMissing ? ' (' + t('jobs.noApiKey') + ')' : '' }}</option>
             <option value="custom">{{ t('common.custom') }}...</option>
           </select>
           <input v-if="action.contentDropdown === 'custom'" v-model="action.contentCustom" class="form-input" style="margin-top:6px" placeholder="/mycommand" />
@@ -32,11 +33,27 @@
             <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLengthHint') }}</div>
             <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
           </template>
+          <template v-else-if="action.contentDropdown === '{aiInputWithCustomHint}'">
+            <textarea v-model="action.contentAiInputHint" class="form-input" style="margin-top:6px;min-height:64px;resize:vertical" rows="3" :placeholder="t('jobs.aiInputHintPlaceholder')"></textarea>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputHintHint') }}</div>
+            <div class="form-row" style="margin-bottom:0;margin-top:6px">
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label">{{ t('jobs.aiInputMinLenLabel') }}</label>
+                <input v-model.trim="action.contentAiInputMinLen" class="form-input" type="number" min="1" max="4096" :placeholder="t('jobs.aiInputLenPlaceholder')" />
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label">{{ t('jobs.aiInputMaxLenLabel') }}</label>
+                <input v-model.trim="action.contentAiInputMaxLen" class="form-input" type="number" min="1" max="4096" :placeholder="t('jobs.aiInputLenPlaceholder')" />
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLenRangeHint') }}</div>
+            <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
+          </template>
           <div v-else style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.contentHint') }}</div>
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
-          <input v-model.number="action.maxRetries" class="form-input" type="number" min="0" max="10" />
+          <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
         </div>
       </div>
     </div>
@@ -55,6 +72,7 @@
             <option value="/start">/start</option>
             <option value="/checkin">/checkin</option>
             <option value="{aiInput}" :disabled="aiKeyMissing">{{ t('jobs.aiInputOption') }}{{ aiKeyMissing ? ' (' + t('jobs.noApiKey') + ')' : '' }}</option>
+            <option value="{aiInputWithCustomHint}" :disabled="aiKeyMissing">{{ t('jobs.aiInputHintOption') }}{{ aiKeyMissing ? ' (' + t('jobs.noApiKey') + ')' : '' }}</option>
             <option value="custom">{{ t('common.custom') }}...</option>
           </select>
           <input v-if="action.contentDropdown === 'custom'" v-model="action.contentCustom" class="form-input" style="margin-top:6px" placeholder="/mycommand" />
@@ -63,11 +81,27 @@
             <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLengthHint') }}</div>
             <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
           </template>
+          <template v-else-if="action.contentDropdown === '{aiInputWithCustomHint}'">
+            <textarea v-model="action.contentAiInputHint" class="form-input" style="margin-top:6px;min-height:64px;resize:vertical" rows="3" :placeholder="t('jobs.aiInputHintPlaceholder')"></textarea>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputHintHint') }}</div>
+            <div class="form-row" style="margin-bottom:0;margin-top:6px">
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label">{{ t('jobs.aiInputMinLenLabel') }}</label>
+                <input v-model.trim="action.contentAiInputMinLen" class="form-input" type="number" min="1" max="4096" :placeholder="t('jobs.aiInputLenPlaceholder')" />
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label">{{ t('jobs.aiInputMaxLenLabel') }}</label>
+                <input v-model.trim="action.contentAiInputMaxLen" class="form-input" type="number" min="1" max="4096" :placeholder="t('jobs.aiInputLenPlaceholder')" />
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLenRangeHint') }}</div>
+            <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
+          </template>
           <div v-else style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.contentHint') }}</div>
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
-          <input v-model.number="action.maxRetries" class="form-input" type="number" min="0" max="10" />
+          <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
         </div>
       </div>
     </div>
@@ -77,16 +111,16 @@
       <div class="form-row" style="margin-bottom:0">
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxWait') }}</label>
-          <input v-model.number="action.maxWaitMs" class="form-input" type="number" min="1000" step="1000" />
+          <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" />
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
-          <input v-model.number="action.maxRetries" class="form-input" type="number" min="0" max="10" />
+          <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
         </div>
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelScope') }}</label>
-        <input v-model.number="action.scope" class="form-input" type="number" max="0" step="1" />
+        <NumberInput v-model="action.scope" class="form-input" :max="0" :step="1" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
@@ -104,7 +138,7 @@
     <!-- delay -->
     <div v-if="action.type === 'delay'" class="custom-action-params">
       <label class="form-label">{{ t('jobs.custom.labelWaitMs') }}</label>
-      <input v-model.number="action.waitMs" class="form-input" type="number" min="100" step="500" />
+      <NumberInput v-model="action.waitMs" class="form-input" :min="100" :step="500" />
     </div>
 
     <!-- click_button -->
@@ -128,17 +162,17 @@
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
-          <input v-model.number="action.maxRetries" class="form-input" type="number" min="0" max="10" />
+          <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
         </div>
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelMaxWait') }}</label>
-        <input v-model.number="action.maxWaitMs" class="form-input" type="number" min="1000" step="1000" />
+        <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.maxWaitTotalHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelScope') }}</label>
-        <input v-model.number="action.scope" class="form-input" type="number" max="0" step="1" />
+        <NumberInput v-model="action.scope" class="form-input" :max="0" :step="1" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
@@ -179,17 +213,17 @@
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
-          <input v-model.number="action.maxRetries" class="form-input" type="number" min="0" max="10" />
+          <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
         </div>
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelMaxWait') }}</label>
-        <input v-model.number="action.maxWaitMs" class="form-input" type="number" min="1000" step="1000" />
+        <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.maxWaitTotalHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelScope') }}</label>
-        <input v-model.number="action.scope" class="form-input" type="number" max="0" step="1" />
+        <NumberInput v-model="action.scope" class="form-input" :max="0" :step="1" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
@@ -209,7 +243,7 @@
       <div class="form-row" style="margin-bottom:0">
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxWait') }}</label>
-          <input v-model.number="action.maxWaitMs" class="form-input" type="number" min="1000" step="1000" />
+          <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" />
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelCaptchaLength') }}</label>
@@ -217,7 +251,7 @@
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
-          <input v-model.number="action.maxRetries" class="form-input" type="number" min="0" max="10" />
+          <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
         </div>
       </div>
       <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLengthHint') }}</div>
@@ -265,11 +299,11 @@
       </div>
       <div v-if="action.verifyButton" class="form-group" style="margin-bottom:0;margin-top:8px">
         <label class="form-label">{{ t('jobs.custom.labelVerifyWaitMs') }}</label>
-        <input v-model.number="action.verifyWaitMs" type="number" min="1000" step="1000" class="form-input" />
+        <NumberInput v-model="action.verifyWaitMs" :min="1000" :step="1000" class="form-input" />
       </div>
       <div v-if="action.verifyButton" class="form-group" style="margin-bottom:0;margin-top:8px">
         <label class="form-label">{{ t('jobs.custom.labelVerifyMaxWaitMs') }}</label>
-        <input v-model.number="action.verifyMaxWaitMs" type="number" min="1000" step="1000" class="form-input" />
+        <NumberInput v-model="action.verifyMaxWaitMs" :min="1000" :step="1000" class="form-input" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.verifyMaxWaitMsHint') }}</div>
       </div>
     </div>
@@ -330,11 +364,11 @@
       <div class="form-row" style="margin-bottom:0;margin-top:8px">
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
-          <input v-model.number="action.maxRetries" class="form-input" type="number" min="0" max="10" />
+          <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMiniAppMaxWait') }}</label>
-          <input v-model.number="action.miniAppMaxWaitMs" class="form-input" type="number" min="0" step="10000" placeholder="300000" />
+          <NumberInput v-model="action.miniAppMaxWaitMs" class="form-input" :min="0" :step="10000" placeholder="300000" />
         </div>
       </div>
       <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.miniAppMaxWaitHint') }}</div>
@@ -370,13 +404,42 @@
       </div>
     </div>
 
-    <!-- open_url -->
-    <div v-if="action.type === 'open_url'" class="custom-action-params">
-      <div class="form-group" style="margin-bottom:0">
+    <!-- open_url / open_message_url -->
+    <div v-if="action.type === 'open_url' || action.type === 'open_message_url'" class="custom-action-params">
+      <div v-if="action.type === 'open_url'" class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.web.labelUrl') }}</label>
         <input v-model.trim="action.url" class="form-input" :placeholder="t('jobs.web.urlPlaceholder')" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.web.urlHint') }}</div>
       </div>
+      <template v-else>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">{{ t('jobs.custom.labelContactOptional') }}</label>
+          <input v-model.trim="action.contact" class="form-input" :placeholder="t('jobs.custom.contactOptionalPlaceholder')" />
+          <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.contactOptionalHint') }}</div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;margin-top:8px">
+          <label class="form-label">{{ t('jobs.custom.labelLinkText') }}</label>
+          <input v-model.trim="action.linkText" class="form-input" :placeholder="t('jobs.custom.linkTextPlaceholder')" />
+          <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.linkTextHint') }}</div>
+        </div>
+        <div class="form-group" style="margin-bottom:0;margin-top:8px">
+          <label class="form-label">{{ t('jobs.custom.labelLinkMessageContains') }}</label>
+          <input v-model.trim="action.messageContains" class="form-input" :placeholder="t('jobs.custom.messageContainsPlaceholder')" />
+          <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.linkMessageContainsHint') }}</div>
+        </div>
+        <div class="form-row" style="margin-bottom:0;margin-top:8px">
+          <div class="form-group">
+            <label class="form-label">{{ t('jobs.custom.labelLinkWait') }}</label>
+            <NumberInput v-model="action.linkWaitMs" class="form-input" :min="0" :step="1000" />
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.linkWaitHint') }}</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t('jobs.custom.labelScope') }}</label>
+            <NumberInput v-model="action.scope" class="form-input" :max="0" :step="1" />
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
+          </div>
+        </div>
+      </template>
       <div class="form-group" style="margin-bottom:0;margin-top:10px">
         <WebStepsEditor :steps="action.webSteps" :ai-key-missing="aiKeyMissing" />
       </div>
@@ -393,11 +456,11 @@
       <div class="form-row" style="margin-bottom:0;margin-top:8px">
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
-          <input v-model.number="action.maxRetries" class="form-input" type="number" min="0" max="10" />
+          <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMiniAppMaxWait') }}</label>
-          <input v-model.number="action.miniAppMaxWaitMs" class="form-input" type="number" min="0" step="10000" placeholder="300000" />
+          <NumberInput v-model="action.miniAppMaxWaitMs" class="form-input" :min="0" :step="10000" placeholder="300000" />
         </div>
       </div>
       <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.miniAppMaxWaitHint') }}</div>
@@ -447,22 +510,22 @@
       <div class="form-row" style="margin-bottom:0;margin-top:8px">
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelGapMs') }}</label>
-          <input v-model.number="action.gapMs" class="form-input" type="number" min="0" step="500" />
+          <NumberInput v-model="action.gapMs" class="form-input" :min="0" :step="500" />
           <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.gapMsHint') }}</div>
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
-          <input v-model.number="action.maxRetries" class="form-input" type="number" min="0" max="10" />
+          <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
         </div>
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelMaxWait') }}</label>
-        <input v-model.number="action.maxWaitMs" class="form-input" type="number" min="1000" step="1000" />
+        <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.maxWaitTotalHintEach') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelScope') }}</label>
-        <input v-model.number="action.scope" class="form-input" type="number" max="0" step="1" />
+        <NumberInput v-model="action.scope" class="form-input" :max="0" :step="1" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
@@ -574,6 +637,7 @@
 import { computed } from 'vue';
 import { t } from '../i18n';
 import type { Proxy } from '../api/client';
+import NumberInput from './NumberInput.vue';
 import RowControls from './RowControls.vue';
 import ProxyPicker from './ProxyPicker.vue';
 import MiniAppStepsEditor from './MiniAppStepsEditor.vue';
@@ -639,6 +703,7 @@ const TYPE_LABELS: Record<CustomActionType, string> = {
   open_mini_app_url: 'actionOpenMiniAppUrl',
   open_bot_menu_app: 'actionOpenBotMenuApp',
   open_url: 'actionOpenUrl',
+  open_message_url: 'actionOpenMessageUrl',
   if_check: 'actionIfCheck',
   end_job: 'actionEndJob',
   fail_job: 'actionFailJob',
@@ -651,6 +716,7 @@ const NEEDS_BROWSER = new Set<CustomActionType>([
   'open_mini_app_url',
   'open_bot_menu_app',
   'open_url',
+  'open_message_url',
 ]);
 
 const typeLabel = (ty: CustomActionType) => t(`jobs.custom.${TYPE_LABELS[ty]}`);
