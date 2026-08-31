@@ -30,6 +30,13 @@ import {
 } from "../db/dataStore";
 import { EMAIL_CODE_WAIT_MS } from "./emailCode";
 import { authErrorFromUrl } from "./msOauth2";
+import {
+  armVirtualAuthenticator,
+  credentialIds,
+  listCredentials,
+  type PasskeyCredential,
+  type VirtualAuthenticator,
+} from "./msPasskey";
 import { TG_CODE_WAIT_MS } from "./tgApiCredentials";
 import {
   TOTP_MIN_VALID_MS,
@@ -1109,6 +1116,21 @@ const WEBVIEW_PROXY_SHIM = `
 // through to its "skip" path instead of hanging. String form so tsx does not instrument it.
 // Only `create` with a `publicKey` (registration) is touched; passkey sign-in (`get`) and every
 // other credential type are left alone, and nothing here uses them.
+// The virtual authenticator armed for a passkey run, kept per page so the step that reads the
+// credential out uses the same CDP client that minted it (authenticators are per-client).
+const passkeyAuth = new WeakMap<Page, VirtualAuthenticator>();
+
+/** Whether any step in the tree is of `type`, loops and branches included. */
+function stepsIncludeType(steps: WebStep[] | undefined, type: WebStep["type"]): boolean {
+  for (const step of steps ?? []) {
+    if (step.type === type) return true;
+    if ("steps" in step && stepsIncludeType(step.steps, type)) return true;
+    if ("then" in step && stepsIncludeType(step.then, type)) return true;
+    if ("otherwise" in step && stepsIncludeType(step.otherwise, type)) return true;
+  }
+  return false;
+}
+
 const WEBAUTHN_NEUTRALISE = `
   (function () {
     try {
@@ -2628,6 +2650,45 @@ async function describePoint(page: Page, x: number, y: number): Promise<string> 
  * challenge page under Xvfb tends to be in. Keyboard events go to the focused element
  * regardless, which is what a person's typing does too.
  */
+/** Waits for a selector to be present and have a box on screen, up to `ms`. */
+async function waitForVisible(
+  page: Page,
+  selector: string,
+  ms: number,
+  deadline: number,
+): Promise<boolean> {
+  const until = Math.min(Date.now() + ms, deadline);
+  for (;;) {
+    const seen = await page
+      .evaluate((sel: string) => {
+        const el = document.querySelector(sel) as HTMLElement | null;
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      }, selector)
+      .catch(() => false);
+    if (seen) return true;
+    if (Date.now() >= until) return false;
+    await sleep(400, deadline);
+  }
+}
+
+/**
+ * Clears the "Microsoft account notice" / privacy interstitial that sits in front of the
+ * account pages on a fresh session, so a step navigating to one lands on the page it asked
+ * for. A no-op when no notice is showing.
+ */
+async function dismissMsNotice(page: Page, deadline: number): Promise<void> {
+  for (let i = 0; i < 3; i++) {
+    if (!/privacynotice|\/notice/i.test(page.url())) return;
+    await clickElement(page, "[data-testid=primaryButton], #idSIButton9, #id__0, button").catch(
+      () => {},
+    );
+    await sleep(2_500, deadline);
+    await waitForPageReady(page, Math.min(Date.now() + 15_000, deadline)).catch(() => {});
+  }
+}
+
 async function typeIntoFocused(page: Page, text: string): Promise<boolean> {
   let failed = false;
   await page.keyboard.type(text, { delay: 60 }).catch(() => {
@@ -3951,6 +4012,88 @@ async function runStepList(
           break;
         }
 
+        case "web_ms_passkey": {
+          const where = dataTarget(step, run); // folder/key/path required: nowhere else to keep it
+
+          // Self-skipping, so a template can run this over a whole folder and it only touches
+          // the records that have no passkey yet
+          if (!step.force) {
+            const existing = readDataValue(where.folder, where.key, where.path);
+            if (existing && existing.trim() && existing !== "null") {
+              log.outcome = `already has a passkey in ${where.label}`;
+              break;
+            }
+          }
+
+          // Armed at launch for a passkey run; arm now if that did not happen
+          let auth = passkeyAuth.get(page);
+          if (!auth) {
+            auth = await armVirtualAuthenticator(page);
+            passkeyAuth.set(page, auth);
+          }
+          const before = await credentialIds(auth);
+
+          // The account's own "add a way to sign in" flow, driven to the point where it asks
+          // the authenticator to mint the credential
+          await page.goto("https://account.live.com/proofs/manage/additional", {
+            waitUntil: "domcontentloaded",
+            timeout: capped(45_000, deadline),
+          });
+          await waitForPageReady(page, Math.min(Date.now() + 30_000, deadline));
+          await dismissMsNotice(page, deadline);
+          if (!(await waitForVisible(page, "#AddProofLink", 20_000, deadline)))
+            throw new Error("the 'add a way to sign in' link was not on the security page");
+          await clickElement(page, "#AddProofLink");
+          // The options unfold in place; the passkey one is what we are after
+          if (!(await waitForVisible(page, "#Add_passKeys", 12_000, deadline)))
+            throw new Error("the passkey option ('Face, fingerprint, PIN, or security key') was not offered");
+          await clickElement(page, "#Add_passKeys");
+          // The set-up panel: a name field on some variants, and the button that asks the
+          // authenticator to mint the credential
+          const startSel = "#iBtn_action, [data-testid=primaryButton], #idSIButton9";
+          if (!(await waitForVisible(page, startSel, 15_000, deadline)))
+            throw new Error("the passkey set-up panel did not open");
+          const passkeyName = fillVars(step.name ?? "", run.current).trim() || "Bemby";
+          if (await waitForVisible(page, "#passkeyName", 2_000, deadline))
+            await typeInto(page, "#passkeyName", passkeyName).catch(() => {});
+          if (!(await clickElement(page, startSel)))
+            throw new Error("could not start the passkey set-up");
+
+          // The virtual authenticator answers create() on its own, so the new credential turns
+          // up here rather than through any button; wait for it to appear
+          const credDeadline = Math.min(Date.now() + 30_000, deadline);
+          let created: PasskeyCredential | undefined;
+          let reclicked = false;
+          while (Date.now() < credDeadline) {
+            created = (await listCredentials(auth)).find((c) => !before.has(c.credentialId));
+            if (created) break;
+            // Some variants put the name field behind a first Next; nudge the panel once more
+            if (!reclicked && Date.now() > credDeadline - 18_000) {
+              reclicked = true;
+              await clickElement(page, startSel).catch(() => {});
+            }
+            await sleep(1_000, deadline);
+          }
+          if (!created)
+            throw new Error("no passkey was minted -- the set-up did not reach the authenticator");
+
+          const record = {
+            credentialId: created.credentialId,
+            rpId: created.rpId,
+            userHandle: created.userHandle,
+            privateKey: created.privateKey,
+            signCount: created.signCount,
+            isResidentCredential: created.isResidentCredential,
+            name: passkeyName,
+            createdAt: new Date().toISOString(),
+          };
+          writeDataValue(where.folder, where.key, where.path, record);
+          const varName = step.varName?.trim();
+          if (varName) run.current.set(varName, created.credentialId);
+          log.outcome = `registered a passkey (rp ${created.rpId}) and saved it to ${where.label}`;
+          break;
+        }
+
         case "web_if": {
           if (nest.depth >= MAX_WEB_DEPTH)
             throw new Error(`conditions cannot be nested more than ${MAX_WEB_DEPTH} deep`);
@@ -4789,6 +4932,11 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
         `Confirm ${fill(step.email ?? "")} is connected to msOauth2api` +
         `${step.folder?.trim() ? `, marked in ${fill(step.folder.trim())}` : ""}`
       );
+    case "web_ms_passkey":
+      return (
+        "Register a passkey" +
+        `${step.folder?.trim() ? `, saved to ${fill(step.folder.trim())}` : ""}`
+      );
     case "web_repeat":
       return `Repeat ${step.steps?.length ?? 0} step(s) ${Math.floor(step.times || 0)} time(s)`;
     case "web_for_each":
@@ -5385,8 +5533,19 @@ async function attemptLoad(
       .addInitScript("window.__name = window.__name || function (a) { return a; };")
       .catch(() => {});
 
-    // Before any navigation, so a passkey upsell cannot open the native dialog that hangs the run
-    await page.addInitScript(WEBAUTHN_NEUTRALISE).catch(() => {});
+    if (stepsIncludeType(opts.webSteps, "web_ms_passkey")) {
+      // This run means to register a passkey, so `create()` has to reach a real authenticator
+      // rather than be rejected. Arm a virtual one before any navigation; it also auto-answers
+      // any passkey prompt Microsoft throws up during the sign-in itself.
+      try {
+        passkeyAuth.set(page, await armVirtualAuthenticator(page));
+      } catch (err: any) {
+        note(`could not arm a virtual authenticator: ${err?.message ?? err}`);
+      }
+    } else {
+      // Before any navigation, so a passkey upsell cannot open the native dialog that hangs the run
+      await page.addInitScript(WEBAUTHN_NEUTRALISE).catch(() => {});
+    }
 
     if (opts.miniApp) {
       await page.addInitScript(WEBVIEW_PROXY_SHIM).catch(() => {});

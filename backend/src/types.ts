@@ -1111,6 +1111,34 @@ export type WebStep =
     }
   | {
       /**
+       * Register a passkey on the signed-in Microsoft account and keep the credential.
+       *
+       * A software (virtual) authenticator stands in for a security key, so the account's
+       * "Add a way to sign in -> Face, fingerprint, PIN, or security key" flow completes with
+       * no hardware and no dialog. What the authenticator mints -- the credential id, the RP
+       * id, the user handle and the private key -- is read back over CDP and written to the
+       * data store, which is the whole point: a passkey Bemby holds can sign a later sign-in.
+       *
+       * Self-skipping: if the record already carries one at `path`, the step does nothing, so
+       * a re-run passes over accounts already done. Set `force` to enrol another regardless.
+       * The browser must already be signed in as the account (run the sign-in steps first).
+       */
+      type: "web_ms_passkey";
+      /** What to name the passkey on the account, e.g. `Bemby`. Blank uses a default. */
+      name?: string;
+      /** Name to hold the saved credential's id under, for a later step. */
+      varName?: string;
+      /** Data-store folder to write the credential to, e.g. `outlook`. */
+      folder?: string;
+      /** Record key inside that folder, e.g. `{email}`. */
+      key?: string;
+      /** Field inside the record to hold the credential, e.g. `passkey`. */
+      path?: string;
+      /** Enrol another passkey even if the record already holds one at `path`. */
+      force?: boolean;
+    }
+  | {
+      /**
        * Send a message through the notification bot from the middle of a run, with `{name}`
        * standing for whatever the steps have gathered. What makes a signup worth running:
        * the account it just made is of no use if nothing says what the credentials were.
