@@ -1013,6 +1013,24 @@
             </p>
           </div>
 
+          <!-- Seconds instead of milliseconds on every duration field -->
+          <div class="settings-subsection" style="margin-top: 28px">
+            {{ t("settings.preferSecondsSection") }}
+          </div>
+          <div class="form-group">
+            <label class="form-check">
+              <input
+                type="checkbox"
+                v-model="preferSecondsSetting"
+                @change="savePreferSeconds"
+              />
+              <span>{{ t("settings.preferSecondsToggle") }}</span>
+            </label>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
+              {{ t("settings.preferSecondsHint") }}
+            </p>
+          </div>
+
           <!-- The data store: its menu entry and its job steps. The whole section is absent
                unless the server offers the feature (DATA_MANAGEMENT), so a panel that has no
                use for it never asks the question -->
@@ -2903,6 +2921,7 @@ import {
 import { applyMsApiSetting, msApiAvailable } from "../composables/msApi";
 import { setTemplateEditButton } from "../composables/templateEditButton";
 import { setJobProxyColumn } from "../composables/jobProxyColumn";
+import { setPreferSeconds } from "../composables/preferSeconds";
 import {
   invalidateUpdateStatus,
   loadUpdateStatus,
@@ -4025,6 +4044,7 @@ const accountDisplayWithTgName = ref(false);
 const scheduleSeparatePageSetting = ref(false);
 const jobsTemplateEditButtonSetting = ref(false);
 const jobsProxyColumnSetting = ref(false);
+const preferSecondsSetting = ref(false);
 const dataStoreSetting = ref(false);
 
 async function saveDefaultTgApi() {
@@ -4261,6 +4281,7 @@ onMounted(async () => {
     scheduleSeparatePageSetting.value = s.schedule_separate_page === "true";
     jobsTemplateEditButtonSetting.value = s.jobs_template_edit_button === "true";
     jobsProxyColumnSetting.value = s.jobs_show_effective_proxy === "true";
+    preferSecondsSetting.value = s.prefer_seconds === "true";
     // Unset means on: only an explicit "false" turns the check off
     updateCheckSetting.value = s.update_check_enabled !== "false";
     // Unset means on: only an explicit "false" turns it off
@@ -4874,6 +4895,16 @@ async function saveJobsProxyColumn() {
     setJobProxyColumn(jobsProxyColumnSetting.value);
   } catch {
     jobsProxyColumnSetting.value = !jobsProxyColumnSetting.value;
+  }
+}
+
+async function savePreferSeconds() {
+  try {
+    await settingsApi.update({ prefer_seconds: String(preferSecondsSetting.value) });
+    // Every duration field on screen swaps unit at once
+    setPreferSeconds(preferSecondsSetting.value);
+  } catch {
+    preferSecondsSetting.value = !preferSecondsSetting.value;
   }
 }
 

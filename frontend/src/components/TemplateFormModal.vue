@@ -341,8 +341,8 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">{{ t('jobs.labelReplyTimeout') }}</label>
-              <input v-model.number="form.replyTimeoutMs" class="form-input" type="number" />
+              <label class="form-label">{{ durationLabel(t('jobs.labelReplyTimeout')) }}</label>
+              <NumberInput v-model="form.replyTimeoutMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
             </div>
             <div class="form-group">
               <label class="form-label">{{ t('jobs.labelMaxRetries') }}</label>
@@ -384,8 +384,8 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">{{ t('jobs.labelReplyTimeout') }}</label>
-              <input v-model.number="form.replyTimeoutMs" class="form-input" type="number" />
+              <label class="form-label">{{ durationLabel(t('jobs.labelReplyTimeout')) }}</label>
+              <NumberInput v-model="form.replyTimeoutMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
             </div>
             <div class="form-group">
               <label class="form-label">{{ t('jobs.labelMaxRetries') }}</label>
@@ -458,6 +458,8 @@ import {
 import { proxyFields } from '../composables/proxyPick';
 import { availableTemplatePresets } from '../composables/templatePresets';
 import { loadDataStoreSetting } from '../composables/dataStore';
+import { msScale, durationLabel } from '../composables/preferSeconds';
+import NumberInput from './NumberInput.vue';
 import ProxyPicker from './ProxyPicker.vue';
 import JobIconPicker from './JobIconPicker.vue';
 

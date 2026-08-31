@@ -136,6 +136,8 @@ export const ALLOWED_KEYS = [
   "schedule_separate_page",
   "jobs_template_edit_button",
   "jobs_show_effective_proxy",
+  // Show every millisecond field in seconds. Display only -- what is stored stays in ms.
+  "prefer_seconds",
   UPDATE_CHECK_KEY,
   "data_store_enabled",
   "log_retention_days",

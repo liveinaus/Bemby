@@ -360,8 +360,8 @@
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label">{{ t("jobs.web.labelMailWait") }}</label>
-            <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
+            <label class="form-label">{{ durationLabel(t("jobs.web.labelMailWait")) }}</label>
+            <NumberInput v-model="s.waitMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
             <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
               {{ t("jobs.web.mailWaitHint") }}
             </div>
@@ -448,8 +448,8 @@
             />
           </div>
           <div class="form-group">
-            <label class="form-label">{{ t("jobs.web.labelWaitMs") }}</label>
-            <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
+            <label class="form-label">{{ durationLabel(t("jobs.web.labelWaitMs")) }}</label>
+            <NumberInput v-model="s.waitMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
           </div>
         </div>
         <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
@@ -478,13 +478,13 @@
             />
           </div>
           <div class="form-group">
-            <label class="form-label">{{ t("jobs.web.labelTotpMinValid") }}</label>
-            <input
-              v-model.number="s.minValidMs"
+            <label class="form-label">{{ durationLabel(t("jobs.web.labelTotpMinValid")) }}</label>
+            <NumberInput
+              v-model="s.minValidMs"
               class="form-input"
-              type="number"
-              min="0"
-              step="1000"
+              :min="0"
+              :step="1000"
+              :scale="msScale"
             />
             <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
               {{ t("jobs.web.totpMinValidHint") }}
@@ -520,8 +520,8 @@
             <input v-model.number="s.maxChars" class="form-input" type="number" min="0" step="100" />
           </div>
           <div class="form-group">
-            <label class="form-label">{{ t("jobs.web.labelEvalWait") }}</label>
-            <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
+            <label class="form-label">{{ durationLabel(t("jobs.web.labelEvalWait")) }}</label>
+            <NumberInput v-model="s.waitMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
           </div>
         </div>
         <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
@@ -559,8 +559,8 @@
       </div>
 
       <div v-if="s.type === 'web_hold'" style="margin-top: 8px">
-        <label class="form-label">{{ t("jobs.web.labelHoldMs") }}</label>
-        <input v-model.number="s.holdMs" class="form-input" type="number" min="0" step="500" />
+        <label class="form-label">{{ durationLabel(t("jobs.web.labelHoldMs")) }}</label>
+        <NumberInput v-model="s.holdMs" class="form-input" :min="0" :step="500" :scale="msScale" />
         <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.holdHint") }}
         </div>
@@ -584,8 +584,8 @@
           </div>
         </div>
         <div class="form-group" style="margin-top: 8px">
-          <label class="form-label">{{ t("jobs.web.labelHoldMs") }}</label>
-          <input v-model.number="s.holdMs" class="form-input" type="number" min="0" step="500" />
+          <label class="form-label">{{ durationLabel(t("jobs.web.labelHoldMs")) }}</label>
+          <NumberInput v-model="s.holdMs" class="form-input" :min="0" :step="500" :scale="msScale" />
         </div>
         <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.holdOffsetHint") }}
@@ -613,8 +613,8 @@
           </div>
         </div>
         <div class="form-group" style="margin-top: 8px">
-          <label class="form-label">{{ t("jobs.web.labelDragDuration") }}</label>
-          <input v-model.number="s.durationMs" class="form-input" type="number" min="0" step="100" />
+          <label class="form-label">{{ durationLabel(t("jobs.web.labelDragDuration")) }}</label>
+          <NumberInput v-model="s.durationMs" class="form-input" :min="0" :step="100" :scale="msScale" />
           <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.dragDurationHint") }}
           </div>
@@ -735,8 +735,8 @@
             />
           </div>
           <div class="form-group">
-            <label class="form-label">{{ t("jobs.web.labelTgCodeWait") }}</label>
-            <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
+            <label class="form-label">{{ durationLabel(t("jobs.web.labelTgCodeWait")) }}</label>
+            <NumberInput v-model="s.waitMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
           </div>
         </div>
         <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
@@ -796,8 +796,8 @@
             />
           </div>
           <div class="form-group">
-            <label class="form-label">{{ t("jobs.web.labelTgSendWait") }}</label>
-            <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
+            <label class="form-label">{{ durationLabel(t("jobs.web.labelTgSendWait")) }}</label>
+            <NumberInput v-model="s.waitMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
           </div>
         </div>
         <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
@@ -1068,8 +1068,8 @@
 
         <!-- Nothing is going to draw a value, so a value check has nothing to wait for -->
         <div v-if="s.check !== 'value'" style="margin-top: 8px">
-          <label class="form-label">{{ t("jobs.web.labelIfWait") }}</label>
-          <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
+          <label class="form-label">{{ durationLabel(t("jobs.web.labelIfWait")) }}</label>
+          <NumberInput v-model="s.waitMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
           <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.ifWaitHint") }}
           </div>
@@ -1105,8 +1105,8 @@
         </div>
 
         <div style="margin-top: 8px">
-          <label class="form-label">{{ t("jobs.web.labelBetween") }}</label>
-          <input v-model.number="s.betweenMs" class="form-input" type="number" min="0" step="1000" />
+          <label class="form-label">{{ durationLabel(t("jobs.web.labelBetween")) }}</label>
+          <NumberInput v-model="s.betweenMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
           <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.betweenHint") }}
           </div>
@@ -1152,8 +1152,8 @@
         </div>
 
         <div style="margin-top: 8px">
-          <label class="form-label">{{ t("jobs.web.labelBetween") }}</label>
-          <input v-model.number="s.betweenMs" class="form-input" type="number" min="0" step="1000" />
+          <label class="form-label">{{ durationLabel(t("jobs.web.labelBetween")) }}</label>
+          <NumberInput v-model="s.betweenMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
           <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
             {{ t("jobs.web.betweenHint") }}
           </div>
@@ -1189,9 +1189,9 @@
         style="margin-top: 8px"
       >
         <label class="form-label">{{
-          s.type === "web_delay" ? t("jobs.web.labelDelay") : t("jobs.web.labelTimeout")
+          s.type === "web_delay" ? durationLabel(t("jobs.web.labelDelay")) : durationLabel(t("jobs.web.labelTimeout"))
         }}</label>
-        <input v-model.number="s.waitMs" class="form-input" type="number" min="0" step="1000" />
+        <NumberInput v-model="s.waitMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
         <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{
             s.type === "web_delay" ? t("jobs.web.delayHint") : t("jobs.web.timeoutHint")
@@ -1250,8 +1250,8 @@
       <div v-if="s.type === 'ai_web_click_xy_multi'" style="margin-top: 8px">
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">{{ t("jobs.web.labelClickGap") }}</label>
-            <input v-model.number="s.gapMs" class="form-input" type="number" min="0" step="100" />
+            <label class="form-label">{{ durationLabel(t("jobs.web.labelClickGap")) }}</label>
+            <NumberInput v-model="s.gapMs" class="form-input" :min="0" :step="100" :scale="msScale" />
           </div>
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelMaxPoints") }}</label>
@@ -1362,6 +1362,8 @@ import {
   msApiConfigured,
 } from "../composables/msApi";
 import RowControls from "./RowControls.vue";
+import NumberInput from "./NumberInput.vue";
+import { msScale, durationLabel } from "../composables/preferSeconds";
 
 // The list is mutated in place: the parent holds it inside its own action form object, so
 // emitting a replacement would mean threading an update back through the action index.

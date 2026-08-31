@@ -114,8 +114,8 @@
     <div v-if="action.type === 'wait_reply'" class="custom-action-params">
       <div class="form-row" style="margin-bottom:0">
         <div class="form-group">
-          <label class="form-label">{{ t('jobs.custom.labelMaxWait') }}</label>
-          <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" />
+          <label class="form-label">{{ durationLabel(t('jobs.custom.labelMaxWait')) }}</label>
+          <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" :scale="msScale" />
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
@@ -141,8 +141,8 @@
 
     <!-- delay -->
     <div v-if="action.type === 'delay'" class="custom-action-params">
-      <label class="form-label">{{ t('jobs.custom.labelWaitMs') }}</label>
-      <NumberInput v-model="action.waitMs" class="form-input" :min="100" :step="500" />
+      <label class="form-label">{{ durationLabel(t('jobs.custom.labelWaitMs')) }}</label>
+      <NumberInput v-model="action.waitMs" class="form-input" :min="100" :step="500" :scale="msScale" />
     </div>
 
     <!-- click_button -->
@@ -170,8 +170,8 @@
         </div>
       </div>
       <div class="form-group" style="margin-bottom:0">
-        <label class="form-label">{{ t('jobs.custom.labelMaxWait') }}</label>
-        <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" />
+        <label class="form-label">{{ durationLabel(t('jobs.custom.labelMaxWait')) }}</label>
+        <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" :scale="msScale" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.maxWaitTotalHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
@@ -221,8 +221,8 @@
         </div>
       </div>
       <div class="form-group" style="margin-bottom:0">
-        <label class="form-label">{{ t('jobs.custom.labelMaxWait') }}</label>
-        <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" />
+        <label class="form-label">{{ durationLabel(t('jobs.custom.labelMaxWait')) }}</label>
+        <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" :scale="msScale" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.maxWaitTotalHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
@@ -246,8 +246,8 @@
     <div v-if="action.type === 'enter_captcha'" class="custom-action-params">
       <div class="form-row" style="margin-bottom:0">
         <div class="form-group">
-          <label class="form-label">{{ t('jobs.custom.labelMaxWait') }}</label>
-          <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" />
+          <label class="form-label">{{ durationLabel(t('jobs.custom.labelMaxWait')) }}</label>
+          <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" :scale="msScale" />
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelCaptchaLength') }}</label>
@@ -302,12 +302,12 @@
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.verifyMaskedNameHint') }}</div>
       </div>
       <div v-if="action.verifyButton" class="form-group" style="margin-bottom:0;margin-top:8px">
-        <label class="form-label">{{ t('jobs.custom.labelVerifyWaitMs') }}</label>
-        <NumberInput v-model="action.verifyWaitMs" :min="1000" :step="1000" class="form-input" />
+        <label class="form-label">{{ durationLabel(t('jobs.custom.labelVerifyWaitMs')) }}</label>
+        <NumberInput v-model="action.verifyWaitMs" :min="1000" :step="1000" class="form-input" :scale="msScale" />
       </div>
       <div v-if="action.verifyButton" class="form-group" style="margin-bottom:0;margin-top:8px">
-        <label class="form-label">{{ t('jobs.custom.labelVerifyMaxWaitMs') }}</label>
-        <NumberInput v-model="action.verifyMaxWaitMs" :min="1000" :step="1000" class="form-input" />
+        <label class="form-label">{{ durationLabel(t('jobs.custom.labelVerifyMaxWaitMs')) }}</label>
+        <NumberInput v-model="action.verifyMaxWaitMs" :min="1000" :step="1000" class="form-input" :scale="msScale" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.verifyMaxWaitMsHint') }}</div>
       </div>
     </div>
@@ -371,8 +371,8 @@
           <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
         </div>
         <div class="form-group">
-          <label class="form-label">{{ t('jobs.custom.labelMiniAppMaxWait') }}</label>
-          <NumberInput v-model="action.miniAppMaxWaitMs" class="form-input" :min="0" :step="10000" placeholder="300000" />
+          <label class="form-label">{{ durationLabel(t('jobs.custom.labelMiniAppMaxWait')) }}</label>
+          <NumberInput v-model="action.miniAppMaxWaitMs" class="form-input" :min="0" :step="10000" :placeholder="msScale === 1 ? '300000' : '300'" :scale="msScale" />
         </div>
       </div>
       <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.miniAppMaxWaitHint') }}</div>
@@ -433,8 +433,8 @@
         </div>
         <div class="form-row" style="margin-bottom:0;margin-top:8px">
           <div class="form-group">
-            <label class="form-label">{{ t('jobs.custom.labelLinkWait') }}</label>
-            <NumberInput v-model="action.linkWaitMs" class="form-input" :min="0" :step="1000" />
+            <label class="form-label">{{ durationLabel(t('jobs.custom.labelLinkWait')) }}</label>
+            <NumberInput v-model="action.linkWaitMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
             <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.linkWaitHint') }}</div>
           </div>
           <div class="form-group">
@@ -463,8 +463,8 @@
           <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
         </div>
         <div class="form-group">
-          <label class="form-label">{{ t('jobs.custom.labelMiniAppMaxWait') }}</label>
-          <NumberInput v-model="action.miniAppMaxWaitMs" class="form-input" :min="0" :step="10000" placeholder="300000" />
+          <label class="form-label">{{ durationLabel(t('jobs.custom.labelMiniAppMaxWait')) }}</label>
+          <NumberInput v-model="action.miniAppMaxWaitMs" class="form-input" :min="0" :step="10000" :placeholder="msScale === 1 ? '300000' : '300'" :scale="msScale" />
         </div>
       </div>
       <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.miniAppMaxWaitHint') }}</div>
@@ -513,8 +513,8 @@
       </div>
       <div class="form-row" style="margin-bottom:0;margin-top:8px">
         <div class="form-group">
-          <label class="form-label">{{ t('jobs.custom.labelGapMs') }}</label>
-          <NumberInput v-model="action.gapMs" class="form-input" :min="0" :step="500" />
+          <label class="form-label">{{ durationLabel(t('jobs.custom.labelGapMs')) }}</label>
+          <NumberInput v-model="action.gapMs" class="form-input" :min="0" :step="500" :scale="msScale" />
           <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.gapMsHint') }}</div>
         </div>
         <div class="form-group">
@@ -523,8 +523,8 @@
         </div>
       </div>
       <div class="form-group" style="margin-bottom:0">
-        <label class="form-label">{{ t('jobs.custom.labelMaxWait') }}</label>
-        <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" />
+        <label class="form-label">{{ durationLabel(t('jobs.custom.labelMaxWait')) }}</label>
+        <NumberInput v-model="action.maxWaitMs" class="form-input" :min="1000" :step="1000" :scale="msScale" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.maxWaitTotalHintEach') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
@@ -647,6 +647,7 @@ import ProxyPicker from './ProxyPicker.vue';
 import MiniAppStepsEditor from './MiniAppStepsEditor.vue';
 import WebStepsEditor from './WebStepsEditor.vue';
 import ConditionFields from './ConditionFields.vue';
+import { msScale, durationLabel } from '../composables/preferSeconds';
 import {
   defaultAction,
   defaultCondition,

@@ -1909,6 +1909,10 @@ const zh = {
     jobsProxyColumnToggle: "在任务列表中显示实际使用的代理",
     jobsProxyColumnHint:
       "开启后，任务列表多出一列显示该任务实际走的出口：优先任务自身的代理，其次模版的，最后账户的。固定某个代理时显示该代理名称；整个供应商的代理池只显示供应商名称，不逐条列出；随机池显示可用出口数量",
+    preferSecondsSection: "时间单位",
+    preferSecondsToggle: "以秒显示和填写时间字段",
+    preferSecondsHint:
+      "开启后，任务、模版、动作与网页步骤中原本以毫秒计的字段改为按秒显示与填写，1.5 这样的小数也可以填。仅影响显示：保存的值仍是毫秒，开关随时可改回",
     secretsSection: "密钥",
     secretsHint:
       "供任务配置引用的键值对。在配置中写 {名称} 即可引用，例如网页步骤“从邮箱获取验证码”里的应用专用密码",
@@ -4392,6 +4396,10 @@ const en: typeof zh = {
     jobsProxyColumnToggle: "Show the proxy each job actually uses in the jobs list",
     jobsProxyColumnHint:
       "Adds a column naming the exit a job leaves by: its own proxy, else its template's, else its account's. A pinned exit is named; a pool covering a whole supplier shows just that supplier rather than listing it out; any other draw shows how many exits it covers",
+    preferSecondsSection: "Time unit",
+    preferSecondsToggle: "Show and type duration fields in seconds",
+    preferSecondsHint:
+      "Every field that counts in milliseconds -- on jobs, templates, actions and page steps -- is read and typed in seconds instead, decimals included, so 1.5 means 1500ms. Display only: what is stored stays in milliseconds, so the setting can be turned back at any time",
     secretsSection: "Secrets",
     secretsHint:
       "Named values a job config can refer to as {name} -- the app password the \"Get a verification code from email\" page step needs, for one",

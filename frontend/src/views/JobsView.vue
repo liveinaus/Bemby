@@ -561,8 +561,8 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">{{ t('jobs.labelReplyTimeout') }}</label>
-              <input v-model.number="form.replyTimeoutMs" class="form-input" type="number" />
+              <label class="form-label">{{ durationLabel(t('jobs.labelReplyTimeout')) }}</label>
+              <NumberInput v-model="form.replyTimeoutMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
             </div>
             <div class="form-group">
               <label class="form-label">{{ t('jobs.labelMaxRetries') }}</label>
@@ -635,8 +635,8 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label">{{ t('jobs.labelReplyTimeout') }}</label>
-              <input v-model.number="form.replyTimeoutMs" class="form-input" type="number" />
+              <label class="form-label">{{ durationLabel(t('jobs.labelReplyTimeout')) }}</label>
+              <NumberInput v-model="form.replyTimeoutMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
             </div>
             <div class="form-group">
               <label class="form-label">{{ t('jobs.labelMaxRetries') }}</label>
@@ -866,6 +866,8 @@ import { formatAccountLabel, loadAccountDisplaySetting } from '../composables/ac
 import { loadSchedulePageSetting, scheduleSeparatePage } from '../composables/schedulePage';
 import { loadTemplateEditButtonSetting, templateEditButton } from '../composables/templateEditButton';
 import { jobProxyColumn, loadJobProxyColumnSetting } from '../composables/jobProxyColumn';
+import { msScale, durationLabel, loadPreferSecondsSetting } from '../composables/preferSeconds';
+import NumberInput from '../components/NumberInput.vue';
 import TemplateFormModal from '../components/TemplateFormModal.vue';
 import ScheduleList from '../components/ScheduleList.vue';
 import { debounce } from '../composables/useDebounce';
@@ -1261,6 +1263,7 @@ onMounted(async () => {
   loadSchedulePageSetting();
   loadTemplateEditButtonSetting();
   loadJobProxyColumnSetting();
+  loadPreferSecondsSetting();
   // Custom icons are shared across every list that draws a job, and fetched once
   void loadJobIcons();
   await Promise.all([loadJobs(), loadAccounts(), loadStatus(), loadSettings(), loadTemplates()]);

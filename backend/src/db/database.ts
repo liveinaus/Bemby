@@ -104,6 +104,7 @@ db.exec(`
     ('ai_fallback_enabled',  'true'),
     ('account_display_with_tg_name','false'),
     ('jobs_template_edit_button','false'),
+    ('prefer_seconds',       'false'),
     ('data_store_enabled',   'false'),
     ('log_retention_days',   '0'),
     ('ua_presets',           '[{"name":"SenPlayer (Mac)","value":"SenPlayer/6.1.2 CFNetwork/1490.0.4 Darwin/23.2.0"},{"name":"Yamby (Android TV)","value":"Yamby/2.0.3.4(Android)"},{"name":"Hills (Windows)","value":"Hills/0.2.1"},{"name":"Lenna (iOS)","value":"Lenna/1.0.15 CFNetwork/1494.0.7 Darwin/23.4.0"},{"name":"VidHub (iOS)","value":"VidHub/2.2.4"}]');

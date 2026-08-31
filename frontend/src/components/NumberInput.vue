@@ -11,6 +11,11 @@ import { ref, watch } from 'vue';
  *
  * `class`, `style` and `placeholder` are not props: they fall through to the input, so a
  * call site reads the same as the `<input>` it replaced.
+ *
+ * `scale` lets the box show a unit the form does not store in: a millisecond field with
+ * `scale` 1000 is read and typed in seconds, while the model, and `min`/`max`/`step`, stay
+ * in milliseconds. A scaled field takes a decimal point, so 1500ms reads as 1.5 and comes
+ * back as 1500 rather than being rounded to a whole second.
  */
 const props = withDefaults(
   defineProps<{
@@ -20,20 +25,49 @@ const props = withDefaults(
     max?: number;
     /** How much the arrow keys move it. */
     step?: number;
+    /** Model units per displayed unit. 1 shows the model itself. */
+    scale?: number;
   }>(),
-  { step: 1 },
+  { step: 1, scale: 1 },
 );
 
 const emit = defineEmits<{ (e: 'update:modelValue', value: number): void }>();
 
-const text = ref(props.modelValue == null ? '' : String(props.modelValue));
+const scaled = () => (props.scale ?? 1) !== 1;
+
+/** The model value as the box spells it: scaled, and without a trailing ".0". */
+function toText(value: number): string {
+  if (value == null) return '';
+  if (!scaled()) return String(value);
+  return String(Number((value / props.scale).toFixed(3)));
+}
 
 const takesMinus = () => props.min == null || props.min < 0;
-const numberOf = (s: string): number => (s === '' || s === '-' ? 0 : Number(s));
 
-/** Digits, and a leading minus only where the field admits negatives (message scope). */
-const clean = (raw: string): string =>
-  (takesMinus() && raw.trimStart().startsWith('-') ? '-' : '') + raw.replace(/\D/g, '');
+function numberOf(s: string): number {
+  if (s === '' || s === '-') return 0;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** What the form holds for the text in the box, back in the model's own unit. */
+const modelOf = (s: string): number =>
+  scaled() ? Math.round(numberOf(s) * props.scale) : numberOf(s);
+
+/**
+ * Digits, a leading minus only where the field admits negatives (message scope), and a
+ * single decimal point only where the box is scaled.
+ */
+function clean(raw: string): string {
+  const sign = takesMinus() && raw.trimStart().startsWith('-') ? '-' : '';
+  const digits = raw.replace(scaled() ? /[^\d.]/g : /\D/g, '');
+  if (!scaled()) return sign + digits;
+  // Keep only the first point, so a second one is dropped rather than voiding the number
+  const [whole, ...rest] = digits.split('.');
+  return sign + whole + (rest.length ? `.${rest.join('')}` : '');
+}
+
+const text = ref(toText(props.modelValue));
 
 // Follow the model when something else moves it -- the form loading a job, say -- but leave
 // the box alone while it says the same number as the text in it. That is what lets a field
@@ -41,8 +75,16 @@ const clean = (raw: string): string =>
 watch(
   () => props.modelValue,
   (v) => {
-    if (numberOf(text.value) === v) return;
-    text.value = v == null ? '' : String(v);
+    if (modelOf(text.value) === v) return;
+    text.value = toText(v);
+  },
+);
+
+// A flipped "prefer seconds" setting changes the unit under a box that is already on screen
+watch(
+  () => props.scale,
+  () => {
+    text.value = toText(props.modelValue);
   },
 );
 
@@ -58,23 +100,23 @@ function onInput(e: Event) {
     el.setSelectionRange(at, at);
   }
   text.value = next;
-  emit('update:modelValue', numberOf(next));
+  emit('update:modelValue', modelOf(next));
 }
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
   e.preventDefault();
-  let next = numberOf(text.value) + (props.step || 1) * (e.key === 'ArrowUp' ? 1 : -1);
+  let next = modelOf(text.value) + (props.step || 1) * (e.key === 'ArrowUp' ? 1 : -1);
   if (props.min != null) next = Math.max(props.min, next);
   if (props.max != null) next = Math.min(props.max, next);
-  text.value = String(next);
+  text.value = toText(next);
   emit('update:modelValue', next);
 }
 
 /** On the way out the box says the number the form holds: "" reads as 0, "007" as 7. */
 function onBlur() {
-  const n = numberOf(text.value);
-  text.value = String(n);
+  const n = modelOf(text.value);
+  text.value = toText(n);
   if (n !== props.modelValue) emit('update:modelValue', n);
 }
 </script>
@@ -82,7 +124,7 @@ function onBlur() {
 <template>
   <input
     type="text"
-    inputmode="numeric"
+    :inputmode="scaled() ? 'decimal' : 'numeric'"
     :value="text"
     @input="onInput"
     @keydown="onKeydown"

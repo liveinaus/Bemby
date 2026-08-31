@@ -1884,6 +1884,11 @@ export type Settings = {
   /** "true" adds a template-edit button to templated jobs on the jobs page. */
   jobs_template_edit_button?: string;
   /**
+   * "true" shows every millisecond field in seconds, and takes what is typed as seconds.
+   * Display only: values travel and are stored in milliseconds either way.
+   */
+  prefer_seconds?: string;
+  /**
    * "false" makes a provider refresh drop an entry whose remote identity changed and import it
    * afresh. Unset or "true" keeps the id, matching on the name, so a job pinned to it is not
    * left with no proxy.

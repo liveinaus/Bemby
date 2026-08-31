@@ -337,6 +337,7 @@ import { copyText } from '../utils/clipboard';
 import { usePersistedRef } from '../composables/usePersistedRef';
 import { debounce } from '../composables/useDebounce';
 import { formatAccountLabel, loadAccountDisplaySetting } from '../composables/accountDisplay';
+import { loadPreferSecondsSetting } from '../composables/preferSeconds';
 import PaginationBar from '../components/PaginationBar.vue';
 import TemplateFormModal from '../components/TemplateFormModal.vue';
 
@@ -472,6 +473,7 @@ watch(templates, () => {
 
 onMounted(async () => {
   loadAccountDisplaySetting();
+  loadPreferSecondsSetting();
   await Promise.all([loadTemplates(), loadSettings()]);
 });
 

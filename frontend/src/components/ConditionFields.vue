@@ -21,8 +21,8 @@
     </div>
     <div class="form-row" style="margin-bottom:0;margin-top:8px">
       <div class="form-group">
-        <label class="form-label">{{ t('jobs.custom.labelCheckWait') }}</label>
-        <input v-model.number="cond.waitMs" class="form-input" type="number" min="0" step="1000" />
+        <label class="form-label">{{ durationLabel(t('jobs.custom.labelCheckWait')) }}</label>
+        <NumberInput v-model="cond.waitMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.checkWaitHint') }}</div>
       </div>
       <div class="form-group">
@@ -51,6 +51,8 @@
 
 <script setup lang="ts">
 import { t } from '../i18n';
+import NumberInput from './NumberInput.vue';
+import { msScale, durationLabel } from '../composables/preferSeconds';
 import type { ConditionForm } from '../composables/customActions';
 
 // The fields of one `if_check` arm. Edited in place: the form object belongs to the action
