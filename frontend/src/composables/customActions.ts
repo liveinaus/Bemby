@@ -35,18 +35,30 @@ export type ConditionForm = {
   contact: string;
 };
 
+/**
+ * A field the editor binds to an `<input type="number">`. Vue casts every such input to a
+ * number whatever the modifier says, so what comes back is a number once anything is typed,
+ * and the empty string while it is blank. Read one with `asText`.
+ */
+type NumericField = string | number;
+
+/** The text form of a field bound to a number input, blank when it holds nothing. */
+function asText(value: NumericField | null | undefined): string {
+  return value == null ? "" : String(value).trim();
+}
+
 export type CustomActionForm = {
   type: CustomActionType;
   content: string;
   contentDropdown: string;
   contentCustom: string;
-  contentAiInputLength: string;
+  contentAiInputLength: NumericField;
   /** send_command: what {aiInputWithCustomHint} should write, for a question asked in words. */
   contentAiInputHint: string;
   /** send_command: shortest answer {aiInputWithCustomHint} may come back with. Blank = any. */
-  contentAiInputMinLen: string;
+  contentAiInputMinLen: NumericField;
   /** send_command: longest answer it may come back with. Blank = any. */
-  contentAiInputMaxLen: string;
+  contentAiInputMaxLen: NumericField;
   maxWaitMs: number;
   waitMs: number;
   /** ai_multiple_btn: pause between the clicks. */
@@ -57,7 +69,7 @@ export type CustomActionForm = {
   buttonAiHint: string;
   maxRetries: number;
   scope: number;
-  captchaLength: string;
+  captchaLength: NumericField;
   successContains: string;
   failContains: string;
   /** ai_multiple_btn: only a buttons message whose text contains this is picked. */
@@ -457,15 +469,14 @@ export function actionsToConfig(forms: CustomActionForm[]): CustomAction[] {
     if (a.type === "send_command" || a.type === "send_contact_message") {
       let content: string;
       if (a.contentDropdown === "{aiInput}") {
-        content = a.contentAiInputLength
-          ? `{aiInput:${a.contentAiInputLength}}`
-          : "{aiInput}";
+        const length = asText(a.contentAiInputLength);
+        content = length ? `{aiInput:${length}}` : "{aiInput}";
       } else if (a.contentDropdown === "{aiInputWithCustomHint}") {
         // Braces would end the placeholder early, and the range only goes in front of the
         // hint when one of its two ends was actually given
         const hint = a.contentAiInputHint.trim().replace(/[{}]/g, "");
-        const min = a.contentAiInputMinLen.trim();
-        const max = a.contentAiInputMaxLen.trim();
+        const min = asText(a.contentAiInputMinLen);
+        const max = asText(a.contentAiInputMaxLen);
         const range = min || max ? `${min}-${max}:` : "";
         content = `{aiInputWithCustomHint:${range}${hint}}`;
       } else {
@@ -499,7 +510,7 @@ export function actionsToConfig(forms: CustomActionForm[]): CustomAction[] {
         ...common,
         type: "enter_captcha" as const,
         maxWaitMs: a.maxWaitMs,
-        captchaLength: a.captchaLength ? parseInt(a.captchaLength) || undefined : undefined,
+        captchaLength: parseInt(asText(a.captchaLength)) || undefined,
         ...(a.maxRetries > 0 ? { maxRetries: a.maxRetries } : {}),
       };
     if (a.type === "join_group")

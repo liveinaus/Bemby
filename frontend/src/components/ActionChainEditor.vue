@@ -33,28 +33,30 @@
             <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLengthHint') }}</div>
             <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
           </template>
-          <template v-else-if="action.contentDropdown === '{aiInputWithCustomHint}'">
-            <textarea v-model="action.contentAiInputHint" class="form-input" style="margin-top:6px;min-height:64px;resize:vertical" rows="3" :placeholder="t('jobs.aiInputHintPlaceholder')"></textarea>
-            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputHintHint') }}</div>
-            <div class="form-row" style="margin-bottom:0;margin-top:6px">
-              <div class="form-group" style="margin-bottom:0">
-                <label class="form-label">{{ t('jobs.aiInputMinLenLabel') }}</label>
-                <input v-model.trim="action.contentAiInputMinLen" class="form-input" type="number" min="1" max="4096" :placeholder="t('jobs.aiInputLenPlaceholder')" />
-              </div>
-              <div class="form-group" style="margin-bottom:0">
-                <label class="form-label">{{ t('jobs.aiInputMaxLenLabel') }}</label>
-                <input v-model.trim="action.contentAiInputMaxLen" class="form-input" type="number" min="1" max="4096" :placeholder="t('jobs.aiInputLenPlaceholder')" />
-              </div>
-            </div>
-            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLenRangeHint') }}</div>
-            <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
-          </template>
-          <div v-else style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.contentHint') }}</div>
+          <div v-else-if="action.contentDropdown !== '{aiInputWithCustomHint}'" style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.contentHint') }}</div>
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
           <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
         </div>
+      </div>
+      <!-- The hint is prose and its own explanation is long, so both take the card's full
+           width rather than the half the content column leaves them -->
+      <div v-if="action.contentDropdown === '{aiInputWithCustomHint}'" style="margin-top:8px">
+        <textarea v-model="action.contentAiInputHint" class="form-input" style="min-height:64px;resize:vertical" rows="3" :placeholder="t('jobs.aiInputHintPlaceholder')"></textarea>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputHintHint') }}</div>
+        <div class="form-row" style="margin-bottom:0;margin-top:6px">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">{{ t('jobs.aiInputMinLenLabel') }}</label>
+            <input v-model.trim="action.contentAiInputMinLen" class="form-input" type="number" min="1" max="4096" :placeholder="t('jobs.aiInputLenPlaceholder')" />
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">{{ t('jobs.aiInputMaxLenLabel') }}</label>
+            <input v-model.trim="action.contentAiInputMaxLen" class="form-input" type="number" min="1" max="4096" :placeholder="t('jobs.aiInputLenPlaceholder')" />
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLenRangeHint') }}</div>
+        <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
       </div>
     </div>
 
@@ -81,28 +83,30 @@
             <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLengthHint') }}</div>
             <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
           </template>
-          <template v-else-if="action.contentDropdown === '{aiInputWithCustomHint}'">
-            <textarea v-model="action.contentAiInputHint" class="form-input" style="margin-top:6px;min-height:64px;resize:vertical" rows="3" :placeholder="t('jobs.aiInputHintPlaceholder')"></textarea>
-            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputHintHint') }}</div>
-            <div class="form-row" style="margin-bottom:0;margin-top:6px">
-              <div class="form-group" style="margin-bottom:0">
-                <label class="form-label">{{ t('jobs.aiInputMinLenLabel') }}</label>
-                <input v-model.trim="action.contentAiInputMinLen" class="form-input" type="number" min="1" max="4096" :placeholder="t('jobs.aiInputLenPlaceholder')" />
-              </div>
-              <div class="form-group" style="margin-bottom:0">
-                <label class="form-label">{{ t('jobs.aiInputMaxLenLabel') }}</label>
-                <input v-model.trim="action.contentAiInputMaxLen" class="form-input" type="number" min="1" max="4096" :placeholder="t('jobs.aiInputLenPlaceholder')" />
-              </div>
-            </div>
-            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLenRangeHint') }}</div>
-            <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
-          </template>
-          <div v-else style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.contentHint') }}</div>
+          <div v-else-if="action.contentDropdown !== '{aiInputWithCustomHint}'" style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.contentHint') }}</div>
         </div>
         <div class="form-group">
           <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
           <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
         </div>
+      </div>
+      <!-- The hint is prose and its own explanation is long, so both take the card's full
+           width rather than the half the content column leaves them -->
+      <div v-if="action.contentDropdown === '{aiInputWithCustomHint}'" style="margin-top:8px">
+        <textarea v-model="action.contentAiInputHint" class="form-input" style="min-height:64px;resize:vertical" rows="3" :placeholder="t('jobs.aiInputHintPlaceholder')"></textarea>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputHintHint') }}</div>
+        <div class="form-row" style="margin-bottom:0;margin-top:6px">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">{{ t('jobs.aiInputMinLenLabel') }}</label>
+            <input v-model.trim="action.contentAiInputMinLen" class="form-input" type="number" min="1" max="4096" :placeholder="t('jobs.aiInputLenPlaceholder')" />
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">{{ t('jobs.aiInputMaxLenLabel') }}</label>
+            <input v-model.trim="action.contentAiInputMaxLen" class="form-input" type="number" min="1" max="4096" :placeholder="t('jobs.aiInputLenPlaceholder')" />
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.aiInputLenRangeHint') }}</div>
+        <div v-if="aiKeyMissing" style="font-size:11px;color:var(--danger);margin-top:4px">{{ t('jobs.aiKeyWarning') }}</div>
       </div>
     </div>
 
