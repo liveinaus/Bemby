@@ -1101,6 +1101,30 @@ const WEBVIEW_PROXY_SHIM = `
   };
 `;
 
+// A passkey/WebAuthn registration opens a native browser dialog ("insert your security key")
+// that no page script and no automation selector can reach -- it blocks the run until it times
+// out around two minutes later, long enough for a one-shot sign-in link to expire. Sites push
+// this as an upsell after a password login (Microsoft's "set up a passkey" among them). Reject
+// the registration call exactly as a person pressing Cancel would, so the page falls straight
+// through to its "skip" path instead of hanging. String form so tsx does not instrument it.
+// Only `create` with a `publicKey` (registration) is touched; passkey sign-in (`get`) and every
+// other credential type are left alone, and nothing here uses them.
+const WEBAUTHN_NEUTRALISE = `
+  (function () {
+    try {
+      var c = navigator.credentials;
+      if (!c || !c.create) return;
+      var orig = c.create.bind(c);
+      c.create = function (options) {
+        if (options && options.publicKey) {
+          return Promise.reject(new DOMException('The operation either timed out or was not allowed.', 'NotAllowedError'));
+        }
+        return orig(options);
+      };
+    } catch (e) {}
+  })();
+`;
+
 /**
  * Cookies Cloudflare issues, which are the whole reason several accounts share a profile:
  * the clearance is the exit's, not the account's, and dropping it buys a fresh challenge
@@ -2825,7 +2849,7 @@ type WebStepRun = {
   lists: Map<string, string[]>;
   /** What a `web_pick` chose this round, for the loop to remember once the round is clean. */
   picked: Map<string, string>;
-  /** `name value` for everything picked so far this run, so no two rounds coincide. */
+  /** `name value` for everything picked so far this run, so no two rounds coincide. */
   taken: Set<string>;
   /** Names whose `web_pick` asked for chosen values to be remembered. */
   remember: Set<string>;
@@ -5360,6 +5384,9 @@ async function attemptLoad(
     await page
       .addInitScript("window.__name = window.__name || function (a) { return a; };")
       .catch(() => {});
+
+    // Before any navigation, so a passkey upsell cannot open the native dialog that hangs the run
+    await page.addInitScript(WEBAUTHN_NEUTRALISE).catch(() => {});
 
     if (opts.miniApp) {
       await page.addInitScript(WEBVIEW_PROXY_SHIM).catch(() => {});

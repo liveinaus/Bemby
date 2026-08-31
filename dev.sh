@@ -17,6 +17,17 @@ PROXY_HOST=127.0.0.1
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ── Vendored browser runtime ──────────────────────────────────────────────────
+# A dev container that ships without Chrome's system libraries cannot start any CloakBrowser
+# build, and the failure looks like a bad download rather than a missing libglib. Run
+# scripts/dev-browser-deps.sh to unpack them into the data dir; this picks them up. Absent
+# in production, where the image installs the packages itself, so it is a no-op there.
+BROWSER_DEPS_ENV="$SCRIPT_DIR/backend/data/chrome-deps/env.sh"
+if [ -f "$BROWSER_DEPS_ENV" ]; then
+  . "$BROWSER_DEPS_ENV"
+  echo "Using vendored browser runtime from backend/data/chrome-deps"
+fi
+
 # ── .env setup ────────────────────────────────────────────────────────────────
 if [ ! -f backend/.env ]; then
   cp env.example backend/.env

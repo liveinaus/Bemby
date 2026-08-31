@@ -66,6 +66,14 @@ export function normaliseBaseUrl(raw: string): string {
 }
 
 /**
+ * A mailbox address as msOauth2api keys it: trimmed and lower-cased. The service normalises on
+ * its callback, so every lookup here has to match that or a connected mailbox reads as missing.
+ */
+export function normaliseEmail(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
+/**
  * Whether this deployment offers the integration at all, set by MSOAUTH2API ("1"/"true") the
  * way the data store is set by DATA_MANAGEMENT. Off is off for everyone: no Settings section,
  * no address source on a login-email run, no pool steps in the step editor and no API behind
@@ -133,17 +141,30 @@ async function call(
   opts: CallOptions = {},
 ): Promise<{ status: number; body: any }> {
   const cfg = requireConfig();
+  const method = opts.method ?? "GET";
   const url = new URL(`${cfg.baseUrl}/api/${path}`);
+  const jsonBody: Record<string, string> = {};
   for (const [key, value] of Object.entries(opts.params ?? {})) {
     if (value === undefined || value === "") continue;
     url.searchParams.set(key, String(value));
+    jsonBody[key] = String(value);
   }
+
+  // A POST also carries its params in the JSON body: newer endpoints (oauth/start) read the
+  // body and ignore the query string, older ones read the query string, so sending both keeps
+  // every version working. GET has no body.
+  const sendBody = method === "POST" && Object.keys(jsonBody).length > 0;
 
   let res;
   try {
     res = await undiciFetch(url, {
-      method: opts.method ?? "GET",
-      headers: { "X-API-Key": cfg.apiKey, Accept: "application/json" },
+      method,
+      headers: {
+        "X-API-Key": cfg.apiKey,
+        Accept: "application/json",
+        ...(sendBody ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(sendBody ? { body: JSON.stringify(jsonBody) } : {}),
       signal: opts.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (err: any) {
@@ -279,9 +300,12 @@ export async function startOauthFlow(
   authType?: string,
   signal?: AbortSignal,
 ): Promise<OauthFlowStart> {
+  // msOauth2api stores and looks the mailbox up in lower case (the callback normalises it),
+  // so start it the same way -- otherwise a mixed-case address signs in fine but the later
+  // status check for the same string comes back "not stored" and the confirm fails.
   const { body } = await call("oauth/start", {
     method: "POST",
-    params: { email, authType: (authType ?? "").trim() || undefined },
+    params: { email: normaliseEmail(email), authType: (authType ?? "").trim() || undefined },
     signal,
   });
   const authorizeUrl = String(body?.authorizeUrl ?? "");
@@ -306,7 +330,7 @@ export async function accountStatus(
   signal?: AbortSignal,
 ): Promise<AccountStatus> {
   const { status, body } = await call("email-status", {
-    params: { email },
+    params: { email: normaliseEmail(email) },
     allowStatus: [404],
     signal,
   });

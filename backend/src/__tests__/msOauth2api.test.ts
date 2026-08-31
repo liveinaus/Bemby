@@ -184,3 +184,47 @@ describe("maskApiKey", () => {
     expect(maskApiKey("")).toBe("");
   });
 });
+
+describe("startOauthFlow", () => {
+  // The service reads oauth/start from the JSON body, not the query string, so a POST has to
+  // carry its params both ways (older endpoints still read the query)
+  it("sends the mailbox in the request body", async () => {
+    const { startOauthFlow } = await import("../jobs/msOauth2api");
+    undiciFetch.mockResolvedValue(
+      jsonResponse({ authorizeUrl: "https://login/authorize", redirectUri: "https://cb" }),
+    );
+    await startOauthFlow("a@b.com");
+    const init = undiciFetch.mock.calls[0][1];
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body).email).toBe("a@b.com");
+    expect(init.headers["Content-Type"]).toBe("application/json");
+  });
+
+  // msOauth2api keys the mailbox in lower case, so start it the same way or the later status
+  // check for the original casing comes back "not stored"
+  it("lower-cases the mailbox", async () => {
+    const { startOauthFlow } = await import("../jobs/msOauth2api");
+    undiciFetch.mockResolvedValue(
+      jsonResponse({ authorizeUrl: "https://login/authorize", redirectUri: "https://cb" }),
+    );
+    await startOauthFlow("Nina_Lewis@Outlook.com");
+    expect(JSON.parse(undiciFetch.mock.calls[0][1].body).email).toBe("nina_lewis@outlook.com");
+    expect(calledUrl().searchParams.get("email")).toBe("nina_lewis@outlook.com");
+  });
+});
+
+describe("accountStatus", () => {
+  it("queries by the lower-cased mailbox and reads a hit", async () => {
+    const { accountStatus } = await import("../jobs/msOauth2api");
+    undiciFetch.mockResolvedValue(jsonResponse({ disabled: false, lastRefreshError: null }));
+    const st = await accountStatus("Nina_Lewis@Outlook.com");
+    expect(calledUrl().searchParams.get("email")).toBe("nina_lewis@outlook.com");
+    expect(st.stored).toBe(true);
+  });
+
+  it("reads a 404 as not stored", async () => {
+    const { accountStatus } = await import("../jobs/msOauth2api");
+    undiciFetch.mockResolvedValue(jsonResponse({ error: "no account" }, 404));
+    expect((await accountStatus("a@b.com")).stored).toBe(false);
+  });
+});
