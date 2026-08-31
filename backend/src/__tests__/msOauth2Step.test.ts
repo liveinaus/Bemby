@@ -1,8 +1,10 @@
-// Turning a completed sign-in into a refresh token: reading the one-time code off the address
-// the browser landed on, handing it to the exchange, and keeping what came back where a later
-// run can read it. Driven against a stand-in page and a stub exchange, so what is covered is
-// the part that goes wrong in practice -- a redirect that carries a refusal rather than a code,
-// and a token that has to reach the data store because the log never carries it.
+// Connecting a Microsoft mailbox to msOauth2api: opening the sign-in address the service
+// hands out, then confirming with the service that the mailbox actually landed. Driven
+// against a stand-in page and stubbed calls, so what is covered is the part that goes wrong
+// in practice -- a redirect carrying a refusal, and a sign-in that never reached the callback.
+//
+// No token appears anywhere here, deliberately: msOauth2api stores it and never serves it
+// back, so Bemby only writes a marker saying the mailbox is done.
 //
 // The loop pieces the same job leans on are here too: the round's position, and a condition
 // that looks at a value rather than at the page.
@@ -13,15 +15,24 @@ import { db } from "../db/database";
 import { CF_TUNING_KEY } from "../jobs/cfTuning";
 import { createFolder, createRecord, readDataValue } from "../db/dataStore";
 import { runWebSteps, type WebStepHooks } from "../jobs/cloudflare";
-import { authCodeFromUrl, msOauthClientIdFor, msOauthStepsIn } from "../jobs/msOauth2";
+import { authErrorFromUrl, msOauthStepsIn } from "../jobs/msOauth2";
 import type { WebStep } from "../types";
 
+const CALLBACK = "https://msapi.example.com/api/oauth/callback";
+
 /** Enough of a page for steps that never touch one; the address is what this suite reads. */
-function fakePage(url = "https://login.microsoftonline.com/common/oauth2/nativeclient?code=abc123") {
+function fakePage(url = `${CALLBACK}?code=abc123&state=s1`) {
   const typed: Array<{ selector: string; text: string }> = [];
+  const visited: string[] = [];
+  let current = url;
   const page = {
     title: async () => "",
-    url: () => url,
+    url: () => current,
+    goto: async (to: string) => {
+      visited.push(to);
+      current = to;
+      return null;
+    },
     screenshot: async () => Buffer.from("a jpeg, near enough"),
     keyboard: { press: async () => {}, type: async () => {} },
     mouse: { move: async () => {}, click: async () => {}, down: async () => {}, up: async () => {} },
@@ -38,15 +49,25 @@ function fakePage(url = "https://login.microsoftonline.com/common/oauth2/nativec
     fill: async (selector: string, text: string) => typed.push({ selector, text }),
     type: async (selector: string, text: string) => typed.push({ selector, text }),
   };
-  return { page: page as unknown as Page, typed };
+  return { page: page as unknown as Page, typed, visited };
 }
 
-/** Stands in for the backend exchange, recording what the step handed it. */
-function fakeExchange(refreshToken = "M.C545_token_value") {
-  const calls: Array<Parameters<NonNullable<WebStepHooks["msOauth2Token"]>>[0]> = [];
-  const hook: WebStepHooks["msOauth2Token"] = async (q) => {
+/** Stands in for msOauth2api handing out a sign-in address. */
+function fakeStart(authorizeUrl = "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?x=1") {
+  const calls: Array<{ email: string; authType?: string }> = [];
+  const hook: WebStepHooks["msOauth2Start"] = async (q) => {
     calls.push(q);
-    return { refreshToken, accessToken: "an access token", expiresIn: 3600, scope: "offline_access" };
+    return { authorizeUrl, redirectUri: CALLBACK };
+  };
+  return { hook, calls };
+}
+
+/** Stands in for the service being asked whether it holds the mailbox. */
+function fakeVerify(answer: { stored: boolean; disabled?: boolean; lastRefreshError?: string | null }) {
+  const calls: Array<{ email: string }> = [];
+  const hook: WebStepHooks["msOauth2Verify"] = async (q) => {
+    calls.push(q);
+    return answer;
   };
   return { hook, calls };
 }
@@ -66,133 +87,177 @@ beforeEach(() => {
   );
 });
 
-describe("authCodeFromUrl", () => {
-  it("takes the code out of the query string", () => {
-    expect(authCodeFromUrl("https://example.com/nativeclient?code=abc&state=1").code).toBe("abc");
-  });
-
-  it("takes one off the fragment as well", () => {
-    expect(authCodeFromUrl("https://example.com/nativeclient#code=frag").code).toBe("frag");
-  });
-
-  // A refused consent screen leaves the same blank page behind as an unfinished sign-in
-  it("reports a refusal rather than calling it a missing code", () => {
-    const seen = authCodeFromUrl(
-      "https://example.com/nativeclient?error=access_denied&error_description=the+user+said+no",
+describe("authErrorFromUrl", () => {
+  // A refused consent screen leaves an ordinary-looking page behind
+  it("reports a refusal carried on the query string", () => {
+    const seen = authErrorFromUrl(
+      `${CALLBACK}?error=access_denied&error_description=the+user+said+no`,
     );
-    expect(seen.code).toBeUndefined();
-    expect(seen.error).toContain("access_denied");
-    expect(seen.error).toContain("the user said no");
+    expect(seen).toContain("access_denied");
+    expect(seen).toContain("the user said no");
   });
 
-  it("has neither for a page that is not the redirect", () => {
-    const seen = authCodeFromUrl("https://login.live.com/oauth20_authorize.srf");
-    expect(seen.code).toBeUndefined();
-    expect(seen.error).toBeUndefined();
+  it("reads one off the fragment as well", () => {
+    expect(authErrorFromUrl(`${CALLBACK}#error=consent_required`)).toContain("consent_required");
+  });
+
+  it("has nothing to say about an ordinary address", () => {
+    expect(authErrorFromUrl(`${CALLBACK}?code=abc123`)).toBeNull();
+    expect(authErrorFromUrl("not an address at all")).toBeNull();
+  });
+});
+
+describe("web_ms_oauth2_start", () => {
+  it("asks the service for the address and takes the browser there", async () => {
+    const { page, visited } = fakePage("https://example.com/start");
+    const { hook, calls } = fakeStart();
+
+    const result = await run(
+      page,
+      [{ type: "web_ms_oauth2_start", email: "nina@outlook.com", authType: "imap" }],
+      { msOauth2Start: hook },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(calls[0]).toEqual({ email: "nina@outlook.com", authType: "imap" });
+    expect(visited[0]).toContain("login.microsoftonline.com");
+  });
+
+  it("fills the mailbox in from what the round is on", async () => {
+    const { page } = fakePage("https://example.com/start");
+    const { hook, calls } = fakeStart();
+
+    await run(
+      page,
+      [
+        { type: "web_set", vars: [{ name: "email", value: "rosa@outlook.com" }] },
+        { type: "web_ms_oauth2_start", email: "{email}" },
+      ],
+      { msOauth2Start: hook },
+    );
+
+    expect(calls[0].email).toBe("rosa@outlook.com");
+  });
+
+  // The address is a one-shot capability to write an account into the service
+  it("keeps the sign-in address out of the run log", async () => {
+    const { page } = fakePage("https://example.com/start");
+    const { hook } = fakeStart("https://login.microsoftonline.com/consumers/x?state=SECRETSTATE");
+
+    const result = await run(
+      page,
+      [{ type: "web_ms_oauth2_start", email: "nina@outlook.com" }],
+      { msOauth2Start: hook },
+    );
+
+    expect(result.logs[0].outcome).not.toContain("SECRETSTATE");
+    expect(result.logs[0].outcome).toContain("nina@outlook.com");
+  });
+
+  it("says so when there is no mailbox to connect", async () => {
+    const { page } = fakePage("https://example.com/start");
+    const { hook } = fakeStart();
+    const result = await run(page, [{ type: "web_ms_oauth2_start", email: "" }], {
+      msOauth2Start: hook,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.logs[0].error).toContain("no mailbox given");
   });
 });
 
 describe("web_ms_oauth2", () => {
-  it("trades the code on the address and keeps the token where it was asked for", async () => {
+  it("confirms with the service and marks the record, storing no token", async () => {
     const folderId = createFolder("outlook");
     createRecord(folderId, "nina@outlook.com", { password: "xxxx" });
     const { page } = fakePage();
-    const { hook, calls } = fakeExchange();
+    const { hook, calls } = fakeVerify({ stored: true });
 
     const result = await run(
       page,
       [
         {
           type: "web_ms_oauth2",
-          varName: "refreshToken",
-          tenant: "consumers",
-          clientSecret: "{msOauthClientSecret}",
-          redirectUri: "https://login.microsoftonline.com/common/oauth2/nativeclient",
+          email: "nina@outlook.com",
+          varName: "connectedAt",
           folder: "outlook",
           key: "nina@outlook.com",
-          path: "refreshToken",
+          path: "connectedAt",
         },
       ],
-      { msOauth2Token: hook },
+      { msOauth2Verify: hook },
     );
 
     expect(result.ok).toBe(true);
-    expect(calls[0].code).toBe("abc123");
-    expect(calls[0].tenant).toBe("consumers");
-    // The name of the secret travels, never a secret itself
-    expect(calls[0].clientSecretRef).toBe("{msOauthClientSecret}");
-    expect(readDataValue("outlook", "nina@outlook.com", "refreshToken")).toBe("M.C545_token_value");
+    expect(calls[0].email).toBe("nina@outlook.com");
+    // A timestamp, not a credential
+    expect(readDataValue("outlook", "nina@outlook.com", "connectedAt")).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     // The record it was written into keeps everything else it held
     expect(readDataValue("outlook", "nina@outlook.com", "password")).toBe("xxxx");
   });
 
-  // The run log is kept with the run and travels with any export of it
-  it("says how long the token is and no more", async () => {
+  it("fails when the service does not hold the mailbox", async () => {
     const { page } = fakePage();
-    const { hook } = fakeExchange();
+    const { hook } = fakeVerify({ stored: false });
     const result = await run(
       page,
-      [{ type: "web_ms_oauth2", varName: "refreshToken" }],
-      { msOauth2Token: hook },
-    );
-
-    expect(result.ok).toBe(true);
-    expect(result.logs[0].outcome).not.toContain("M.C545_token_value");
-    expect(result.logs[0].outcome).toContain("18 character(s)");
-  });
-
-  it("fails plainly when the browser is not on the redirect address yet", async () => {
-    const { page } = fakePage("https://login.live.com/ppsecure/post.srf");
-    const { hook, calls } = fakeExchange();
-    const result = await run(
-      page,
-      [{ type: "web_ms_oauth2", varName: "refreshToken" }],
-      { msOauth2Token: hook },
+      [{ type: "web_ms_oauth2", email: "nina@outlook.com" }],
+      { msOauth2Verify: hook },
     );
 
     expect(result.ok).toBe(false);
-    expect(result.logs[0].error).toContain("has not landed on the redirect address");
-    expect(calls).toHaveLength(0);
+    expect(result.logs[0].error).toContain("does not hold nina@outlook.com");
   });
 
-  it("says so when the sign-in came back refused", async () => {
-    const { page } = fakePage("https://example.com/nativeclient?error=consent_required");
-    const { hook } = fakeExchange();
+  // Stored but broken is worse than not stored: the pool would hand the address out
+  it("fails when the stored grant is already failing", async () => {
+    const { page } = fakePage();
+    const { hook } = fakeVerify({ stored: true, lastRefreshError: "AADSTS70000 invalid_grant" });
     const result = await run(
       page,
-      [{ type: "web_ms_oauth2", varName: "refreshToken" }],
-      { msOauth2Token: hook },
+      [{ type: "web_ms_oauth2", email: "nina@outlook.com" }],
+      { msOauth2Verify: hook },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.logs[0].error).toContain("invalid_grant");
+  });
+
+  it("says so when the sign-in came back refused, without asking the service", async () => {
+    const { page } = fakePage(`${CALLBACK}?error=consent_required`);
+    const { hook, calls } = fakeVerify({ stored: true });
+    const result = await run(
+      page,
+      [{ type: "web_ms_oauth2", email: "nina@outlook.com" }],
+      { msOauth2Verify: hook },
     );
 
     expect(result.ok).toBe(false);
     expect(result.logs[0].error).toContain("consent_required");
+    expect(calls).toHaveLength(0);
   });
 });
 
-// The sign-in address is built from `{msOauthClientId}` before any step runs, so which id that
-// comes to decides whether the browser is sent somewhere Microsoft will accept at all.
-describe("msOauthClientIdFor", () => {
-  const oauthStep = (clientId?: string): WebStep =>
-    ({ type: "web_ms_oauth2", varName: "refreshToken", ...(clientId ? { clientId } : {}) }) as WebStep;
-
-  it("prefers the id the step names over the panel setting", () => {
-    expect(msOauthClientIdFor([oauthStep("step-app")], "settings-app")).toBe("step-app");
-  });
-
-  it("falls back to the setting when no step names one", () => {
-    expect(msOauthClientIdFor([oauthStep()], "settings-app")).toBe("settings-app");
-  });
-
-  it("finds a step inside a loop, which is where these live", () => {
+// Both halves have to be found wherever they sit, since the run is stopped up front when
+// msOauth2api is not configured and these are the steps that need it.
+describe("msOauthStepsIn", () => {
+  it("finds both step types, including inside a loop", () => {
     const steps = [
-      { type: "web_for_each", varName: "mailboxes", steps: [oauthStep("nested-app")] },
+      {
+        type: "web_for_each",
+        varName: "mailboxes",
+        steps: [
+          { type: "web_ms_oauth2_start", email: "{email}" },
+          { type: "web_ms_oauth2", email: "{email}" },
+        ],
+      },
     ] as WebStep[];
-    expect(msOauthClientIdFor(steps, "")).toBe("nested-app");
-    expect(msOauthStepsIn(steps)).toHaveLength(1);
+    expect(msOauthStepsIn(steps)).toHaveLength(2);
   });
 
-  it("comes to nothing when neither names one, which is what the run is stopped on", () => {
-    expect(msOauthClientIdFor([oauthStep()], "  ")).toBe("");
+  it("finds none on a page that has none", () => {
+    expect(msOauthStepsIn([{ type: "web_delay", waitMs: 0 }] as WebStep[])).toHaveLength(0);
+    expect(msOauthStepsIn(undefined)).toHaveLength(0);
   });
 });
 
@@ -202,14 +267,14 @@ const outcomes = (logs: Array<{ outcome?: string }>) => logs.map((l) => l.outcom
 describe("web_if on a value", () => {
   it("holds when the value is not blank, and reads the store inline", async () => {
     const folderId = createFolder("outlook");
-    createRecord(folderId, "nina@outlook.com", { refreshToken: "already here" });
+    createRecord(folderId, "nina@outlook.com", { connectedAt: "already here" });
     const { page } = fakePage();
 
     const result = await run(page, [
       {
         type: "web_if",
         check: "value",
-        value: "{data.outlook[nina@outlook.com].refreshToken}",
+        value: "{data.outlook[nina@outlook.com].connectedAt}",
         then: [{ type: "web_delay", waitMs: 0 }],
         otherwise: [{ type: "web_delay", waitMs: 0 }, { type: "web_delay", waitMs: 0 }],
       },
@@ -223,11 +288,11 @@ describe("web_if on a value", () => {
   it("turned round, runs the branch only for a name holding nothing", async () => {
     const { page } = fakePage();
     const result = await run(page, [
-      { type: "web_set", vars: [{ name: "savedToken", value: "" }] },
+      { type: "web_set", vars: [{ name: "savedMarker", value: "" }] },
       {
         type: "web_if",
         check: "value",
-        value: "{savedToken}",
+        value: "{savedMarker}",
         negate: true,
         then: [{ type: "web_delay", waitMs: 0 }],
       },

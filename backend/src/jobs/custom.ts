@@ -67,13 +67,15 @@ import { rememberWebValue, usedWebValues } from "./webMemory";
 import { handOverJob } from "./jobHandover";
 import { getNotifyConfig, sendBotNotify } from "./notify";
 import { EMAIL_CODE_LOOKBACK_MS, fetchGmailCode } from "./emailCode";
-import { leaseEmail, pollForCode } from "./msOauth2api";
 import {
-  exchangeAuthCode,
-  msOauthClientId,
-  msOauthClientIdFor,
-  msOauthStepsIn,
-} from "./msOauth2";
+  accountStatus,
+  leaseEmail,
+  msApiConfigured,
+  msApiOffReason,
+  pollForCode,
+  startOauthFlow,
+} from "./msOauth2api";
+import { msOauthStepsIn } from "./msOauth2";
 import { saveAccountApiCredentials, waitForTgLoginCode } from "./tgApiCredentials";
 import { fillSecrets, missingSecretRefs } from "../db/secrets";
 import { connectWithTimeout, destroyQuietly } from "../tg/clientTimeout";
@@ -3560,16 +3562,12 @@ export async function runCustom(
                 if (!/^https?:\/\//i.test(url))
                   throw new Error(`URL must start with http:// or https:// (got "${url}")`);
 
-                // The app the sign-in address carries has to be the one the exchange will
-                // use. Checked before the browser starts: an empty id sends the sign-in out
-                // as `client_id=`, which Microsoft refuses only after the whole sign-in wait
-                // has been spent, and the step holding the id is never reached.
-                const msOauthClientIdForRun = msOauthClientIdFor(webSteps, msOauthClientId());
-                if (!msOauthClientIdForRun && msOauthStepsIn(webSteps).length) {
+                // msOauth2api owns the application registration now, so what has to be in
+                // place is the service itself. Checked before the browser starts: the whole
+                // sign-in wait would otherwise be spent before the step needing it is reached.
+                if (msOauthStepsIn(webSteps).length && !msApiConfigured()) {
                   throw new Error(
-                    "No Microsoft application (client) id: set one on the OAuth2 step, or in " +
-                      "Settings for the whole panel. Without it the sign-in address goes out " +
-                      "with an empty client_id and Microsoft refuses it.",
+                    `Connecting a mailbox needs msOauth2api: ${msApiOffReason()}`,
                   );
                 }
 
@@ -3755,35 +3753,15 @@ export async function runCustom(
                       ...creds,
                     });
                   },
-                  // And for a `web_ms_oauth2`: the application's own credentials are a setting
-                  // and a stored secret, neither of which the browser side reads. The config
-                  // names the secret (`{msOauthClientSecret}`) and it is resolved here.
-                  msOauth2Token: async (q) => {
-                    const clientId = q.clientId?.trim() || msOauthClientId();
-                    if (!clientId)
-                      throw new Error(
-                        "no Microsoft application (client) id is set (see Settings)",
-                      );
-                    const secretRef = q.clientSecretRef?.trim() ?? "";
-                    const missing = missingSecretRefs(secretRef);
-                    if (missing.length)
-                      throw new Error(
-                        `no secret is stored under ${missing.map((m) => `{${m}}`).join(", ")} (see Settings)`,
-                      );
-                    return exchangeAuthCode(
-                      {
-                        tenant: q.tenant,
-                        clientId,
-                        // Blank is a case of its own: an app registered as a public client
-                        // has no secret, and sending an empty one is refused outright
-                        clientSecret: fillSecrets(secretRef).trim() || undefined,
-                        code: q.code,
-                        redirectUri: q.redirectUri,
-                        scope: q.scope,
-                      },
-                      signal,
-                    );
+                  // And for the `web_ms_oauth2_start` / `web_ms_oauth2` pair: the service's
+                  // base URL and API key are settings, which the browser side never reads.
+                  // Nothing about the OAuth2 application is Bemby's business any more --
+                  // msOauth2api owns the registration and does the exchange on its callback.
+                  msOauth2Start: async (q) => {
+                    const flow = await startOauthFlow(q.email, q.authType, signal);
+                    return { authorizeUrl: flow.authorizeUrl, redirectUri: flow.redirectUri };
                   },
+                  msOauth2Verify: async (q) => accountStatus(q.email, signal),
                   // What the steps start with: one template drives my.telegram.org for every
                   // account linked to it, and the phone is the only thing that differs.
                   // `{jobId}` for the same reason a profile name takes one -- a site's
@@ -3791,10 +3769,6 @@ export async function runCustom(
                   // `{data.folder.{jobId}.password}`, so one template covers every job
                   webVars: {
                     jobId: String(cfRun.jobId),
-                    // The Microsoft app a `web_ms_oauth2` step signs in against. Here as well
-                    // as on the step because the sign-in URL carries it too, and a template
-                    // that had to spell it out would be one app's rather than this panel's
-                    msOauthClientId: msOauthClientIdForRun,
                     ...(account
                       ? { accountPhone: account.phoneNumber, accountName: account.name }
                       : {}),

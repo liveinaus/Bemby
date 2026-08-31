@@ -29,7 +29,7 @@ import {
   writeDataValue,
 } from "../db/dataStore";
 import { EMAIL_CODE_WAIT_MS } from "./emailCode";
-import { authCodeFromUrl, MS_OAUTH_REDIRECT_DEFAULT } from "./msOauth2";
+import { authErrorFromUrl } from "./msOauth2";
 import { TG_CODE_WAIT_MS } from "./tgApiCredentials";
 import {
   TOTP_MIN_VALID_MS,
@@ -370,8 +370,10 @@ export type LoadOptions = {
   /** Writes API credentials onto the account, for the `web_tg_api_save` sub-step. */
   jobHandover?: WebStepHooks["jobHandover"];
   saveTgApi?: WebStepHooks["saveTgApi"];
-  /** Trades a sign-in for a refresh token, for the `web_ms_oauth2` sub-step. */
-  msOauth2Token?: WebStepHooks["msOauth2Token"];
+  /** Asks msOauth2api for a sign-in address, for the `web_ms_oauth2_start` sub-step. */
+  msOauth2Start?: WebStepHooks["msOauth2Start"];
+  /** Confirms a mailbox is connected, for the `web_ms_oauth2` sub-step. */
+  msOauth2Verify?: WebStepHooks["msOauth2Verify"];
   /**
    * Names the page steps start with, on top of what they set themselves: the account the run
    * belongs to, so one template can fill a form in for every account linked to it.
@@ -2780,21 +2782,21 @@ export type WebStepHooks = {
     key?: string;
   }) => Promise<{ summary: string }>;
   /**
-   * Trades an OAuth2 code for a refresh token, for a `web_ms_oauth2` step. Supplied by the
-   * caller for the same reason as `emailCode`: the client id is a setting and the config names
-   * a secret (`{msOauthClientSecret}`) rather than carrying one, and neither is resolved on
-   * this side. Absent, the step says so rather than passing silently.
+   * Asks msOauth2api for the sign-in address that connects one mailbox, for a
+   * `web_ms_oauth2_start` step. Supplied by the caller for the same reason as `emailCode`:
+   * the service's base URL and API key are settings, which this side does not read.
    */
-  msOauth2Token?: (q: {
-    tenant?: string;
-    /** Blank takes the client id from the settings. */
-    clientId?: string;
-    /** As written in the config, e.g. `{msOauthClientSecret}`; resolved by the caller. */
-    clientSecretRef?: string;
-    code: string;
-    redirectUri: string;
-    scope?: string;
-  }) => Promise<{ refreshToken: string; accessToken: string; expiresIn: number; scope: string }>;
+  msOauth2Start?: (q: {
+    email: string;
+    authType?: string;
+  }) => Promise<{ authorizeUrl: string; redirectUri: string }>;
+  /**
+   * Confirms msOauth2api now holds the mailbox, for a `web_ms_oauth2` step. There is no token
+   * in the answer: the service stores it and never serves it back.
+   */
+  msOauth2Verify?: (q: {
+    email: string;
+  }) => Promise<{ stored: boolean; disabled?: boolean; lastRefreshError?: string | null }>;
   /**
    * Works any Cloudflare challenge standing on the page right now, or returns null when
    * there is none. Called after a `web_goto`, since a fresh navigation is exactly what
@@ -2804,6 +2806,12 @@ export type WebStepHooks = {
   /** Stops the list where it stands when the job is cancelled. */
   signal?: AbortSignal;
 };
+
+/**
+ * Where `web_ms_oauth2_start` leaves the callback address for `web_ms_oauth2` to recognise.
+ * Reserved rather than a step field: both halves must agree on it, and the service decides it.
+ */
+const MS_OAUTH_REDIRECT_VAR = "__msOauthRedirectUri";
 
 /** State one `runWebSteps` call carries through its steps, loops included. */
 type WebStepRun = {
@@ -3840,58 +3848,82 @@ async function runStepList(
           break;
         }
 
-        case "web_ms_oauth2": {
-          if (!hooks.msOauth2Token)
-            throw new Error("trading a sign-in for a token is not available here");
-          const name = step.varName.trim();
-          if (!name) throw new Error("no name given to hold the refresh token under");
+        case "web_ms_oauth2_start": {
+          if (!hooks.msOauth2Start)
+            throw new Error("connecting a mailbox to msOauth2api is not available here");
+          const email = fillVars(step.email ?? "", run.current).trim();
+          if (!email) throw new Error("no mailbox given to connect");
 
-          // Off the address bar unless the run captured it earlier: the redirect page itself
-          // is blank, and the code is only ever in its query string
-          const from = fillVars(step.codeFrom ?? "", run.current).trim();
-          const source = from || page.url();
-          const found = authCodeFromUrl(source);
-          const code = found.code ?? (from && !from.includes("://") ? from : "");
-          if (!code) {
-            throw new Error(
-              found.error
-                ? `the sign-in came back refused (${found.error})`
-                : `no OAuth2 code is in \`${oneLine(source).slice(0, 120)}\`` +
-                  " -- the browser has not landed on the redirect address yet",
-            );
-          }
-
-          const redirectUri =
-            fillVars(step.redirectUri ?? "", run.current).trim() || MS_OAUTH_REDIRECT_DEFAULT;
-          // Settled before the exchange rather than after it: the code is one-time and the
-          // token is never logged, so a folder that turns out to be unreachable once the
-          // token is in hand would take the only copy of it with it
-          const where = step.folder?.trim() ? dataTarget(step, run) : null;
-          const tokens = await hooks.msOauth2Token({
-            tenant: fillVars(step.tenant ?? "", run.current).trim() || undefined,
-            clientId: fillVars(step.clientId ?? "", run.current).trim() || undefined,
-            clientSecretRef: step.clientSecret?.trim() || undefined,
-            code,
-            redirectUri,
-            scope: fillVars(step.scope ?? "", run.current).trim() || undefined,
+          // The service builds the address, so a run cannot end up signing in against one
+          // application and having the code exchanged against another
+          const { authorizeUrl, redirectUri } = await hooks.msOauth2Start({
+            email,
+            authType: step.authType,
           });
+          // Kept for the confirming step, which needs to know what landing looks like
+          run.current.set(MS_OAUTH_REDIRECT_VAR, redirectUri);
+          const name = step.varName?.trim();
+          if (name) run.current.set(name, authorizeUrl);
 
-          run.current.set(name, tokens.refreshToken);
-          const accessName = step.accessVar?.trim();
-          if (accessName) run.current.set(accessName, tokens.accessToken);
+          const from = page.url();
+          let navError: string | undefined;
+          await page
+            .goto(authorizeUrl, {
+              waitUntil: "domcontentloaded",
+              timeout: Math.max(5_000, capped(30_000, deadline)),
+            })
+            .catch((err: any) => {
+              navError = err?.message ?? String(err);
+            });
+          if (navError && page.url() === from)
+            throw new Error(`could not open the msOauth2api sign-in (${navError})`);
+          await waitForPageReady(page, Math.min(Date.now() + 30_000, deadline));
+          if ((await run.hooks.solveChallenge?.()) === false)
+            throw new Error("a Cloudflare challenge on the sign-in page could not be passed");
 
-          // Written in this same step rather than by a `web_data_save` after it, for the same
-          // reason: nothing else in the run has a copy to fall back on
+          // The address is a one-shot capability, so it is never logged
+          log.outcome = `opened the sign-in for ${email}`;
+          break;
+        }
+
+        case "web_ms_oauth2": {
+          if (!hooks.msOauth2Verify)
+            throw new Error("confirming a mailbox with msOauth2api is not available here");
+          const email = fillVars(step.email ?? "", run.current).trim();
+          if (!email) throw new Error("no mailbox given to confirm");
+
+          // A refusal on the landed address is the clearer message: the consent screen having
+          // been declined reads as an ordinary page otherwise
+          const refusal = authErrorFromUrl(page.url());
+          if (refusal) throw new Error(`the sign-in came back refused (${refusal})`);
+
+          const status = await hooks.msOauth2Verify({ email });
+          if (!status.stored)
+            throw new Error(
+              `msOauth2api does not hold ${email} -- the sign-in did not reach its callback` +
+                " (check the redirect address on the app registration)",
+            );
+          if (status.lastRefreshError)
+            throw new Error(
+              `msOauth2api holds ${email} but its grant is failing: ` +
+                oneLine(String(status.lastRefreshError)).slice(0, 160),
+            );
+
+          const stamp = new Date().toISOString();
+          const name = step.varName?.trim();
+          if (name) run.current.set(name, stamp);
+
+          // A marker rather than a token: the service keeps the token and never serves it, so
+          // this exists only to let a re-run pass over the mailboxes already done
           let saved = "";
+          const where = step.folder?.trim() ? dataTarget(step, run) : null;
           if (where) {
-            writeDataValue(where.folder, where.key, where.path, tokens.refreshToken);
-            saved = `, saved to ${where.label}`;
+            writeDataValue(where.folder, where.key, where.path, stamp);
+            saved = `, marked in ${where.label}`;
           }
-          // Its length and what it is good for, never the token: the run log is kept with the
-          // run and travels with any export of it
           log.outcome =
-            `{${name}} = a refresh token of ${tokens.refreshToken.length} character(s)` +
-            `${saved}${tokens.scope ? ` (${oneLine(tokens.scope).slice(0, 160)})` : ""}`;
+            `${email} is connected to msOauth2api${saved}` +
+            (status.disabled ? " (the account is disabled there)" : "");
           break;
         }
 
@@ -4726,10 +4758,12 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
         `Save api_id ${fill(step.apiId ?? "")} and its hash to the account` +
         `${step.folder?.trim() ? ` and to ${fill(step.folder.trim())}` : ""}`
       );
+    case "web_ms_oauth2_start":
+      return `Open the msOauth2api sign-in for ${fill(step.email ?? "")}`;
     case "web_ms_oauth2":
       return (
-        `Trade this sign-in for a refresh token, into {${step.varName}}` +
-        `${step.folder?.trim() ? ` and ${fill(step.folder.trim())}` : ""}`
+        `Confirm ${fill(step.email ?? "")} is connected to msOauth2api` +
+        `${step.folder?.trim() ? `, marked in ${fill(step.folder.trim())}` : ""}`
       );
     case "web_repeat":
       return `Repeat ${step.steps?.length ?? 0} step(s) ${Math.floor(step.times || 0)} time(s)`;
@@ -5453,7 +5487,8 @@ async function attemptLoad(
           tgSend: opts.tgSend,
           jobHandover: opts.jobHandover,
           saveTgApi: opts.saveTgApi,
-          msOauth2Token: opts.msOauth2Token,
+          msOauth2Start: opts.msOauth2Start,
+          msOauth2Verify: opts.msOauth2Verify,
           // A `web_goto` lands on a page that may have its own challenge, and the solver for
           // this attempt is right here -- so the steps work it through rather than the run
           // only noticing once every step has already failed against an interstitial

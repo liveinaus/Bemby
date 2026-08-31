@@ -89,7 +89,6 @@ import {
   MSAPI_POOL_TYPE_KEY,
   poolStatus,
 } from "../jobs/msOauth2api";
-import { MS_OAUTH_CLIENT_ID_KEY } from "../jobs/msOauth2";
 import {
   getBotInfo,
   getNotifyConfig,
@@ -149,7 +148,6 @@ export const ALLOWED_KEYS = [
   MSAPI_BASE_URL_KEY,
   MSAPI_API_KEY_SETTING,
   MSAPI_POOL_TYPE_KEY,
-  MS_OAUTH_CLIENT_ID_KEY,
 ];
 
 /** Settings keys that must never be sent to the client. */

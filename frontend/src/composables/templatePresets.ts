@@ -143,66 +143,30 @@ function tgApiTemplate(): JobTemplate {
 }
 
 /**
- * Scopes the consent screen asks for: the mailbox protocols and Graph's mail permissions
- * together, so one sign-in covers whatever reads the mailbox later.
+ * Signs in to a personal Outlook mailbox and connects it to msOauth2api, which is what keeps
+ * the refresh token. A mailbox client cannot be handed a password and a second factor; a
+ * token it can, and msOauth2api is what holds and refreshes them.
  *
- * Only the authorize call may name two resources like this. The token call may not -- it
- * takes one resource at a time -- which is why the step below asks for the Outlook set
- * alone. That costs nothing: the refresh token is not tied to a resource, so a later
- * exchange can ask for the Graph scopes on the strength of the same consent.
- */
-const OUTLOOK_CONSENT_SCOPES = [
-  "offline_access",
-  "https://outlook.office.com/IMAP.AccessAsUser.All",
-  "https://outlook.office.com/SMTP.Send",
-  "https://outlook.office.com/POP.AccessAsUser.All",
-  "https://graph.microsoft.com/Mail.ReadWrite",
-  "https://graph.microsoft.com/Mail.Send",
-  "https://graph.microsoft.com/User.Read",
-].join(" ");
-
-/** What the token itself is minted for: one resource, as the token endpoint requires. */
-const OUTLOOK_TOKEN_SCOPES = [
-  "offline_access",
-  "https://outlook.office.com/IMAP.AccessAsUser.All",
-  "https://outlook.office.com/SMTP.Send",
-  "https://outlook.office.com/POP.AccessAsUser.All",
-].join(" ");
-
-/** Microsoft's own blank landing page: the code comes back in its address, not on the page. */
-const MS_REDIRECT = "https://login.microsoftonline.com/common/oauth2/nativeclient";
-
-/**
- * Signs in to a personal Outlook mailbox and keeps the OAuth2 refresh token it hands back.
- * What a mailbox client needs from a Microsoft account: IMAP takes a token, never a password
- * and a second factor.
+ * Nothing here names an application. `web_ms_oauth2_start` asks the service for the sign-in
+ * address, so the registration, the redirect address, the PKCE pair and the scopes are all
+ * its; `web_ms_oauth2` then asks it whether the mailbox landed. No token passes through
+ * Bemby at any point, and none is stored here.
  *
  * Works the `outlook` folder as a list: each round takes the record at its own position, and
- * one already holding a `refreshToken` is passed over -- so a re-run only picks up the
- * mailboxes added since. Set the rounds to how many the folder holds; a round past the end
- * fails on its own and the ones before it stand.
+ * one already marked `connectedAt` is passed over -- so a re-run only picks up the mailboxes
+ * added since. Set the rounds to how many the folder holds; a round past the end fails on its
+ * own and the ones before it stand.
  *
- * Each record is `{password, totp}` under the address as its key, which is where the token is
- * written back. The `totp` field is the authenticator secret the account was enrolled with,
- * not a code: `web_totp` works the six digits out at the moment the page asks for them.
+ * Each record is `{password, totp}` under the address as its key. The `totp` field is the
+ * authenticator secret the account was enrolled with, not a code: `web_totp` works the six
+ * digits out at the moment the page asks for them.
  *
- * Each round signs out first and asks for the password again (`prompt=login`), since one
- * browser signing in as several accounts in turn would otherwise consent as the first of
- * them -- and the token would be the wrong mailbox's, with nothing on screen to say so.
+ * Each round signs out of whoever was there first, since one browser signing in as several
+ * accounts in turn would otherwise consent as the first of them. Should that happen anyway,
+ * msOauth2api compares the sign-in against the address the flow was started for and stores
+ * nothing on a mismatch, so the round fails rather than filing the wrong mailbox's token.
  */
 function outlookOauthTemplate(): JobTemplate {
-  const authorizeUrl =
-    "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize" +
-    "?client_id={msOauthClientId}" +
-    "&response_type=code" +
-    `&redirect_uri=${encodeURIComponent(MS_REDIRECT)}` +
-    "&response_mode=query" +
-    `&scope=${encodeURIComponent(OUTLOOK_CONSENT_SCOPES)}` +
-    // Sign this account in rather than whoever the browser last had, and put its address in
-    // so the sign-in starts at the password rather than at "pick an account"
-    "&prompt=login" +
-    "&login_hint={email}";
-
   const config: CustomConfig = {
     actions: [
       {
@@ -229,14 +193,14 @@ function outlookOauthTemplate(): JobTemplate {
                 folder: "outlook",
                 index: "{i}",
                 varName: "email",
-                valueVar: "savedToken",
-                path: "refreshToken",
+                valueVar: "savedMarker",
+                path: "connectedAt",
                 optional: true,
               },
               {
                 type: "web_if",
                 check: "value",
-                value: "{savedToken}",
+                value: "{savedMarker}",
                 negate: true,
                 then: [
                   { type: "web_data_read", folder: "outlook", key: "{email}", path: "password", varName: "password" },
@@ -251,7 +215,7 @@ function outlookOauthTemplate(): JobTemplate {
                   },
                   // Out of whoever was signed in a moment ago, before asking for this one
                   { type: "web_goto", url: "https://login.live.com/logout.srf", waitMs: 20000 },
-                  { type: "web_goto", url: authorizeUrl, waitMs: 30000 },
+                  { type: "web_ms_oauth2_start", email: "{email}" },
                   {
                     type: "web_if",
                     check: "element",
@@ -317,21 +281,18 @@ function outlookOauthTemplate(): JobTemplate {
                   {
                     type: "web_if",
                     check: "url",
-                    text: "oauth2/nativeclient",
+                    text: "/api/oauth/callback",
                     waitMs: 60000,
                   },
                   // Straight into the record it belongs to: the token is never logged, so a
                   // run that only held it under a name would have nothing to show for itself
                   {
                     type: "web_ms_oauth2",
-                    varName: "refreshToken",
-                    tenant: "consumers",
-                    clientSecret: "{msOauthClientSecret}",
-                    redirectUri: MS_REDIRECT,
-                    scope: OUTLOOK_TOKEN_SCOPES,
+                    email: "{email}",
+                    varName: "connectedAt",
                     folder: "outlook",
                     key: "{email}",
-                    path: "refreshToken",
+                    path: "connectedAt",
                   },
                 ],
               },

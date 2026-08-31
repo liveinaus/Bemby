@@ -1070,48 +1070,44 @@ export type WebStep =
     }
   | {
       /**
-       * Trade the sign-in the browser has just completed for an OAuth2 refresh token, and hold
-       * it under a name. What a mailbox client needs from a Microsoft account: a password and a
-       * second factor cannot be handed to IMAP, and a refresh token can.
+       * Take a mailbox to msOauth2api's sign-in address, the first half of connecting it.
        *
-       * Run it once the page has landed back on the redirect address: the one-time `code` is
-       * in the query string there, and the step reads it off the address rather than the page,
-       * which is blank. The exchange itself happens on the backend, where the client secret is
-       * -- the browser is never handed it.
+       * The address comes from the service rather than the template: it owns the application
+       * registration, the redirect address, the PKCE pair and the scopes, so nothing here
+       * carries a client id. The step navigates to it; the steps after it sign in, pass the
+       * second factor and accept the consent screen, and `web_ms_oauth2` confirms the result.
+       */
+      type: "web_ms_oauth2_start";
+      /** Which mailbox to connect, e.g. `{email}`. */
+      email: string;
+      /** `auto` (Graph, falling back to IMAP) or `imap` for an account on the older grant. */
+      authType?: "auto" | "imap";
+      /** Name to hold the sign-in address under, for a template that navigates itself. */
+      varName?: string;
+    }
+  | {
+      /**
+       * Confirm the mailbox is connected, the second half.
        *
-       * The token is a login in its own right, so it is never written to the run log; `folder`
-       * puts it straight into the data store instead, which is where anything that has to use
-       * it later reads it.
+       * msOauth2api's callback did the exchange and stored the account, so there is no token
+       * to hand back -- the service never serves one. This asks it whether the address is now
+       * stored and its grant healthy, which is the only trustworthy answer: the callback page
+       * is HTML written for a person.
+       *
+       * `folder` writes a marker rather than a token, so a re-run can pass over the mailboxes
+       * already done without asking the service about each one.
        */
       type: "web_ms_oauth2";
-      /** Name to hold the refresh token under. */
-      varName: string;
-      /** Sign-in authority: `common`, `consumers` for personal accounts, or a tenant id. */
-      tenant?: string;
-      /** Application (client) id. Blank takes the one set in Settings. */
-      clientId?: string;
-      /**
-       * Secret holding the client secret, written `{msOauthClientSecret}`. Blank treats the app
-       * as a public client, which is what an app registered without a secret needs.
-       */
-      clientSecret?: string;
-      /** Redirect address the app is registered with, and the one the code came back on. */
-      redirectUri?: string;
-      /** Scopes to ask the token for. Blank takes what the sign-in consented to. */
-      scope?: string;
-      /**
-       * Where the code is. Blank reads the address the browser is on, which is the usual case;
-       * a name (`{authCode}`) is for a run that captured it earlier.
-       */
-      codeFrom?: string;
-      /** Data-store folder to write the token to, e.g. `outlook`. Blank holds it under the name alone. */
+      /** Which mailbox to confirm, e.g. `{email}`. */
+      email: string;
+      /** Name to hold the confirmation under, e.g. `connectedAt`. */
+      varName?: string;
+      /** Data-store folder to write the marker to, e.g. `outlook`. Blank writes nothing. */
       folder?: string;
       /** Record key inside that folder, e.g. `{email}`. */
       key?: string;
-      /** Field inside the record, e.g. `refreshToken`. Blank replaces the whole record. */
+      /** Field inside the record, e.g. `connectedAt`. Blank replaces the whole record. */
       path?: string;
-      /** Hold the access token under this name too, for a step that calls an API right away. */
-      accessVar?: string;
     }
   | {
       /**

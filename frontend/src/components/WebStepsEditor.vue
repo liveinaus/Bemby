@@ -852,9 +852,41 @@
         </div>
       </div>
 
-      <!-- The sign-in the browser has just finished, traded for a refresh token -->
+      <!-- First half: take the mailbox to the sign-in address msOauth2api hands out -->
+      <div v-if="s.type === 'web_ms_oauth2_start'">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelMsEmail") }}</label>
+            <input
+              v-model.trim="s.msEmail"
+              class="form-input"
+              :placeholder="t('jobs.web.msEmailPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelMsAuthType") }}</label>
+            <select v-model="s.msAuthType" class="form-input">
+              <option value="auto">{{ t("jobs.web.msAuthTypeAuto") }}</option>
+              <option value="imap">{{ t("jobs.web.msAuthTypeImap") }}</option>
+            </select>
+          </div>
+        </div>
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
+          {{ t("jobs.web.msStartHint") }}
+        </div>
+      </div>
+
+      <!-- Second half: confirm with the service that the mailbox landed -->
       <div v-if="s.type === 'web_ms_oauth2'">
         <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelMsEmail") }}</label>
+            <input
+              v-model.trim="s.msEmail"
+              class="form-input"
+              :placeholder="t('jobs.web.msEmailPlaceholder')"
+            />
+          </div>
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelVarName") }}</label>
             <input
@@ -863,63 +895,9 @@
               :placeholder="t('jobs.web.msOauthVarPlaceholder')"
             />
           </div>
-          <div class="form-group">
-            <label class="form-label">{{ t("jobs.web.labelMsTenant") }}</label>
-            <input
-              v-model.trim="s.tenant"
-              class="form-input"
-              :placeholder="t('jobs.web.msTenantPlaceholder')"
-            />
-          </div>
         </div>
         <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.msOauthHint") }}
-        </div>
-
-        <div class="form-row" style="margin-top: 8px">
-          <div class="form-group">
-            <label class="form-label">{{ t("jobs.web.labelMsClientId") }}</label>
-            <input
-              v-model.trim="s.clientId"
-              class="form-input"
-              :placeholder="t('jobs.web.msClientIdPlaceholder')"
-            />
-          </div>
-          <div class="form-group">
-            <label class="form-label">{{ t("jobs.web.labelMsClientSecret") }}</label>
-            <input
-              v-model.trim="s.clientSecret"
-              class="form-input"
-              :placeholder="t('jobs.web.msClientSecretPlaceholder')"
-            />
-          </div>
-        </div>
-        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
-          {{ t("jobs.web.msClientHint") }}
-        </div>
-
-        <div class="form-group" style="margin-top: 8px">
-          <label class="form-label">{{ t("jobs.web.labelMsRedirect") }}</label>
-          <input
-            v-model.trim="s.redirectUri"
-            class="form-input"
-            :placeholder="t('jobs.web.msRedirectPlaceholder')"
-          />
-          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
-            {{ t("jobs.web.msRedirectHint") }}
-          </div>
-        </div>
-
-        <div class="form-group" style="margin-top: 8px">
-          <label class="form-label">{{ t("jobs.web.labelMsScope") }}</label>
-          <input
-            v-model.trim="s.scope"
-            class="form-input"
-            :placeholder="t('jobs.web.msScopePlaceholder')"
-          />
-          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
-            {{ t("jobs.web.msScopeHint") }}
-          </div>
         </div>
 
         <div class="form-row" style="margin-top: 8px">

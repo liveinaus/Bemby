@@ -1168,30 +1168,6 @@
           <p style="font-size: 12px; color: var(--text-muted); margin: 6px 0 0">
             {{ t("settings.secretsWriteOnlyHint") }}
           </p>
-
-          <!-- The Microsoft app a refresh-token step signs in against. The id is no secret,
-               but it is half a pair with one, so it is asked for beside it -->
-          <div style="margin-top: 16px">
-            <label class="form-label">{{ t("settings.msOauthClientIdLabel") }}</label>
-            <div class="proxy-row">
-              <input
-                v-model.trim="msOauthClientId"
-                class="form-input"
-                style="flex: 1"
-                :placeholder="t('settings.msOauthClientIdPlaceholder')"
-              />
-              <button
-                class="btn btn-sm btn-primary"
-                :disabled="msOauthSaving"
-                @click="saveMsOauthClientId"
-              >
-                {{ msOauthSaving ? t("common.saving") : t("common.save") }}
-              </button>
-            </div>
-            <p style="font-size: 12px; color: var(--text-muted); margin: 6px 0 0">
-              {{ t("settings.msOauthClientIdHint") }}
-            </p>
-          </div>
         </div>
       </div>
 
@@ -4323,7 +4299,6 @@ onMounted(async () => {
       /* ignore */
     }
     void loadNotifyBot(s.notify_bot_configured === "true");
-    msOauthClientId.value = s.ms_oauth_client_id ?? "";
     msApiForm.baseUrl = s.msapi_base_url ?? "";
     msApiForm.poolType = s.msapi_pool_type ?? "";
     msApiKeyMasked.value = s.msapi_api_key_masked ?? "";
@@ -4846,22 +4821,7 @@ async function saveSecret() {
 
 // The Microsoft application (client) id, saved beside the secrets because that is where its
 // other half lives. An ordinary setting otherwise, hence its own small save.
-const msOauthClientId = ref("");
-const msOauthSaving = ref(false);
 
-async function saveMsOauthClientId() {
-  secretsMsg.value = "";
-  secretsError.value = "";
-  msOauthSaving.value = true;
-  try {
-    await settingsApi.update({ ms_oauth_client_id: msOauthClientId.value });
-    secretsMsg.value = t("settings.saved");
-  } catch (err: any) {
-    secretsError.value = err.response?.data?.error ?? t("settings.saveFailed");
-  } finally {
-    msOauthSaving.value = false;
-  }
-}
 
 async function removeSecret(key: string) {
   secretsMsg.value = "";

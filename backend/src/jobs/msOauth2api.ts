@@ -253,6 +253,82 @@ export async function pollForCode(opts: PollCodeOptions): Promise<PoolCode | nul
   }
 }
 
+export type OauthFlowStart = {
+  authorizeUrl: string;
+  state: string;
+  expiresAt: number;
+  redirectUri: string;
+};
+
+export type AccountStatus = {
+  stored: boolean;
+  disabled?: boolean;
+  lastRefreshError?: string | null;
+};
+
+/**
+ * Asks msOauth2api for a sign-in address that will connect one mailbox.
+ *
+ * The service owns the whole OAuth2 side of this: the application registration, the redirect
+ * address, the PKCE pair and the scopes. It also owns the exchange -- the browser lands on
+ * its callback, which trades the code and stores the account. So Bemby never handles a client
+ * id, a client secret or a refresh token; it only drives the sign-in in between.
+ */
+export async function startOauthFlow(
+  email: string,
+  authType?: string,
+  signal?: AbortSignal,
+): Promise<OauthFlowStart> {
+  const { body } = await call("oauth/start", {
+    method: "POST",
+    params: { email, authType: (authType ?? "").trim() || undefined },
+    signal,
+  });
+  const authorizeUrl = String(body?.authorizeUrl ?? "");
+  if (!authorizeUrl) throw new Error("msOauth2api returned no sign-in address");
+  return {
+    authorizeUrl,
+    state: String(body?.state ?? ""),
+    expiresAt: Number(body?.expiresAt ?? 0),
+    redirectUri: String(body?.redirectUri ?? ""),
+  };
+}
+
+/**
+ * Whether msOauth2api holds this address, which is how a connection is confirmed.
+ *
+ * Asked of the service rather than read off the callback page: the page is HTML meant for a
+ * person, and the service is the only thing that knows whether the token actually landed.
+ * A 404 is the ordinary "not connected" answer, not a failure.
+ */
+export async function accountStatus(
+  email: string,
+  signal?: AbortSignal,
+): Promise<AccountStatus> {
+  const { status, body } = await call("email-status", {
+    params: { email },
+    allowStatus: [404],
+    signal,
+  });
+  if (status === 404) return { stored: false };
+  return {
+    stored: true,
+    disabled: Boolean(body?.disabled),
+    lastRefreshError: body?.lastRefreshError ?? null,
+  };
+}
+
+/** Whether a landed address is msOauth2api's callback, i.e. the sign-in has come back. */
+export function isCallbackUrl(raw: string, redirectUri: string): boolean {
+  try {
+    const landed = new URL(raw);
+    const expected = new URL(redirectUri);
+    return landed.origin === expected.origin && landed.pathname === expected.pathname;
+  } catch {
+    return false;
+  }
+}
+
 /** First 4 and last 4 characters, for showing a stored key without serving it. */
 export function maskApiKey(key: string): string {
   if (!key) return "";

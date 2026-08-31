@@ -952,33 +952,34 @@ export type WebStep =
     }
   | {
       /**
-       * Trade the sign-in the browser has just completed for an OAuth2 refresh token. Run it
-       * on the redirect address, where the one-time code sits in the query string; the
-       * exchange happens on the backend, which holds the client secret.
+       * Open msOauth2api's sign-in address for one mailbox, the first half of connecting it.
+       * The service owns the application registration and the scopes, so nothing here carries
+       * a client id.
+       */
+      type: "web_ms_oauth2_start";
+      /** Which mailbox to connect, e.g. `{email}`. */
+      email: string;
+      /** `auto`, or `imap` for an account on the older grant. */
+      authType?: "auto" | "imap";
+      /** Name to hold the sign-in address under. */
+      varName?: string;
+    }
+  | {
+      /**
+       * Confirm msOauth2api now holds the mailbox, the second half. There is no token to keep:
+       * the service stores it and never serves it back, so `folder` writes only a marker.
        */
       type: "web_ms_oauth2";
-      /** Name to hold the refresh token under. */
-      varName: string;
-      /** Sign-in authority: `common`, `consumers`, or a tenant id. */
-      tenant?: string;
-      /** Application (client) id. Blank takes the one set in Settings. */
-      clientId?: string;
-      /** Secret holding the client secret, e.g. `{msOauthClientSecret}`. */
-      clientSecret?: string;
-      /** Redirect address the app is registered with. */
-      redirectUri?: string;
-      /** Scopes to ask the token for. Blank takes what the sign-in consented to. */
-      scope?: string;
-      /** Where the code is. Blank reads the address the browser is on. */
-      codeFrom?: string;
-      /** Data-store folder to write the token to. Blank holds it under the name alone. */
+      /** Which mailbox to confirm, e.g. `{email}`. */
+      email: string;
+      /** Name to hold the confirmation under, e.g. `connectedAt`. */
+      varName?: string;
+      /** Data-store folder to write the marker to. Blank writes nothing. */
       folder?: string;
       /** Record key inside that folder, e.g. `{email}`. */
       key?: string;
-      /** Field inside the record, e.g. `refreshToken`. */
+      /** Field inside the record, e.g. `connectedAt`. */
       path?: string;
-      /** Hold the access token under this name too. */
-      accessVar?: string;
     }
   | { type: "web_goto"; url: string; waitMs?: number }
   | { type: "web_back"; waitMs?: number }
@@ -1914,11 +1915,6 @@ export type Settings = {
   global_proxy_id?: string;
   /** "true" turns on the data store: its menu entry, its API and its job steps. */
   data_store_enabled?: string;
-  /**
-   * Application (client) id of the Microsoft app a `web_ms_oauth2` step signs in against. Its
-   * secret is not here: that is a stored secret, named `{msOauthClientSecret}` on the step.
-   */
-  ms_oauth_client_id?: string;
   /** Server-computed: "true" when the deployment offers msOauth2api (MSOAUTH2API). */
   msapi_available?: string;
   /** Base URL of a msOauth2api install, e.g. http://host:3000. */

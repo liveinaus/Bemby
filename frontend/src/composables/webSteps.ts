@@ -85,20 +85,10 @@ export type WebStepForm = {
   apiId: string;
   /** web_tg_api_save: the api_hash to write, e.g. `{apiHash}`. */
   apiHash: string;
-  /** web_ms_oauth2: sign-in authority -- `common`, `consumers`, or a tenant id. */
-  tenant: string;
-  /** web_ms_oauth2: application (client) id; blank takes the one in Settings. */
-  clientId: string;
-  /** web_ms_oauth2: the secret holding the client secret, e.g. `{msOauthClientSecret}`. */
-  clientSecret: string;
-  /** web_ms_oauth2: the redirect address the app is registered with. */
-  redirectUri: string;
-  /** web_ms_oauth2: scopes to ask the token for. */
-  scope: string;
-  /** web_ms_oauth2: where the code is; blank reads the address the browser is on. */
-  codeFrom: string;
-  /** web_ms_oauth2: name to hold the access token under as well. */
-  accessVar: string;
+  /** web_ms_oauth2_start / web_ms_oauth2: which mailbox to connect, e.g. `{email}`. */
+  msEmail: string;
+  /** web_ms_oauth2_start: `auto`, or `imap` for an account on the older grant. */
+  msAuthType: "auto" | "imap";
   /** web_hold / web_hold_offset: how long to keep the pointer down. */
   holdMs: number;
   /** web_hold_offset: where on the anchor the offset is measured from. */
@@ -169,6 +159,7 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "web_tg_code",
   "web_tg_send",
   "web_tg_api_save",
+  "web_ms_oauth2_start",
   "web_ms_oauth2",
   "web_set",
   "web_data_read",
@@ -288,13 +279,8 @@ export function defaultWebStep(): WebStepForm {
     replyContains: "",
     apiId: "{apiId}",
     apiHash: "{apiHash}",
-    tenant: "common",
-    clientId: "",
-    clientSecret: "{msOauthClientSecret}",
-    redirectUri: "https://login.microsoftonline.com/common/oauth2/nativeclient",
-    scope: "",
-    codeFrom: "",
-    accessVar: "",
+    msEmail: "{email}",
+    msAuthType: "auto",
     holdMs: 1000,
     holdFrom: "centre",
     offsetX: 0,
@@ -491,20 +477,21 @@ export function webStepToConfig(s: WebStepForm): WebStep {
         ...(s.folder.trim() ? { folder: s.folder.trim() } : {}),
         ...(s.recordKey.trim() ? { key: s.recordKey.trim() } : {}),
       };
+    case "web_ms_oauth2_start":
+      return {
+        type: "web_ms_oauth2_start",
+        email: s.msEmail.trim(),
+        ...(s.msAuthType === "imap" ? { authType: "imap" as const } : {}),
+        ...(s.varName.trim() ? { varName: s.varName.trim() } : {}),
+      };
     case "web_ms_oauth2":
       return {
         type: "web_ms_oauth2",
-        varName: s.varName.trim(),
-        ...(s.tenant.trim() ? { tenant: s.tenant.trim() } : {}),
-        ...(s.clientId.trim() ? { clientId: s.clientId.trim() } : {}),
-        ...(s.clientSecret.trim() ? { clientSecret: s.clientSecret.trim() } : {}),
-        ...(s.redirectUri.trim() ? { redirectUri: s.redirectUri.trim() } : {}),
-        ...(s.scope.trim() ? { scope: s.scope.trim() } : {}),
-        ...(s.codeFrom.trim() ? { codeFrom: s.codeFrom.trim() } : {}),
+        email: s.msEmail.trim(),
+        ...(s.varName.trim() ? { varName: s.varName.trim() } : {}),
         ...(s.folder.trim() ? { folder: s.folder.trim() } : {}),
         ...(s.recordKey.trim() ? { key: s.recordKey.trim() } : {}),
         ...(s.path.trim() ? { path: s.path.trim() } : {}),
-        ...(s.accessVar.trim() ? { accessVar: s.accessVar.trim() } : {}),
       };
     case "web_notify":
       return {
@@ -796,21 +783,23 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
         folder: s.folder ?? "",
         recordKey: s.key ?? "",
       };
+    case "web_ms_oauth2_start":
+      return {
+        ...base,
+        type: s.type,
+        msEmail: s.email ?? "",
+        msAuthType: s.authType === "imap" ? "imap" : "auto",
+        varName: s.varName ?? "",
+      };
     case "web_ms_oauth2":
       return {
         ...base,
         type: s.type,
-        varName: s.varName,
-        tenant: s.tenant ?? "",
-        clientId: s.clientId ?? "",
-        clientSecret: s.clientSecret ?? "",
-        redirectUri: s.redirectUri ?? "",
-        scope: s.scope ?? "",
-        codeFrom: s.codeFrom ?? "",
+        msEmail: s.email ?? "",
+        varName: s.varName ?? "",
         folder: s.folder ?? "",
         recordKey: s.key ?? "",
         path: s.path ?? "",
-        accessVar: s.accessVar ?? "",
       };
     case "web_notify":
       return { ...base, type: s.type, text: s.text, target: s.target ?? "" };

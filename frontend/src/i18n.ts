@@ -1085,7 +1085,8 @@ const zh = {
         web_tg_code: "等待 Telegram 登录验证码（存为变量）",
         web_tg_send: "用本账号发送 Telegram 消息",
         web_tg_api_save: "保存 API ID / Hash 到账号",
-        web_ms_oauth2: "换取 OAuth2 刷新令牌（微软）",
+        web_ms_oauth2_start: "打开邮箱授权登录（msOauth2api）",
+      web_ms_oauth2: "确认邮箱已连接（msOauth2api）",
         web_set: "设置变量（自定义取值，可多个）",
         web_data_read: "读取数据（存为变量）",
         web_data_pick: "按序号取记录（数据）",
@@ -1203,25 +1204,16 @@ const zh = {
       apiCopyKeyPlaceholder: "留空则用手机号",
       apiCopyHint:
         "留空则只写入账号。填写后会在「数据」中另存一份 {apiId, apiHash, phone}，记录键留空则使用该账号的手机号（需先在设置中启用数据存储）",
-      msOauthVarPlaceholder: "refreshToken",
-      labelMsTenant: "登录端点（tenant）",
-      msTenantPlaceholder: "common",
+      msOauthVarPlaceholder: "connectedAt",
+      labelMsEmail: "邮箱地址",
+      msEmailPlaceholder: "{email}",
+      labelMsAuthType: "协议",
+      msAuthTypeAuto: "自动（Graph，失败回退 IMAP）",
+      msAuthTypeImap: "仅 IMAP（旧版 OAuth2 授权）",
+      msStartHint:
+        "登录地址由 msOauth2api 下发：应用注册、重定向地址、PKCE 与权限范围都由它决定，因此这里不需要填任何应用 ID 或密钥。本步骤只负责把浏览器带到该地址，随后的步骤完成登录、两步验证与同意授权。前置条件：在下方「msOauth2api」中配置服务地址与 API Key",
       msOauthHint:
-        "把浏览器刚刚完成的登录换成 OAuth2 刷新令牌，存入该变量。请放在跳转回重定向地址之后：一次性的 code 就在该地址的查询串里，本步骤直接从地址栏读取（页面本身是空白的）。换取过程在后端完成，客户端密钥不会交给浏览器。个人 Outlook 账号填 consumers，企业账号填 common 或具体租户 ID",
-      labelMsClientId: "应用（客户端）ID",
-      msClientIdPlaceholder: "留空则用设置中的值",
-      labelMsClientSecret: "客户端密钥（引用）",
-      msClientSecretPlaceholder: "{msOauthClientSecret}",
-      msClientHint:
-        "客户端密钥不直接填在这里：请先在「设置 → 密钥」中新增一个名为 msOauthClientSecret 的密钥，此处只写它的引用名，模板与导出文件中都不会带上密钥本身。应用注册为「公共客户端」（没有密钥）时留空。此处填写的应用 ID 同时用于登录地址中的 {msOauthClientId}，因此登录与换取始终使用同一个应用",
-      labelMsRedirect: "重定向地址",
-      msRedirectPlaceholder: "https://login.microsoftonline.com/common/oauth2/nativeclient",
-      msRedirectHint:
-        "必须与应用注册中的重定向地址完全一致，也就是浏览器带着 code 落地的那个地址。默认用微软自带的空白页，无需本地监听端口",
-      labelMsScope: "权限范围（scope）",
-      msScopePlaceholder: "offline_access https://outlook.office.com/IMAP.AccessAsUser.All",
-      msScopeHint:
-        "留空则沿用登录时已授权的范围。务必包含 offline_access，否则微软只会返回一小时后就失效的访问令牌，拿不到刷新令牌",
+        "向 msOauth2api 确认该邮箱是否已入库：登录完成后浏览器会落在它的回调地址上，由它换取并保存刷新令牌。令牌不会回传给 Bemby，也不会存在这里——本步骤只记录一个完成标记，供重复运行时跳过已完成的邮箱",
       msFolderPlaceholder: "outlook",
       msKeyPlaceholder: "{email}",
       msPathPlaceholder: "refreshToken",
@@ -1552,7 +1544,7 @@ const zh = {
         "为 outlook 文件夹中缺少辅助邮箱（recovery）或两步验证密钥（totp）的记录补齐这两项：登录账号后进入「登录与验证方式」页面，辅助邮箱从 msOauth2api 邮箱池领取（微软发往该地址的验证码也由同一服务读回），两步验证则在设置页抓取密钥本身并立即写回记录，随后用它生成的动态码完成验证。已有的项目会跳过，因此重复运行只补缺口。前置条件：已配置 msOauth2api（地址池与 API Key）、已配置 AI 密钥（微软账户页面由脚本渲染且措辞常变，点击「添加验证方式」这类按钮走视觉模型），以及记录中已有 password。请先用「调试运行」跑一遍，按截图调整选择器——把这个模板当作起点，而不是成品",
       outlookOauth: "获取 Outlook OAuth2 刷新令牌",
       outlookOauthHint:
-        "用内置浏览器登录个人 Outlook 邮箱，把登录结果换成 OAuth2 刷新令牌并写回该记录，供 IMAP/SMTP 或 Graph 使用（密码与两步验证无法直接交给邮件客户端，刷新令牌可以）。前置条件：① 在「设置」中填写应用（客户端）ID，并新增名为 msOauthClientSecret 的密钥；② 应用注册中把重定向地址加为 https://login.microsoftonline.com/common/oauth2/nativeclient；③ 在「数据」的 outlook 文件夹中，以邮箱地址为记录键，存入 {password, totp}（totp 填两步验证密钥本身，不是六位动态码）。运行时按位置逐条处理，已有 refreshToken 的记录直接跳过，因此重复运行只会补齐新增的邮箱——请把循环次数改为该文件夹的记录数。微软登录页面时常改版，首次运行请用「调试运行」看截图，再按实际情况调整选择器",
+        "用内置浏览器登录个人 Outlook 邮箱，并把它连接到 msOauth2api，由后者保存并续期刷新令牌（密码与两步验证无法直接交给邮件客户端，刷新令牌可以）。这里不需要任何应用（客户端）ID 或密钥：登录地址由 msOauth2api 下发，重定向、PKCE 与权限范围都由它决定，浏览器登录完成后落在它的回调地址上，由它换取并入库，令牌不会经过 Bemby。前置条件：① 在「设置 → msOauth2api」中填写服务地址与 API Key，并在其面板中配置好 OAuth 客户端 ID 与回调地址；② 在「数据」的 outlook 文件夹中，以邮箱地址为记录键，存入 {password, totp}（totp 填两步验证密钥本身，不是六位动态码）。运行时按位置逐条处理，已有 connectedAt 标记的记录直接跳过，因此重复运行只会补齐新增的邮箱——请把循环次数改为该文件夹的记录数。若浏览器登录成了另一个账号，msOauth2api 会比对后拒绝入库，该轮直接失败，不会把令牌存到错误的邮箱名下。微软登录页面时常改版，首次运行请用「调试运行」看截图，再按实际情况调整选择器",
       tgApi: "获取 Telegram API ID / Hash（my.telegram.org）",
       tgApiHint:
         "用内置浏览器登录 my.telegram.org：手机号取自账号本身（{accountPhone}），登录验证码由该账号在 Telegram 中接收并自动读取；随后取用已有的 API 应用，没有则以随机名称新建一个（平台选 Web），最后把 api_id 与 api_hash 写回该账号（api_hash 加密保存），并在数据文件夹 tgApi 中另存一份。注意：my.telegram.org 会限制同一号码的验证码请求次数，短时间内反复运行会看到“too many tries”，需稍后再试",
@@ -1922,10 +1914,6 @@ const zh = {
     secretsWriteOnlyHint:
       "密钥内容只写不读：后端不会把它返回给前端，页面也无法查看或导出。已存在的名称会被覆盖",
     secretSaved: "已保存 {name}",
-    msOauthClientIdLabel: "微软应用（客户端）ID",
-    msOauthClientIdPlaceholder: "00000000-0000-0000-0000-000000000000",
-    msOauthClientIdHint:
-      "网页步骤「换取 OAuth2 刷新令牌」使用的应用注册。应用 ID 本身不是机密，可以直接保存；对应的客户端密钥请在上方以 msOauthClientSecret 为名新增一个密钥。另需在应用注册中把 https://login.microsoftonline.com/common/oauth2/nativeclient 添加为重定向地址",
     msapi: {
       title: "msOauth2api 邮箱池",
       hint: "外部邮箱服务（msOauth2api）。配置后，可从邮箱池为 Telegram 账户分配独立的登录邮箱，网页步骤也可以领取地址并读取验证码。",
@@ -3548,7 +3536,8 @@ const en: typeof zh = {
         web_tg_code: "Wait for Telegram's login code (into a name)",
         web_tg_send: "Send a Telegram message as this account",
         web_tg_api_save: "Save an API ID / hash onto the account",
-        web_ms_oauth2: "Get an OAuth2 refresh token (Microsoft)",
+        web_ms_oauth2_start: "Open the mailbox sign-in (msOauth2api)",
+      web_ms_oauth2: "Confirm the mailbox is connected (msOauth2api)",
         web_set: "Set variables (values of your own)",
         web_data_read: "Read from Data (into a variable)",
         web_data_pick: "Take a record by position (Data)",
@@ -3667,25 +3656,16 @@ const en: typeof zh = {
       apiCopyKeyPlaceholder: "blank uses the phone number",
       apiCopyHint:
         "Blank writes to the account alone. Named, a copy of {apiId, apiHash, phone} is kept in Data as well, under the record key given -- blank uses the account's phone number. The data store has to be switched on in Settings",
-      msOauthVarPlaceholder: "refreshToken",
-      labelMsTenant: "Sign-in authority (tenant)",
-      msTenantPlaceholder: "common",
+      msOauthVarPlaceholder: "connectedAt",
+      labelMsEmail: "Mailbox",
+      msEmailPlaceholder: "{email}",
+      labelMsAuthType: "Protocol",
+      msAuthTypeAuto: "Auto (Graph, falling back to IMAP)",
+      msAuthTypeImap: "IMAP only (older OAuth2 grant)",
+      msStartHint:
+        "msOauth2api hands out the sign-in address, so the app registration, the redirect address, the PKCE pair and the scopes are all its -- there is no client id or secret to enter here. This step only takes the browser there; the steps after it sign in, pass the second factor and accept the consent screen. It needs the service's base URL and API key set under msOauth2api below",
       msOauthHint:
-        "Trades the sign-in the browser has just completed for an OAuth2 refresh token, held under this name. Put it after the page has landed back on the redirect address: the one-time code is in that address's query string, and the step reads it from there rather than off the page, which is blank. The exchange runs on the backend, so the client secret never reaches the browser. Use consumers for personal Outlook accounts, common or a tenant id for work ones",
-      labelMsClientId: "Application (client) id",
-      msClientIdPlaceholder: "blank takes the one in Settings",
-      labelMsClientSecret: "Client secret (by name)",
-      msClientSecretPlaceholder: "{msOauthClientSecret}",
-      msClientHint:
-        "The secret itself is not typed here: store it under Settings as a secret named msOauthClientSecret and name it here, so neither the template nor any export of it carries the value. Leave blank for an app registered as a public client, which has no secret. The application id typed here also fills {msOauthClientId} in the sign-in address, so the sign-in and the exchange are against the same app",
-      labelMsRedirect: "Redirect address",
-      msRedirectPlaceholder: "https://login.microsoftonline.com/common/oauth2/nativeclient",
-      msRedirectHint:
-        "Must match the app registration exactly, and be the address the browser landed on with the code. The default is Microsoft's own blank page, so nothing has to listen on a port for the redirect",
-      labelMsScope: "Scopes",
-      msScopePlaceholder: "offline_access https://outlook.office.com/IMAP.AccessAsUser.All",
-      msScopeHint:
-        "Blank asks for whatever the sign-in consented to. Include offline_access either way: without it Microsoft hands back an access token that lapses within the hour and no refresh token at all",
+        "Asks msOauth2api whether it now holds the mailbox. The sign-in lands on its callback, which trades the code and stores the token -- nothing comes back to Bemby and no token is kept here. This step records a completion marker so a re-run passes over the mailboxes already done",
       msFolderPlaceholder: "outlook",
       msKeyPlaceholder: "{email}",
       msPathPlaceholder: "refreshToken",
@@ -4028,7 +4008,7 @@ const en: typeof zh = {
         "Gives the records in the outlook folder what they are missing: a recovery address and an authenticator secret. It signs in, opens the sign-in-and-verification page, takes a recovery address from the msOauth2api pool (reading the code Microsoft sends to it back through the same service), and for two-factor enrolment captures the secret off the page and writes it onto the record before proving it with a code worked out from it. Each part is skipped where the record already has it, so a re-run only fills gaps. It needs msOauth2api configured, an AI key (Microsoft's account pages are script-drawn and reworded often, so the named controls are pressed through the vision model) and a password on each record. Run it in debug first and expect to adjust the selectors from the screenshots -- this is a starting point, not a finished chain",
       outlookOauth: "Get an Outlook OAuth2 refresh token",
       outlookOauthHint:
-        "Signs in to a personal Outlook mailbox in the built-in browser and trades the sign-in for an OAuth2 refresh token, written back onto the record for IMAP/SMTP or Graph to use -- neither a password nor a second factor can be handed to a mail client, and a token can. It needs three things first: the application (client) id set in Settings and a secret stored there named msOauthClientSecret; https://login.microsoftonline.com/common/oauth2/nativeclient added as a redirect address on the app registration; and an outlook data folder holding {password, totp} under each address as its key -- totp being the authenticator secret itself, not a six-digit code. Rounds work the folder by position and pass over every record that already has a refreshToken, so a re-run only picks up the mailboxes added since; set the number of rounds to how many the folder holds. Microsoft redraws these pages often, so run it once in debug and check the screenshots before trusting the selectors",
+        "Signs in to a personal Outlook mailbox in the built-in browser and connects it to msOauth2api, which keeps the refresh token and renews it -- neither a password nor a second factor can be handed to a mail client, and a token can. No application (client) id or secret is needed here: msOauth2api hands out the sign-in address and owns the redirect, the PKCE pair and the scopes, and the browser lands back on its callback, which does the exchange and stores the account. No token passes through Bemby. It needs two things first: the service's base URL and API key under Settings, with its own OAuth client id and callback configured in its panel; and an outlook data folder holding {password, totp} under each address as its key -- totp being the authenticator secret itself, not a six-digit code. Rounds work the folder by position and pass over every record already marked connectedAt, so a re-run only picks up the mailboxes added since; set the number of rounds to how many the folder holds. Should the browser sign in as a different account, msOauth2api compares it against the address the flow was started for and stores nothing, so the round fails rather than filing the wrong mailbox's token. Microsoft redraws these pages often, so run it once in debug and check the screenshots before trusting the selectors",
       tgApi: "Fetch Telegram API ID / hash (my.telegram.org)",
       tgApiHint:
         "Signs in to my.telegram.org in the built-in browser with the account's own number ({accountPhone}), reading the login code off the account inside Telegram. It then takes the API app the account already has, or registers one under a random name as a web app, and writes the api_id and api_hash back onto the account -- the hash encrypted -- keeping a copy in the tgApi data folder. Note that my.telegram.org rations code requests per number: running it repeatedly in quick succession earns a \"too many tries\" page, and it has to be left for a while",
@@ -4409,10 +4389,6 @@ const en: typeof zh = {
     secretsWriteOnlyHint:
       "Write-only: the backend never sends a value back, so nothing here can display or export one. Saving an existing name replaces its value",
     secretSaved: "Saved {name}",
-    msOauthClientIdLabel: "Microsoft application (client) id",
-    msOauthClientIdPlaceholder: "00000000-0000-0000-0000-000000000000",
-    msOauthClientIdHint:
-      "The app registration the \"Get an OAuth2 refresh token\" page step signs in against. The id is not a secret and is stored as it is; its client secret goes above under the name msOauthClientSecret. The registration also needs https://login.microsoftonline.com/common/oauth2/nativeclient among its redirect addresses",
     msapi: {
       title: "msOauth2api address pool",
       hint: "An external mailbox service (msOauth2api). Once configured, a Telegram account can be given a login email of its own from the pool, and page steps can take an address and read the code sent to it.",
