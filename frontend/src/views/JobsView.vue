@@ -162,7 +162,7 @@
 
     <!-- Add / Edit modal -->
     <div v-if="showForm" class="modal-backdrop">
-      <div class="modal" style="width:560px">
+      <div class="modal modal-form" :class="{ 'modal-wide': form.jobType === 'custom' && !form.templateId }">
         <h3 class="modal-title">
           {{ t(editTarget ? 'jobs.editTitle' : 'jobs.addTitle') }}
           <span v-if="profileVarIds" class="modal-title-ids" :title="t('common.dbIdsHint')">{{ profileVarIds }}</span>

@@ -59,9 +59,9 @@
         {{ stepSummary(s) }}
       </div>
 
-      <div v-show="!s.collapsed">
+      <div v-show="!s.collapsed" class="web-step-body">
       <!-- A step this build has no fields for. Left as it is unless the type is changed -->
-      <div v-if="s.unknown && s.unknown.type === s.type" class="web-step-unknown">
+      <div v-if="s.unknown && s.unknown.type === s.type" class="web-step-unknown web-step-wide">
         {{ t("jobs.web.unknownStep").replace("{type}", s.type) }}
       </div>
 
@@ -108,7 +108,7 @@
 
       <!-- Values of your own, for the steps after them to use. Several in one step, since a
            later one is often built out of the ones above it -->
-      <div v-if="s.type === 'web_set'">
+      <div v-if="s.type === 'web_set'" class="web-step-wide">
         <div class="web-var-row web-var-head">
           <label class="form-label" style="margin: 0">{{ t("jobs.web.labelVarName") }}</label>
           <label class="form-label" style="margin: 0">{{ t("jobs.web.labelSetValue") }}</label>
@@ -148,7 +148,7 @@
       </div>
 
       <!-- The data store: which folder, which record, and which field of its value -->
-      <div v-if="DATA_WEB_STEP_TYPES.includes(s.type)">
+      <div v-if="DATA_WEB_STEP_TYPES.includes(s.type)" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelDataFolder") }}</label>
@@ -256,7 +256,7 @@
       </div>
 
       <!-- Read a code out of a mailbox: the password is a secret's name, never the value -->
-      <div v-if="s.type === 'web_email_code'">
+      <div v-if="s.type === 'web_email_code'" class="web-step-wide">
         <!-- Only where the deployment offers the pool, or on a step already saved as one:
              with it off the step is the Gmail one it has always been -->
         <div
@@ -370,7 +370,7 @@
       </div>
 
       <!-- Take an address from the msOauth2api pool for a signup form to use -->
-      <div v-if="s.type === 'web_email_lease'">
+      <div v-if="s.type === 'web_email_lease'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelEmailVarName") }}</label>
@@ -395,7 +395,7 @@
       </div>
 
       <!-- Pointing the job at another template once its first purpose is served -->
-      <div v-if="s.type === 'web_job_handover'">
+      <div v-if="s.type === 'web_job_handover'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelHandoverTemplate") }}</label>
@@ -429,7 +429,7 @@
 
       <!-- The enrolment secret off a 2FA setup page: no selector needed, so it gets a block
            of its own rather than the shared selector field -->
-      <div v-if="s.type === 'web_otp_secret'">
+      <div v-if="s.type === 'web_otp_secret'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelTotpVarName") }}</label>
@@ -458,7 +458,7 @@
       </div>
 
       <!-- The code an authenticator app would be showing, for a login guarded by 2FA -->
-      <div v-if="s.type === 'web_totp'">
+      <div v-if="s.type === 'web_totp'" class="web-step-wide">
         <label class="form-label">{{ t("jobs.web.labelTotpSecret") }}</label>
         <input
           v-model.trim="s.secretRef"
@@ -494,7 +494,7 @@
       </div>
 
       <!-- A script run the way the browser console runs one, for what no selector reaches -->
-      <div v-if="s.type === 'web_eval'">
+      <div v-if="s.type === 'web_eval'" class="web-step-wide">
         <label class="form-label">{{ t("jobs.web.labelScript") }}</label>
         <textarea
           v-model="s.script"
@@ -533,7 +533,7 @@
         </label>
       </div>
 
-      <div v-if="s.type === 'web_notify'">
+      <div v-if="s.type === 'web_notify'" class="web-step-wide">
         <label class="form-label">{{ t("jobs.web.labelNotifyText") }}</label>
         <textarea
           v-model="s.text"
@@ -558,7 +558,7 @@
         </div>
       </div>
 
-      <div v-if="s.type === 'web_hold'" style="margin-top: 8px">
+      <div v-if="s.type === 'web_hold'">
         <label class="form-label">{{ durationLabel(t("jobs.web.labelHoldMs")) }}</label>
         <NumberInput v-model="s.holdMs" class="form-input" :min="0" :step="500" :scale="msScale" />
         <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
@@ -567,7 +567,7 @@
       </div>
 
       <!-- Press at an offset from an anchor: the anchor itself is only measured -->
-      <div v-if="s.type === 'web_hold_offset'" style="margin-top: 8px">
+      <div v-if="s.type === 'web_hold_offset'" class="web-step-wide">
         <label class="form-label">{{ t("jobs.web.labelHoldFrom") }}</label>
         <select v-model="s.holdFrom" class="form-select">
           <option value="centre">{{ t("jobs.web.holdFromCentre") }}</option>
@@ -592,7 +592,7 @@
         </div>
       </div>
 
-      <div v-if="s.type === 'web_drag'" style="margin-top: 8px">
+      <div v-if="s.type === 'web_drag'" class="web-step-wide">
         <label class="form-label">{{ t("jobs.web.labelDragTo") }}</label>
         <input
           v-model.trim="s.toSelector"
@@ -621,7 +621,7 @@
         </div>
       </div>
 
-      <div v-if="s.type === 'web_press'" style="margin-top: 8px">
+      <div v-if="s.type === 'web_press'">
         <label class="form-label">{{ t("jobs.web.labelKey") }}</label>
         <!-- A list of the usual ones, while staying a plain field: the keys worth pressing
              are far too many to enumerate, and any letter is one of them -->
@@ -636,7 +636,7 @@
         </div>
       </div>
 
-      <div v-if="s.type === 'web_select'" style="margin-top: 8px">
+      <div v-if="s.type === 'web_select'">
         <label class="form-label">{{ t("jobs.web.labelOption") }}</label>
         <input
           v-model.trim="s.option"
@@ -648,7 +648,7 @@
         </div>
       </div>
 
-      <div v-if="s.type === 'web_input'" style="margin-top: 8px">
+      <div v-if="s.type === 'web_input'">
         <label class="form-label">{{ t("jobs.web.labelText") }}</label>
         <input
           v-model="s.text"
@@ -671,7 +671,7 @@
 
       <div
         v-if="s.type === 'web_pick' || s.type === 'web_collect' || s.type === 'web_read'"
-        style="margin-top: 8px"
+        class="web-step-wide"
       >
         <div class="form-row">
           <div class="form-group">
@@ -724,7 +724,7 @@
       </div>
 
       <!-- Telegram's own login code, read off the account the job runs as -->
-      <div v-if="s.type === 'web_tg_code'">
+      <div v-if="s.type === 'web_tg_code'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelCodeVarName") }}</label>
@@ -756,7 +756,7 @@
       </div>
 
       <!-- A message sent as the account the job runs as, e.g. a site's linking command -->
-      <div v-if="s.type === 'web_tg_send'">
+      <div v-if="s.type === 'web_tg_send'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelTgSendContact") }}</label>
@@ -806,7 +806,7 @@
       </div>
 
       <!-- The pair my.telegram.org hands back, written onto the account it belongs to -->
-      <div v-if="s.type === 'web_tg_api_save'">
+      <div v-if="s.type === 'web_tg_api_save'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelApiId") }}</label>
@@ -853,7 +853,7 @@
       </div>
 
       <!-- First half: take the mailbox to the sign-in address msOauth2api hands out -->
-      <div v-if="s.type === 'web_ms_oauth2_start'">
+      <div v-if="s.type === 'web_ms_oauth2_start'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelMsEmail") }}</label>
@@ -877,7 +877,7 @@
       </div>
 
       <!-- Second half: confirm with the service that the mailbox landed -->
-      <div v-if="s.type === 'web_ms_oauth2'">
+      <div v-if="s.type === 'web_ms_oauth2'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelMsEmail") }}</label>
@@ -933,7 +933,7 @@
       </div>
 
       <!-- Register a passkey and save the credential to the data store -->
-      <div v-if="s.type === 'web_ms_passkey'">
+      <div v-if="s.type === 'web_ms_passkey'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelPasskeyName") }}</label>
@@ -989,7 +989,7 @@
       </div>
 
       <!-- Load a saved passkey so the passkey sign-in answers itself -->
-      <div v-if="s.type === 'web_ms_passkey_login'">
+      <div v-if="s.type === 'web_ms_passkey_login'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelDataFolder") }}</label>
@@ -1022,7 +1022,7 @@
         </div>
       </div>
 
-      <div v-if="s.type === 'web_pick' || s.type === 'web_collect'" style="margin-top: 8px">
+      <div v-if="s.type === 'web_pick' || s.type === 'web_collect'" class="web-step-wide">
         <div class="form-group">
           <label class="form-label">{{ t("jobs.web.labelContainsText") }}</label>
           <input
@@ -1074,7 +1074,7 @@
         </div>
       </div>
 
-      <div v-if="s.type === 'web_if'">
+      <div v-if="s.type === 'web_if'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelCheck") }}</label>
@@ -1163,7 +1163,7 @@
         </div>
       </div>
 
-      <div v-if="s.type === 'web_repeat'">
+      <div v-if="s.type === 'web_repeat'" class="web-step-wide">
         <div>
           <label class="form-label">{{ t("jobs.web.labelTimes") }}</label>
           <input v-model.number="s.times" class="form-input" type="number" min="1" step="1" />
@@ -1200,7 +1200,7 @@
         </div>
       </div>
 
-      <div v-if="s.type === 'web_for_each'">
+      <div v-if="s.type === 'web_for_each'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelForEachName") }}</label>
@@ -1254,7 +1254,6 @@
           s.type === 'web_goto' ||
           s.type === 'web_back'
         "
-        style="margin-top: 8px"
       >
         <label class="form-label">{{
           s.type === "web_delay" ? durationLabel(t("jobs.web.labelDelay")) : durationLabel(t("jobs.web.labelTimeout"))
@@ -1267,7 +1266,7 @@
         </div>
       </div>
 
-      <div v-if="s.type === 'web_scroll'" style="margin-top: 8px">
+      <div v-if="s.type === 'web_scroll'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelScrollX") }}</label>
@@ -1283,11 +1282,11 @@
         </div>
       </div>
 
-      <div v-if="s.type === 'web_turnstile'" style="font-size: 11px; color: var(--text-faint)">
+      <div v-if="s.type === 'web_turnstile'" class="web-step-wide" style="font-size: 11px; color: var(--text-faint)">
         {{ t("jobs.web.turnstileHint") }}
       </div>
 
-      <div v-if="s.type === 'web_back'" style="font-size: 11px; color: var(--text-faint)">
+      <div v-if="s.type === 'web_back'" class="web-step-wide" style="font-size: 11px; color: var(--text-faint)">
         {{ t("jobs.web.backHint") }}
       </div>
 
@@ -1298,6 +1297,7 @@
           s.type === 'ai_web_click_xy' ||
           s.type === 'ai_web_click_xy_multi'
         "
+        class="web-step-wide"
       >
         <label class="form-label">{{ t("jobs.web.labelHint") }}</label>
         <!-- A textarea, not a one-line input: a hint that says where the targets are and
@@ -1315,7 +1315,7 @@
       </div>
 
       <!-- Several positions from one screenshot: how far apart to click them, and how many -->
-      <div v-if="s.type === 'ai_web_click_xy_multi'" style="margin-top: 8px">
+      <div v-if="s.type === 'ai_web_click_xy_multi'" class="web-step-wide">
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">{{ durationLabel(t("jobs.web.labelClickGap")) }}</label>
@@ -1345,7 +1345,7 @@
         </div>
       </div>
 
-      <div v-if="s.type === 'ai_web_input'" style="margin-top: 8px">
+      <div v-if="s.type === 'ai_web_input'">
         <label class="form-label">{{ t("jobs.web.labelAiText") }}</label>
         <input
           v-model="s.text"
@@ -1358,7 +1358,7 @@
       </div>
 
       <!-- AI writes into a field the config names: what to write, and how much of it -->
-      <div v-if="s.type === 'web_ai_input'" style="margin-top: 8px">
+      <div v-if="s.type === 'web_ai_input'" class="web-step-wide">
         <label class="form-label">{{ t("jobs.web.labelWriteHint") }}</label>
         <textarea
           v-model="s.hint"
@@ -1759,6 +1759,24 @@ function moveVar(step: WebStepForm, i: number, by: number) {
 .web-step-type {
   flex: 1;
   min-width: 0;
+  /* Wide enough to read the longest type name, no wider: on a wide panel the rest of the
+     row is free space, which pushes the controls back to the edge they have always sat on */
+  max-width: 340px;
+  margin-right: auto;
+}
+
+/* One field per row is all a 560px panel had room for. Given a wide one the blocks pair up,
+   two to a row; a block that lays out rows of its own keeps the full width. The half-width
+   floor is what holds a narrow card -- a branch arm, or a phone -- to a single column. */
+.web-step-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, max(300px, (100% - 14px) / 2)), 1fr));
+  gap: 8px 14px;
+  align-items: start;
+}
+
+.web-step-body > .web-step-wide {
+  grid-column: 1 / -1;
 }
 
 /* A name and its value per row, with the four controls: the order they sit in is the order

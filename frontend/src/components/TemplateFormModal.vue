@@ -1,6 +1,6 @@
 <template>
   <div class="modal-backdrop">
-    <div class="modal" style="width:560px">
+    <div class="modal modal-form" :class="{ 'modal-wide': form.jobType === 'custom' }">
       <h3 class="modal-title">
         {{ t(editTarget ? 'templates.editTitle' : 'templates.addTitle') }}
         <span v-if="editTarget" class="modal-title-ids" :title="t('common.dbIdsHint')">{{ `{templateId} ${editTarget.id}` }}</span>

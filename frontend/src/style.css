@@ -559,6 +559,17 @@ tr:hover td {
 	box-shadow: var(--shadow-modal);
 }
 
+/* The job and template forms. The action chain builder inside them is a form of its own:
+   long selectors, nested branches, step cards. Given a wide screen it takes the room; the
+   modal's own max-width keeps a phone as it was. */
+.modal-form {
+	width: 560px;
+}
+
+.modal-form.modal-wide {
+	width: 1100px;
+}
+
 .modal-body {
 	overflow-y: auto;
 	flex: 1;
