@@ -251,7 +251,9 @@ export type PollCodeOptions = {
 export async function pollForCode(opts: PollCodeOptions): Promise<PoolCode | null> {
   const deadline = Date.now() + Math.max(0, opts.waitMs);
   const params = {
-    email: opts.email,
+    // Lower-cased for the same reason as the oauth calls: the service keys mailboxes in lower
+    // case, so a mixed-case address reads back as "no stored account".
+    email: normaliseEmail(opts.email),
     type: resolvePoolType(opts.type),
     from: opts.fromContains,
     subject: opts.subjectContains,

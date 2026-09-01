@@ -65,3 +65,32 @@ export async function listCredentials(auth: VirtualAuthenticator): Promise<Passk
 export async function credentialIds(auth: VirtualAuthenticator): Promise<Set<string>> {
   return new Set((await listCredentials(auth)).map((c) => c.credentialId));
 }
+
+/**
+ * Loads a saved passkey back into the authenticator, so a later `navigator.credentials.get`
+ * (Microsoft's passkey sign-in) is answered without the real device. This is what lets Bemby
+ * sign in as an account it once registered a passkey for.
+ */
+export async function injectCredential(
+  auth: VirtualAuthenticator,
+  cred: {
+    credentialId: string;
+    rpId: string;
+    privateKey: string;
+    userHandle?: string | null;
+    signCount?: number;
+    isResidentCredential?: boolean;
+  },
+): Promise<void> {
+  await auth.cdp.send("WebAuthn.addCredential", {
+    authenticatorId: auth.authenticatorId,
+    credential: {
+      credentialId: cred.credentialId,
+      isResidentCredential: cred.isResidentCredential ?? true,
+      rpId: cred.rpId,
+      privateKey: cred.privateKey,
+      ...(cred.userHandle ? { userHandle: cred.userHandle } : {}),
+      signCount: cred.signCount ?? 0,
+    },
+  });
+}

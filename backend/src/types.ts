@@ -1139,6 +1139,24 @@ export type WebStep =
     }
   | {
       /**
+       * Load a saved passkey into the browser so Microsoft's passkey sign-in answers itself.
+       *
+       * Run this before the sign-in when the account has a passkey Bemby registered earlier:
+       * once an account has one, Microsoft leads with passkey sign-in rather than a password
+       * page, and this injects the stored credential into a virtual authenticator so that
+       * prompt is satisfied with no device and no password. A no-op when the record holds no
+       * passkey, so the same template can carry both fresh and passkey'd accounts.
+       */
+      type: "web_ms_passkey_login";
+      /** Data-store folder holding the passkey, e.g. `outlook`. */
+      folder?: string;
+      /** Record key inside that folder, e.g. `{email}`. */
+      key?: string;
+      /** Field holding the saved passkey, e.g. `passkey`. */
+      path?: string;
+    }
+  | {
+      /**
        * Send a message through the notification bot from the middle of a run, with `{name}`
        * standing for whatever the steps have gathered. What makes a signup worth running:
        * the account it just made is of no use if nothing says what the credentials were.

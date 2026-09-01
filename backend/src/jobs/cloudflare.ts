@@ -33,6 +33,7 @@ import { authErrorFromUrl } from "./msOauth2";
 import {
   armVirtualAuthenticator,
   credentialIds,
+  injectCredential,
   listCredentials,
   type PasskeyCredential,
   type VirtualAuthenticator,
@@ -4012,6 +4013,29 @@ async function runStepList(
           break;
         }
 
+        case "web_ms_passkey_login": {
+          const where = dataTarget(step, run);
+          const saved = readDataValue(where.folder, where.key, where.path);
+          let cred: any;
+          try {
+            cred = saved ? JSON.parse(saved) : null;
+          } catch {
+            cred = null;
+          }
+          if (!cred?.credentialId || !cred?.privateKey) {
+            log.outcome = "no saved passkey to load; the sign-in will use a password";
+            break;
+          }
+          let auth = passkeyAuth.get(page);
+          if (!auth) {
+            auth = await armVirtualAuthenticator(page);
+            passkeyAuth.set(page, auth);
+          }
+          await injectCredential(auth, cred);
+          log.outcome = `loaded the saved passkey (rp ${cred.rpId}) for passkey sign-in`;
+          break;
+        }
+
         case "web_ms_passkey": {
           const where = dataTarget(step, run); // folder/key/path required: nowhere else to keep it
 
@@ -4031,10 +4055,34 @@ async function runStepList(
             auth = await armVirtualAuthenticator(page);
             passkeyAuth.set(page, auth);
           }
+
+          // Microsoft often throws up a "set up a passkey" page during the sign-in itself, and
+          // with the authenticator armed a click on its Next already minted the credential. If
+          // one is sitting on the authenticator, keep that rather than enrol a second.
+          const isMsRp = (c: PasskeyCredential) => /microsoft\.com$|live\.com$/i.test(c.rpId);
+          const preExisting = (await listCredentials(auth)).filter(isMsRp);
+          if (preExisting.length) {
+            const cred = preExisting[preExisting.length - 1];
+            const record = {
+              credentialId: cred.credentialId,
+              rpId: cred.rpId,
+              userHandle: cred.userHandle,
+              privateKey: cred.privateKey,
+              signCount: cred.signCount,
+              isResidentCredential: cred.isResidentCredential,
+              name: fillVars(step.name ?? "", run.current).trim() || "Bemby",
+              createdAt: new Date().toISOString(),
+            };
+            writeDataValue(where.folder, where.key, where.path, record);
+            const vn = step.varName?.trim();
+            if (vn) run.current.set(vn, cred.credentialId);
+            log.outcome = `kept the passkey minted during sign-in (rp ${cred.rpId}), saved to ${where.label}`;
+            break;
+          }
           const before = await credentialIds(auth);
 
-          // The account's own "add a way to sign in" flow, driven to the point where it asks
-          // the authenticator to mint the credential
+          // No passkey yet: drive the account's own "add a way to sign in" flow to the point
+          // where it asks the authenticator to mint the credential
           await page.goto("https://account.live.com/proofs/manage/additional", {
             waitUntil: "domcontentloaded",
             timeout: capped(45_000, deadline),
@@ -4937,6 +4985,11 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
         "Register a passkey" +
         `${step.folder?.trim() ? `, saved to ${fill(step.folder.trim())}` : ""}`
       );
+    case "web_ms_passkey_login":
+      return (
+        "Load the saved passkey for sign-in" +
+        `${step.folder?.trim() ? ` from ${fill(step.folder.trim())}` : ""}`
+      );
     case "web_repeat":
       return `Repeat ${step.steps?.length ?? 0} step(s) ${Math.floor(step.times || 0)} time(s)`;
     case "web_for_each":
@@ -5533,7 +5586,7 @@ async function attemptLoad(
       .addInitScript("window.__name = window.__name || function (a) { return a; };")
       .catch(() => {});
 
-    if (stepsIncludeType(opts.webSteps, "web_ms_passkey")) {
+    if (stepsIncludeType(opts.webSteps, "web_ms_passkey") || stepsIncludeType(opts.webSteps, "web_ms_passkey_login")) {
       // This run means to register a passkey, so `create()` has to reach a real authenticator
       // rather than be rejected. Arm a virtual one before any navigation; it also auto-answers
       // any passkey prompt Microsoft throws up during the sign-in itself.
