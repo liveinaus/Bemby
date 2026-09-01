@@ -2613,6 +2613,8 @@ export type TgDialog = {
   left?: boolean; // not a member; join required to send messages
   muted?: boolean;
   pinned?: boolean;
+  /** A channel's direct-message chat, which is read and written without joining. */
+  dm?: boolean;
 };
 
 export type TgButton = {
@@ -2925,6 +2927,14 @@ export const tgClientApi = {
         `/tg-client/${accountId}/profile/${encodeURIComponent(chatId)}`,
       )
       .then((r) => r.data),
+
+  /** Where private messages to a channel go, or null when its owner has them off. */
+  channelDm: (accountId: number, chatId: string) =>
+    api
+      .get<{ dialog: TgDialog | null }>(
+        `/tg-client/${accountId}/channel-dm/${encodeURIComponent(chatId)}`,
+      )
+      .then((r) => r.data.dialog),
 
   members: (
     accountId: number,

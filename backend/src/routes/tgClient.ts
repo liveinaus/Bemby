@@ -22,6 +22,7 @@ import {
   searchPeers,
   fetchPhoto,
   getEntityDetails,
+  getChannelDm,
   muteDialog,
   pinDialog,
   clickButton,
@@ -767,6 +768,19 @@ router.get("/:accountId/profile/:chatId", async (req, res) => {
   try {
     const entry = await getLiveClient(accountId);
     res.json(await getEntityDetails(entry, chatId));
+  } catch (err: any) {
+    tgError(err, accountId, res);
+  }
+});
+
+// GET /:accountId/channel-dm/:chatId -- the chat for private messages to a channel,
+// or null when its owner has direct messages off
+router.get("/:accountId/channel-dm/:chatId", async (req, res) => {
+  const accountId = Number(req.params.accountId);
+  const chatId = decodeURIComponent(req.params.chatId);
+  try {
+    const entry = await getLiveClient(accountId);
+    res.json({ dialog: await getChannelDm(entry, chatId) });
   } catch (err: any) {
     tgError(err, accountId, res);
   }

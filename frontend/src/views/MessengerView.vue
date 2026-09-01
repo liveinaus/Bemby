@@ -276,6 +276,14 @@
               </div>
               <div class="tgc-chat-actions">
                 <button
+                  v-if="channelDm"
+                  class="tgc-icon-btn"
+                  @click="openChannelDm"
+                  :title="t('tgc.messageChannel')"
+                >
+                  <i class="fa-regular fa-comment-dots"></i>
+                </button>
+                <button
                   class="tgc-icon-btn"
                   :class="{ 'tgc-icon-btn--active': msgSearchOpen }"
                   @click="toggleMsgSearch"
@@ -2019,6 +2027,8 @@ const activeChatId = ref<string | null>(null);
 const activeChat = ref<TgDialog | null>(null);
 const messages = ref<TgMessage[]>([]);
 const pinnedMsg = ref<TgMessage | null>(null);
+// The chat for private messages to the open channel, once we know it takes them
+const channelDm = ref<TgDialog | null>(null);
 // In-chat message search
 const msgSearchOpen = ref(false);
 const msgSearchQuery = ref('');
@@ -4810,6 +4820,7 @@ async function openChat(dialog: TgDialog, addToHistory = false) {
   // Dialogs list contains only subscribed chats, so absence there is the reliable signal.
   if (
     !fresh &&
+    !dlg.dm &&
     dialogs.value.length > 0 &&
     (dlg.type === "channel" || dlg.type === "group")
   ) {
@@ -4848,11 +4859,13 @@ async function openChat(dialog: TgDialog, addToHistory = false) {
   stopBotMsgWatch();
   pinnedMsg.value = null;
   webViewPanel.value = null;
+  channelDm.value = null;
   closeMsgSearch();
   await fetchMessages();
   markChatRead(dlg.chatId);
   if (dlg.type === "bot") loadBotCommands(dlg.chatId);
   loadPinnedMessage(); // fire-and-forget -- no need to block chat open
+  loadChannelDm(dlg);
   // Resume background dialog load 2s after messages are shown -- low priority
   if (selectedAccountId.value) {
     const accountId = selectedAccountId.value;
@@ -4918,6 +4931,26 @@ async function loadPinnedMessage() {
 async function jumpToPinned() {
   if (!pinnedMsg.value) return;
   await jumpToMessage(pinnedMsg.value.id);
+}
+
+/**
+ * Channels can let subscribers write to them privately; Telegram routes those messages to a
+ * hidden group that reads and sends like any other chat. Only channels that have it turned on
+ * come back with one, so a null answer just means no button.
+ */
+async function loadChannelDm(chat: TgDialog) {
+  if (!selectedAccountId.value) return;
+  if (chat.type !== 'channel' || chat.dm || chat.left) return;
+  try {
+    const dm = await tgClientApi.channelDm(selectedAccountId.value, chat.chatId);
+    if (activeChatId.value === chat.chatId) channelDm.value = dm;
+  } catch {
+    /* unavailable on this account -- the button stays hidden */
+  }
+}
+
+async function openChannelDm() {
+  if (channelDm.value) await openChat(channelDm.value, true);
 }
 
 async function toggleMsgSearch() {

@@ -14,6 +14,14 @@ import { globalTgProxy } from "./globalProxy";
 import { resolveAppClientParams } from "./appClient";
 import { parseMiniAppLink, withClientLaunchParams } from "./miniApp";
 import { displayPeerId } from "./peerTarget";
+import {
+  cachedChannelDm,
+  forgetAccountChannelDms,
+  monoforumEntity,
+  rememberChannelDm,
+  resolveChannelDm,
+  type ChannelDmTarget,
+} from "./monoforum";
 
 export type TgLiveMessage = {
   chatId: string;
@@ -100,6 +108,8 @@ export type TgDialogItem = {
   left?: boolean; // true when the current user is not a member (search/resolve results)
   muted?: boolean;
   pinned?: boolean;
+  /** A channel's direct-message chat, which the account reads and writes without joining. */
+  dm?: boolean;
 };
 
 /** A Mini App a bot pins beside the composer. */
@@ -114,6 +124,7 @@ export type TgContactItem = {
 };
 
 type LiveEntry = {
+  accountId: number;
   client: TelegramClient;
   entityCache: Map<string, Api.User | Api.Chat | Api.Channel>;
   subscribers: Set<(msg: TgLiveMessage) => void>;
@@ -122,6 +133,8 @@ type LiveEntry = {
   avatarCache: Map<string, Buffer | null>;
   // Tracks the highest outgoing message ID the recipient has read, per chatId
   readOutboxCache: Map<string, number>;
+  // chatId -> where its direct messages go, or null when the channel has them off
+  channelDmCache: Map<string, ChannelDmTarget | null>;
   readSubscribers: Set<(chatId: string, maxId: number) => void>;
   typingSubscribers: Set<(event: TgTypingEvent) => void>;
   // Full dialog list cached briefly so per-keystroke searches don't refetch
@@ -665,12 +678,14 @@ async function connectLiveClient(accountId: number): Promise<LiveEntry> {
   client.invoke(new Api.updates.GetState()).catch(() => {});
 
   entry = {
+    accountId,
     client,
     entityCache: new Map(),
     subscribers: new Set(),
     dialogSubscribers: new Set(),
     avatarCache: new Map(),
     readOutboxCache: new Map(),
+    channelDmCache: new Map(),
     readSubscribers: new Set(),
     typingSubscribers: new Set(),
     lastActiveAt: Date.now(),
@@ -888,6 +903,13 @@ export async function ensureEntityCached(
   if (entry.entityCache.has(chatId)) return;
   await loadDialogs(entry);
   if (entry.entityCache.has(chatId)) return;
+  // A channel's direct-message chat is joinless, so it stays out of the dialog list until it
+  // has messages, and its ID alone resolves nowhere. The target carries the access hash.
+  const dm = cachedChannelDm(entry.accountId, chatId);
+  if (dm) {
+    entry.entityCache.set(chatId, monoforumEntity(dm));
+    return;
+  }
   // Fallback for group members not in the user's dialogs (e.g. other participants).
   // GramJS keeps these in its internal session store after messages are fetched,
   // so getEntity resolves them without an extra network round-trip in most cases.
@@ -1895,6 +1917,40 @@ export async function getEntityDetails(
     firstName: isUser ? ((entity as Api.User).firstName ?? null) : null,
     lastName: isUser ? ((entity as Api.User).lastName ?? null) : null,
     blocked,
+  };
+}
+
+/**
+ * Where a direct message to this channel goes: the hidden supergroup Telegram routes it to,
+ * cached in the entity cache under its own chatId so sending, history and read receipts all
+ * work through the ordinary chat calls. Null when the channel's owner has direct messages off.
+ */
+export async function getChannelDm(
+  entry: LiveEntry,
+  chatId: string,
+): Promise<TgDialogItem | null> {
+  await ensureEntityCached(entry, chatId);
+  const entity = entry.entityCache.get(chatId);
+  if (!(entity instanceof Api.Channel) || entity.megagroup) return null;
+
+  let target = entry.channelDmCache.get(chatId);
+  if (target === undefined) {
+    target = await resolveChannelDm(entry.client, entity);
+    entry.channelDmCache.set(chatId, target);
+  }
+  if (!target) return null;
+
+  rememberChannelDm(entry.accountId, target);
+  entry.entityCache.set(target.chatId, monoforumEntity(target));
+  return {
+    chatId: target.chatId,
+    name: target.title,
+    type: "channel",
+    username: null,
+    unreadCount: 0,
+    lastMessage: null,
+    left: false,
+    dm: true,
   };
 }
 
@@ -3213,7 +3269,9 @@ export function clearAccountCache(accountId: number): void {
     entry.entityCache.clear();
     entry.avatarCache.clear();
     entry.readOutboxCache.clear();
+    entry.channelDmCache.clear();
   }
+  forgetAccountChannelDms(accountId);
 }
 
 export function removeCachedDialog(accountId: number, chatId: string): void {
