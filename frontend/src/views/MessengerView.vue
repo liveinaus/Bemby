@@ -3932,6 +3932,8 @@ async function checkMembershipStatus(): Promise<void> {
       if (activeChatId.value === groupChatId && activeChat.value) {
         activeChat.value = { ...activeChat.value, left: false };
         await fetchMessages(true);
+        // Membership is what gates the direct-messages probe, and it has just arrived
+        loadChannelDm(activeChat.value);
       }
     }
   } catch {
@@ -4007,6 +4009,9 @@ async function joinCurrentChat() {
         dialogs.value.unshift(joined);
       }
       await fetchMessages(true);
+      // Only a member is offered the channel's direct messages, so the probe openChat
+      // skipped has to run now that this account is one
+      loadChannelDm(joined);
       setTimeout(refreshMessages, 2_000);
       // Check if a bot immediately sent a verification private message
       setTimeout(() => checkForVerificationBot(joinTimeSec), 3_000);
