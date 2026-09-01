@@ -7,7 +7,7 @@ const {
   MockPeerUser, MockPeerChannel, MockPeerChat,
   MockMessage, MockChatInvite, MockChatInviteAlready, MockChatInvitePeek,
   MockMessageMediaPhoto, MockMessageMediaDocument, MockMessageMediaContact,
-  MockDocument, MockReplyInlineMarkup,
+  MockDocument, MockReplyInlineMarkup, MockChatPhotoEmpty,
   MockDocAttrSticker, MockDocAttrAudio, MockDocAttrVideo, MockDocAttrFilename,
   MockMessageService, MockActionChatAddUser, MockActionChatJoinedByLink,
   MockActionChatJoinedByRequest, MockActionChatDeleteUser, MockActionPinMessage,
@@ -29,6 +29,7 @@ const {
   class MockChatInvite { constructor(d: Record<string, any>) { Object.assign(this, d); } }
   class MockChatInviteAlready { constructor(d: Record<string, any>) { Object.assign(this, d); } }
   class MockChatInvitePeek { constructor(d: Record<string, any>) { Object.assign(this, d); } }
+  class MockChatPhotoEmpty {}
   class MockMessageMediaPhoto {}
   class MockMessageMediaDocument { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
   class MockMessageMediaContact { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
@@ -92,7 +93,7 @@ const {
     MockPeerUser, MockPeerChannel, MockPeerChat,
     MockMessage, MockChatInvite, MockChatInviteAlready, MockChatInvitePeek,
     MockMessageMediaPhoto, MockMessageMediaDocument, MockMessageMediaContact,
-    MockDocument, MockReplyInlineMarkup,
+    MockDocument, MockReplyInlineMarkup, MockChatPhotoEmpty,
     MockDocAttrSticker, MockDocAttrAudio, MockDocAttrVideo, MockDocAttrFilename,
     MockMessageService, MockActionChatAddUser, MockActionChatJoinedByLink,
     MockActionChatJoinedByRequest, MockActionChatDeleteUser, MockActionPinMessage,
@@ -149,7 +150,10 @@ vi.mock('telegram', () => ({
     },
     channels: {
       JoinChannel: vi.fn().mockImplementation((d: any) => ({ joinChannel: d.channel })),
+      // Tagged so mockInvoke routing can recognise the monoforum lookup
+      GetFullChannel: vi.fn().mockImplementation((d: any) => ({ getFullChannel: d.channel })),
     },
+    ChatPhotoEmpty: MockChatPhotoEmpty,
     ChannelParticipantCreator: MockChannelParticipantCreator,
     ChannelParticipantAdmin:   MockChannelParticipantAdmin,
     ChatParticipantCreator:    MockChatParticipantCreator,
@@ -216,7 +220,10 @@ import {
   fetchPhoto,
   normalisePhoneNumber,
   getChatMembers,
+  getChannelDm,
+  ensureEntityCached,
 } from '../tg/liveClient';
+import { forgetAccountChannelDms } from '../tg/monoforum';
 import { db } from '../db/database';
 
 const DEFAULT_ACCOUNT = {
@@ -236,14 +243,16 @@ function setupDb(row: Record<string, any> | null = DEFAULT_ACCOUNT) {
 }
 
 // Helper to build a LiveEntry without going through getLiveClient
-function makeEntry(cacheEntries: [string, any][] = []) {
+function makeEntry(cacheEntries: [string, any][] = [], accountId = 1) {
   return {
+    accountId,
     client:            mockClientInstance as any,
     entityCache:       new Map<string, any>(cacheEntries),
     subscribers:       new Set<any>(),
     dialogSubscribers: new Set<any>(),
     avatarCache:       new Map<string, any>(),
     readOutboxCache:   new Map<string, number>(),
+    channelDmCache:    new Map<string, any>(),
     readSubscribers:   new Set<any>(),
   };
 }
@@ -1370,5 +1379,155 @@ describe('sweepLiveClients', () => {
     expect(entry.entityCache.has('u0')).toBe(false);
     expect(entry.entityCache.has('u1199')).toBe(true);
     expect(mockClientInstance.destroy).not.toHaveBeenCalled();
+  });
+});
+
+// ---- getChannelDm ----------------------------------------------------------
+// Sending a private message to a channel means sending to its monoforum: a hidden supergroup
+// named by linked_monoforum_id, which arrives only alongside the full channel.
+
+describe('getChannelDm', () => {
+  const CHANNEL = 'c1001';
+  const MONOFORUM = 'c2002';
+  let account = 900;
+
+  // The chats channels.getFullChannel returns for a channel with direct messages on: the
+  // channel, its linked discussion group, and the monoforum
+  function fullChannelChats() {
+    return [
+      new MockChannel({ id: 1001n, accessHash: 5555n, title: 'Test Channel' }),
+      new MockChannel({ id: 3003n, accessHash: 4444n, title: 'Discussion group', megagroup: true }),
+      new MockChannel({
+        id: 2002n, accessHash: 7777n, title: 'Test Channel Messages', monoforum: true,
+      }),
+    ];
+  }
+
+  function channelWithDm() {
+    return new MockChannel({
+      id: 1001n, accessHash: 5555n, title: 'Test Channel',
+      broadcastMessagesAllowed: true, linkedMonoforumId: 2002n,
+    });
+  }
+
+  beforeEach(() => {
+    account += 1; // targets are remembered per account, so each test gets its own
+    forgetAccountChannelDms(account);
+    mockInvoke.mockImplementation(async (req: any) =>
+      req?.getFullChannel ? { chats: fullChannelChats(), users: [] } : { users: [], chats: [] },
+    );
+  });
+
+  it('finds the monoforum a channel routes direct messages to', async () => {
+    const entry = makeEntry([[CHANNEL, channelWithDm()]], account);
+
+    expect(await getChannelDm(entry as any, CHANNEL)).toEqual({
+      chatId: MONOFORUM,
+      name: 'Test Channel Messages',
+      type: 'channel',
+      username: null,
+      unreadCount: 0,
+      lastMessage: null,
+      left: false,
+      dm: true,
+    });
+  });
+
+  it('caches the monoforum as an entity, so sending and history need no further lookup', async () => {
+    const entry = makeEntry([[CHANNEL, channelWithDm()]], account);
+    await getChannelDm(entry as any, CHANNEL);
+
+    expect(entry.entityCache.get(MONOFORUM)).toMatchObject({
+      id: expect.anything(),
+      accessHash: expect.anything(),
+      title: 'Test Channel Messages',
+    });
+    expect(entry.entityCache.get(MONOFORUM).id.toString()).toBe('2002');
+    expect(entry.entityCache.get(MONOFORUM).accessHash.toString()).toBe('7777');
+  });
+
+  it('does not mistake the linked discussion group for the monoforum', async () => {
+    const entry = makeEntry([[CHANNEL, channelWithDm()]], account);
+    const dm = await getChannelDm(entry as any, CHANNEL);
+    expect(dm?.chatId).not.toBe('c3003');
+    expect(dm?.chatId).toBe(MONOFORUM);
+  });
+
+  it('reports nothing for a channel whose owner has direct messages off', async () => {
+    const noDm = new MockChannel({ id: 1001n, accessHash: 5555n, title: 'Plain' });
+    const entry = makeEntry([[CHANNEL, noDm]], account);
+
+    expect(await getChannelDm(entry as any, CHANNEL)).toBeNull();
+    // linked_monoforum_id is on the channel already, so this costs no round trip
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing for a group, which has no direct messages of its own', async () => {
+    const group = new MockChannel({ id: 1001n, title: 'A group', megagroup: true });
+    const entry = makeEntry([[CHANNEL, group]], account);
+
+    expect(await getChannelDm(entry as any, CHANNEL)).toBeNull();
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
+  it('reports nothing when the monoforum comes back without an access hash', async () => {
+    mockInvoke.mockImplementation(async (req: any) =>
+      req?.getFullChannel
+        ? { chats: [new MockChannel({ id: 2002n, title: 'Msgs', monoforum: true })], users: [] }
+        : { users: [], chats: [] },
+    );
+    const entry = makeEntry([[CHANNEL, channelWithDm()]], account);
+
+    expect(await getChannelDm(entry as any, CHANNEL)).toBeNull();
+  });
+
+  it('survives a failed lookup rather than breaking the chat that asked', async () => {
+    mockInvoke.mockRejectedValue(new Error('CHANNEL_PRIVATE'));
+    const entry = makeEntry([[CHANNEL, channelWithDm()]], account);
+
+    expect(await getChannelDm(entry as any, CHANNEL)).toBeNull();
+  });
+
+  it('asks Telegram once and serves the rest from cache', async () => {
+    const entry = makeEntry([[CHANNEL, channelWithDm()]], account);
+
+    await getChannelDm(entry as any, CHANNEL);
+    await getChannelDm(entry as any, CHANNEL);
+    await getChannelDm(entry as any, CHANNEL);
+
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('remembers a negative answer too, so a channel without them is not re-probed', async () => {
+    mockInvoke.mockImplementation(async (req: any) =>
+      req?.getFullChannel ? { chats: [], users: [] } : { users: [], chats: [] },
+    );
+    const entry = makeEntry([[CHANNEL, channelWithDm()]], account);
+
+    expect(await getChannelDm(entry as any, CHANNEL)).toBeNull();
+    expect(await getChannelDm(entry as any, CHANNEL)).toBeNull();
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('rebuilds the peer for a direct-message chat reopened on a fresh client', async () => {
+    // A monoforum is joinless, so it is absent from the dialog list until it has messages,
+    // and its ID alone resolves nowhere -- a restored session has only the remembered target
+    const first = makeEntry([[CHANNEL, channelWithDm()]], account);
+    await getChannelDm(first as any, CHANNEL);
+
+    const reopened = makeEntry([], account);
+    await ensureEntityCached(reopened as any, MONOFORUM);
+
+    expect(reopened.entityCache.get(MONOFORUM)?.accessHash.toString()).toBe('7777');
+  });
+
+  it('keeps targets apart per account, since an access hash is issued to one', async () => {
+    const mine = makeEntry([[CHANNEL, channelWithDm()]], account);
+    await getChannelDm(mine as any, CHANNEL);
+
+    const other = makeEntry([], account + 500);
+    await ensureEntityCached(other as any, MONOFORUM);
+
+    expect(other.entityCache.has(MONOFORUM)).toBe(false);
   });
 });
