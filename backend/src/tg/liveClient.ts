@@ -1935,7 +1935,7 @@ export async function getChannelDm(
 
   let target = entry.channelDmCache.get(chatId);
   if (target === undefined) {
-    target = await resolveChannelDm(entry.client, entity);
+    target = await resolveChannelDm(entry.client, entity).catch(() => null);
     entry.channelDmCache.set(chatId, target);
   }
   if (!target) return null;

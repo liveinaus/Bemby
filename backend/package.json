@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node dist/server.js",
+    "prebuild": "node scripts/patch-gramjs-layer.js",
     "build": "tsc",
+    "predev": "node scripts/patch-gramjs-layer.js",
     "dev": "tsx watch src/server.ts",
+    "pretest": "node scripts/patch-gramjs-layer.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },

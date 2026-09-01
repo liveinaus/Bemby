@@ -36,3 +36,8 @@ npm-debug.log*
 Thumbs.db
 .idea/
 .vscode/settings.json
+
+# Claude Code scratch space -- throwaway worktrees carry their own node_modules,
+# and local settings are per-developer. A shared .claude/settings.json still commits.
+.claude/worktrees/
+.claude/settings.local.json
