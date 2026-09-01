@@ -932,6 +932,96 @@
         </div>
       </div>
 
+      <!-- Register a passkey and save the credential to the data store -->
+      <div v-if="s.type === 'web_ms_passkey'">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelPasskeyName") }}</label>
+            <input
+              v-model.trim="s.text"
+              class="form-input"
+              :placeholder="t('jobs.web.passkeyNamePlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelVarName") }}</label>
+            <input
+              v-model.trim="s.varName"
+              class="form-input"
+              :placeholder="t('jobs.web.passkeyVarPlaceholder')"
+            />
+          </div>
+        </div>
+        <div class="form-row" style="margin-top: 8px">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataFolder") }}</label>
+            <input
+              v-model.trim="s.folder"
+              class="form-input"
+              :list="folderListId"
+              :placeholder="t('jobs.web.msFolderPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataKey") }}</label>
+            <input
+              v-model.trim="s.recordKey"
+              class="form-input"
+              :placeholder="t('jobs.web.msKeyPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataPath") }}</label>
+            <input
+              v-model.trim="s.path"
+              class="form-input"
+              :placeholder="t('jobs.web.passkeyPathPlaceholder')"
+            />
+          </div>
+        </div>
+        <label class="form-checkbox-label" style="margin-top: 8px">
+          <input v-model="s.optional" type="checkbox" />
+          {{ t("jobs.web.labelPasskeyForce") }}
+        </label>
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
+          {{ t("jobs.web.passkeyHint") }}
+        </div>
+      </div>
+
+      <!-- Load a saved passkey so the passkey sign-in answers itself -->
+      <div v-if="s.type === 'web_ms_passkey_login'">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataFolder") }}</label>
+            <input
+              v-model.trim="s.folder"
+              class="form-input"
+              :list="folderListId"
+              :placeholder="t('jobs.web.msFolderPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataKey") }}</label>
+            <input
+              v-model.trim="s.recordKey"
+              class="form-input"
+              :placeholder="t('jobs.web.msKeyPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataPath") }}</label>
+            <input
+              v-model.trim="s.path"
+              class="form-input"
+              :placeholder="t('jobs.web.passkeyPathPlaceholder')"
+            />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
+          {{ t("jobs.web.passkeyLoginHint") }}
+        </div>
+      </div>
+
       <div v-if="s.type === 'web_pick' || s.type === 'web_collect'" style="margin-top: 8px">
         <div class="form-group">
           <label class="form-label">{{ t("jobs.web.labelContainsText") }}</label>

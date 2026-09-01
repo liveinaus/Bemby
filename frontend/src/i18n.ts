@@ -1087,6 +1087,8 @@ const zh = {
         web_tg_api_save: "保存 API ID / Hash 到账号",
         web_ms_oauth2_start: "打开邮箱授权登录（msOauth2api）",
       web_ms_oauth2: "确认邮箱已连接（msOauth2api）",
+        web_ms_passkey: "注册通行密钥并保存（msOauth2api）",
+        web_ms_passkey_login: "载入已保存的通行密钥用于登录",
         web_set: "设置变量（自定义取值，可多个）",
         web_data_read: "读取数据（存为变量）",
         web_data_pick: "按序号取记录（数据）",
@@ -1219,6 +1221,15 @@ const zh = {
       msPathPlaceholder: "refreshToken",
       msSaveHint:
         "刷新令牌本身就是凭据，不会写进运行日志，因此建议在此直接落库：留空则只存为变量，本次运行结束即丢失。字段路径留空会覆盖整条记录（会连同密码一起清掉），保存到已有记录时请填 refreshToken",
+      labelPasskeyName: "通行密钥名称",
+      passkeyNamePlaceholder: "Bemby",
+      passkeyVarPlaceholder: "passkeyId",
+      passkeyPathPlaceholder: "passkey",
+      labelPasskeyForce: "即使该记录已有通行密钥也再注册一个",
+      passkeyHint:
+        "在已登录的微软账号上注册一枚通行密钥（用软件虚拟认证器完成，无需真实设备），并把凭据（含私钥）保存到数据存储的 文件夹/键/字段。字段已存在时默认跳过。登录会顺带触发的「设置通行密钥」页也会由本步骤捕获，不会重复注册。前置条件：先完成登录步骤",
+      passkeyLoginHint:
+        "把已保存的通行密钥载入浏览器，使微软的通行密钥登录自动通过（无需密码），应放在登录步骤之前。该记录没有已保存的通行密钥时本步骤自动跳过",
       labelReadSecret: "不把读到的内容写进日志",
       readSecretHint:
         "读到的内容本身就是凭据（api_hash、令牌）时勾选：日志只记录字符数。变量照常可用，后续步骤不受影响",
@@ -3538,6 +3549,8 @@ const en: typeof zh = {
         web_tg_api_save: "Save an API ID / hash onto the account",
         web_ms_oauth2_start: "Open the mailbox sign-in (msOauth2api)",
       web_ms_oauth2: "Confirm the mailbox is connected (msOauth2api)",
+        web_ms_passkey: "Register a passkey and save it (msOauth2api)",
+        web_ms_passkey_login: "Load a saved passkey for sign-in",
         web_set: "Set variables (values of your own)",
         web_data_read: "Read from Data (into a variable)",
         web_data_pick: "Take a record by position (Data)",
@@ -3671,6 +3684,15 @@ const en: typeof zh = {
       msPathPlaceholder: "refreshToken",
       msSaveHint:
         "The token is a login in its own right and is never written to the run log, so it is worth storing here: named nowhere, it is held under the name alone and lost when the run ends. A blank field path replaces the whole record (taking the password with it), so write refreshToken when the record already holds the credentials",
+      labelPasskeyName: "Passkey name",
+      passkeyNamePlaceholder: "Bemby",
+      passkeyVarPlaceholder: "passkeyId",
+      passkeyPathPlaceholder: "passkey",
+      labelPasskeyForce: "Register another even if the record already has one",
+      passkeyHint:
+        "Registers a passkey on the signed-in Microsoft account (a software authenticator stands in, no device needed) and saves the credential, private key included, to the folder/key/field in Data. Skips when the field already holds one. A passkey the sign-in itself prompts for is captured here too, so it is not enrolled twice. Run the sign-in steps first.",
+      passkeyLoginHint:
+        "Loads a saved passkey into the browser so Microsoft's passkey sign-in answers itself with no password; put it before the sign-in steps. A no-op when the record holds no passkey.",
       labelReadSecret: "Keep what was read out of the log",
       readSecretHint:
         "For a value that is a login in its own right (an api_hash, a token a page hands out): the log says how many characters were read and no more. The name still holds the value for the steps after it",

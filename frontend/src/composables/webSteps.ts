@@ -161,6 +161,8 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "web_tg_api_save",
   "web_ms_oauth2_start",
   "web_ms_oauth2",
+  "web_ms_passkey",
+  "web_ms_passkey_login",
   "web_set",
   "web_data_read",
   "web_data_pick",
@@ -493,6 +495,23 @@ export function webStepToConfig(s: WebStepForm): WebStep {
         ...(s.recordKey.trim() ? { key: s.recordKey.trim() } : {}),
         ...(s.path.trim() ? { path: s.path.trim() } : {}),
       };
+    case "web_ms_passkey":
+      return {
+        type: "web_ms_passkey",
+        ...(s.text.trim() ? { name: s.text.trim() } : {}),
+        ...(s.varName.trim() ? { varName: s.varName.trim() } : {}),
+        ...(s.folder.trim() ? { folder: s.folder.trim() } : {}),
+        ...(s.recordKey.trim() ? { key: s.recordKey.trim() } : {}),
+        ...(s.path.trim() ? { path: s.path.trim() } : {}),
+        ...(s.optional ? { force: true } : {}),
+      };
+    case "web_ms_passkey_login":
+      return {
+        type: "web_ms_passkey_login",
+        ...(s.folder.trim() ? { folder: s.folder.trim() } : {}),
+        ...(s.recordKey.trim() ? { key: s.recordKey.trim() } : {}),
+        ...(s.path.trim() ? { path: s.path.trim() } : {}),
+      };
     case "web_notify":
       return {
         type: "web_notify",
@@ -797,6 +816,25 @@ export function webStepFromConfig(s: WebStep): WebStepForm {
         type: s.type,
         msEmail: s.email ?? "",
         varName: s.varName ?? "",
+        folder: s.folder ?? "",
+        recordKey: s.key ?? "",
+        path: s.path ?? "",
+      };
+    case "web_ms_passkey":
+      return {
+        ...base,
+        type: s.type,
+        text: s.name ?? "",
+        varName: s.varName ?? "",
+        folder: s.folder ?? "",
+        recordKey: s.key ?? "",
+        path: s.path ?? "",
+        optional: s.force ?? false,
+      };
+    case "web_ms_passkey_login":
+      return {
+        ...base,
+        type: s.type,
         folder: s.folder ?? "",
         recordKey: s.key ?? "",
         path: s.path ?? "",

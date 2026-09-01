@@ -981,6 +981,38 @@ export type WebStep =
       /** Field inside the record, e.g. `connectedAt`. */
       path?: string;
     }
+  | {
+      /**
+       * Register a passkey on the signed-in Microsoft account and save the credential to the
+       * data store. Self-skips when the record already holds one, unless `force`.
+       */
+      type: "web_ms_passkey";
+      /** What to name the passkey; blank uses a default. */
+      name?: string;
+      /** Name to hold the saved credential id under. */
+      varName?: string;
+      /** Data-store folder to write the credential to, e.g. `outlook`. */
+      folder?: string;
+      /** Record key inside that folder, e.g. `{email}`. */
+      key?: string;
+      /** Field to hold the credential, e.g. `passkey`. */
+      path?: string;
+      /** Enrol another even if the record already holds one. */
+      force?: boolean;
+    }
+  | {
+      /**
+       * Load a saved passkey into the browser so Microsoft's passkey sign-in answers itself,
+       * before the sign-in steps. A no-op when the record holds no passkey.
+       */
+      type: "web_ms_passkey_login";
+      /** Data-store folder holding the passkey, e.g. `outlook`. */
+      folder?: string;
+      /** Record key inside that folder, e.g. `{email}`. */
+      key?: string;
+      /** Field holding the saved passkey, e.g. `passkey`. */
+      path?: string;
+    }
   | { type: "web_goto"; url: string; waitMs?: number }
   | { type: "web_back"; waitMs?: number }
   | {
