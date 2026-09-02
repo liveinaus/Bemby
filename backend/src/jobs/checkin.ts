@@ -246,14 +246,46 @@ function stripReasoning(text: string): string {
     .trim();
 }
 
-/** Generic AI call: sends images + prompt, returns the raw text response. */
+/** Whether an error is the API saying "not this minute" rather than "not at all". */
+function isRateLimit(err: unknown): boolean {
+  const message = String((err as { message?: unknown })?.message ?? err);
+  return /\b429\b|rate.?limit|too many requests/i.test(message);
+}
+
+/**
+ * Waits between tries after a rate limit, in milliseconds.
+ *
+ * Sized against what the free tiers actually do: a gateway key allows a few calls a minute
+ * and then refuses for the rest of it, so the first wait has to be long enough to be on the
+ * other side of that window rather than spending a try inside it.
+ */
+const RATE_LIMIT_WAITS_MS = [15_000, 45_000];
+
+/**
+ * Generic AI call: sends images + prompt, returns the raw text response.
+ *
+ * A rate limit is waited out rather than thrown, twice: the keys these deployments use are
+ * mostly free tiers, and a step that gives up on the first 429 loses the whole run over a
+ * limit that clears in half a minute -- a captcha panel sitting open in the browser all the
+ * while. Every other failure is the caller's to see straight away.
+ */
 export async function callAI(
   images: string[],
   prompt: string,
   maxTokens = 200,
   modelOverride?: string,
 ): Promise<{ response: string }> {
-  return callAIWithCreds(images, prompt, maxTokens, resolveAICreds(modelOverride));
+  const creds = resolveAICreds(modelOverride);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await callAIWithCreds(images, prompt, maxTokens, creds);
+    } catch (err: any) {
+      if (attempt >= RATE_LIMIT_WAITS_MS.length || !isRateLimit(err)) throw err;
+      const wait = RATE_LIMIT_WAITS_MS[attempt];
+      console.warn(`[ai] rate-limited by ${creds.baseUrl}; trying again in ${wait / 1000}s`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
 }
 
 /**

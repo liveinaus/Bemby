@@ -1095,6 +1095,39 @@
         </div>
       </div>
 
+      <!-- Picture captcha: the widget states its own question, so only the extras are here -->
+      <div v-if="s.type === 'ai_web_captcha'" class="web-step-wide">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelCaptchaRounds") }}</label>
+            <input
+              v-model.trim="s.index"
+              class="form-input"
+              :placeholder="t('jobs.web.captchaRoundsPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ durationLabel(t("jobs.web.labelCaptchaWait")) }}</label>
+            <NumberInput v-model="s.waitMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
+          </div>
+        </div>
+        <div class="form-group" style="margin-top: 8px">
+          <label class="form-label">{{ t("jobs.web.labelCaptchaHint") }}</label>
+          <input
+            v-model.trim="s.hint"
+            class="form-input"
+            :placeholder="t('jobs.web.captchaHintPlaceholder')"
+          />
+        </div>
+        <label class="form-checkbox-label" style="margin-top: 8px">
+          <input v-model="s.optional" type="checkbox" />
+          {{ t("jobs.web.labelCaptchaOptional") }}
+        </label>
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
+          {{ aiKeyMissing ? t("jobs.web.aiKeyMissing") : t("jobs.web.captchaHint") }}
+        </div>
+      </div>
+
       <!-- Arm a virtual authenticator, so a passkey can be registered without hardware -->
       <div v-if="s.type === 'web_passkey_arm'" class="web-step-wide">
         <div class="form-row">
@@ -1782,6 +1815,8 @@ function summaryDetail(s: WebStepForm): string {
     case "web_passkey_arm":
     case "web_passkey_save":
       return [s.folder, s.recordKey, s.path].filter(Boolean).join(".");
+    case "ai_web_captcha":
+      return s.index ? `${s.index} rounds` : "";
     case "web_totp":
     case "web_otp_secret":
     case "web_email_code":

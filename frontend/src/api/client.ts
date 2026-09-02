@@ -1075,6 +1075,25 @@ type WebStepKind =
     }
   | {
       /**
+       * Solve a picture captcha ("click every tile that shows a bus") with the vision model,
+       * from the "I am human" box through to the token the form needs. The challenge is read
+       * out of its own frame -- question, tiles, reference picture, Verify button -- so the
+       * model is only asked which pictures answer the question, never where they are.
+       */
+      type: "ai_web_captcha";
+      /** Press the "I am human" box first. Defaults to true. */
+      pressCheckbox?: boolean;
+      /** Challenge rounds to work through. Blank/0 works 4. */
+      rounds?: number;
+      /** Anything worth telling the model beyond the question the widget asks. */
+      hint?: string;
+      /** Overall budget. Blank/0 allows 240s. */
+      waitMs?: number;
+      /** Pass the step when no captcha is on the page. Defaults to true. */
+      optional?: boolean;
+    }
+  | {
+      /**
        * Arm a virtual authenticator so a passkey or security key can be registered with no
        * hardware, and load a saved one where the record names it. Site-agnostic: put it
        * before the press that starts the registration, or before a sign-in that answers a

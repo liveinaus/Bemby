@@ -1438,8 +1438,15 @@ export async function runCustom(
       const pageStepHooks = (): Partial<LoadOptions> => ({
       // The vision model lives on this side of the browser, so the page steps
       // reach it through a callback rather than the solver importing it
-      aiLocate: async (image, prompt) => {
-        const { response } = await callAI([image], prompt, 512);
+      // One picture or several -- a picture captcha's example and its grid go together --
+      // and a token budget the caller sets, since nine tile verdicts do not fit in the
+      // default
+      aiLocate: async (images, prompt, maxTokens) => {
+        const { response } = await callAI(
+          Array.isArray(images) ? images : [images],
+          prompt,
+          maxTokens ?? 512,
+        );
         return response;
       },
       // Same reason: what this job has already looped over lives in the
@@ -3461,8 +3468,12 @@ export async function runCustom(
                   },
                   // Backs the {aiBtn} in-app step: the model is shown the marked-up app
                   // page and names the control to press
-                  aiLocate: async (image, prompt) => {
-                    const { response } = await callAI([image], prompt, 512);
+                  aiLocate: async (images, prompt, maxTokens) => {
+                    const { response } = await callAI(
+                      Array.isArray(images) ? images : [images],
+                      prompt,
+                      maxTokens ?? 512,
+                    );
                     step.aiPrompt = prompt;
                     step.aiResponse = response;
                     return response;
@@ -3668,8 +3679,12 @@ export async function runCustom(
                     step.aiResponse = response;
                     return response;
                   },
-                  aiLocate: async (image, prompt) => {
-                    const { response } = await callAI([image], prompt, 512);
+                  aiLocate: async (images, prompt, maxTokens) => {
+                    const { response } = await callAI(
+                      Array.isArray(images) ? images : [images],
+                      prompt,
+                      maxTokens ?? 512,
+                    );
                     step.aiPrompt = prompt;
                     step.aiResponse = response;
                     return response;

@@ -174,6 +174,7 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "web_ms_passkey_login",
   "web_passkey_arm",
   "web_passkey_save",
+  "ai_web_captcha",
   "web_set",
   "web_data_read",
   "web_data_pick",
@@ -188,6 +189,7 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "ai_web_button",
   "ai_web_click_xy",
   "ai_web_click_xy_multi",
+  "ai_web_captcha",
 ];
 
 /** Types that need the vision model, so the editor can gate them on a configured key. */
@@ -548,6 +550,14 @@ function webStepBody(s: WebStepForm): WebStep {
         ...(s.folder.trim() ? { folder: s.folder.trim() } : {}),
         ...(s.recordKey.trim() ? { key: s.recordKey.trim() } : {}),
         ...(s.path.trim() ? { path: s.path.trim() } : {}),
+      };
+    case "ai_web_captcha":
+      return {
+        type: "ai_web_captcha",
+        ...(s.waitMs > 0 ? { waitMs: s.waitMs } : {}),
+        ...(s.index.trim() ? { rounds: Number(s.index.trim()) || undefined } : {}),
+        ...(s.hint.trim() ? { hint: s.hint.trim() } : {}),
+        ...(s.optional ? {} : { optional: false }),
       };
     case "web_passkey_arm":
       return {
@@ -913,6 +923,16 @@ function webStepFormBody(s: WebStep): WebStepForm {
         folder: s.folder ?? "",
         recordKey: s.key ?? "",
         path: s.path ?? "",
+      };
+    case "ai_web_captcha":
+      return {
+        ...base,
+        type: s.type,
+        // Rounds ride in `index`, the form's spare number field, as the step has no other
+        index: s.rounds ? String(s.rounds) : "",
+        hint: s.hint ?? "",
+        waitMs: s.waitMs ?? 240000,
+        optional: s.optional !== false,
       };
     case "web_passkey_arm":
       return {

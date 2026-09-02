@@ -1252,6 +1252,38 @@ type WebStepKind =
     }
   | {
       /**
+       * Solve a picture captcha -- the "click every tile that shows a bus" kind -- with the
+       * vision model, from the "I am human" box through to the token the form needs.
+       *
+       * Everything about the challenge is read out of its own frame: the question in words,
+       * where each tile is, the example picture some questions refer to, and its Verify
+       * button. The model is only asked *which* pictures answer the question, and answers
+       * with tile numbers drawn on the tiles themselves -- so nothing here depends on it
+       * judging a coordinate, which is what a model of ordinary weight cannot do at this
+       * size.
+       *
+       * A challenge usually comes in two rounds; `rounds` is how many to work through. The
+       * step ends as soon as the widget writes its token, and fails if the rounds run out
+       * without one -- with each round's question and picks on the log, which is what says
+       * whether the model is misreading the pictures or the question.
+       *
+       * hCaptcha today. The frames are found by their own addresses, so a page carrying
+       * some other picture captcha is reported as having none rather than mis-solved.
+       */
+      type: "ai_web_captcha";
+      /** Press the "I am human" box first, to open the challenge. Defaults to true. */
+      pressCheckbox?: boolean;
+      /** Challenge rounds to work through. Blank/0 works 4. */
+      rounds?: number;
+      /** Anything worth telling the model beyond the question the widget asks. */
+      hint?: string;
+      /** Overall budget. Blank/0 allows 240s, and never more than the action has left. */
+      waitMs?: number;
+      /** Pass the step when no captcha is on the page at all. Defaults to true. */
+      optional?: boolean;
+    }
+  | {
+      /**
        * Arm a virtual authenticator for the rest of this page's run, so a passkey or
        * security key can be registered with no hardware -- and, where a saved one is named,
        * load it in so a sign-in challenge answers itself.

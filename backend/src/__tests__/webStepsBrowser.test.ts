@@ -82,7 +82,7 @@ describe.skipIf(!exe)("page steps in a real browser", () => {
         Date.now() + 30_000,
         {
           aiLocate: async (image, prompt) => {
-            shots.push(image);
+            shots.push(Array.isArray(image) ? image[0] : image);
             pass++;
             // The wide pass answers off-target, the way the live model did; the close-up
             // is the one that has to be believed

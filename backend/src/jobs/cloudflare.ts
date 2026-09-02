@@ -31,6 +31,20 @@ import {
 import { EMAIL_CODE_WAIT_MS } from "./emailCode";
 import { authErrorFromUrl } from "./msOauth2";
 import {
+  buildCaptchaTilesPrompt,
+  captchaToken,
+  clearTileBadges,
+  clickCaptchaTile,
+  drawTileBadges,
+  hasPictureCaptcha,
+  parseCaptchaTiles,
+  pressCaptchaCheckbox,
+  pressCaptchaSubmit,
+  readChallenge,
+  waitForChallenge,
+  tileGridBox,
+} from "./pictureCaptcha";
+import {
   armVirtualAuthenticator,
   credentialIds,
   injectCredential,
@@ -361,7 +375,7 @@ export type LoadOptions = {
    */
   webSteps?: WebStep[];
   /** Hands a screenshot to the vision model, for the `ai_web_*` sub-steps. */
-  aiLocate?: (image: string, prompt: string) => Promise<string>;
+  aiLocate?: AiLocate;
   /** What a `web_pick` with `skipUsed` should leave out, and where a used value is kept. */
   usedValues?: (varName: string) => string[];
   markUsed?: (varName: string, value: string) => void;
@@ -2224,7 +2238,7 @@ export async function runInAppClicks(
   deadline: number,
   opts: {
     solveQuestion?: (question: string) => Promise<string>;
-    aiLocate?: (image: string, prompt: string) => Promise<string>;
+    aiLocate?: AiLocate;
     /** A step's label must be the control's whole text, not merely part of it. */
     exactLabels?: boolean;
     /** Success wording the job judges the run by, so a step can tell it has already landed. */
@@ -2532,6 +2546,51 @@ const MAX_WEB_AI_IMAGE_CHARS = 1_500_000;
 
 /** Spacing of the ruler drawn over the whole page for `ai_web_click_xy`, in CSS pixels. */
 const WEB_GRID_PX = 100;
+
+/**
+ * How long an `ai_web_captcha` works at a challenge when the step names no time.
+ *
+ * Wide enough for two rounds with a model that has to be asked twice: the gateway a free key
+ * goes through allows only a few calls a minute, and a round that waits out a 429 costs the
+ * better part of one.
+ */
+const CAPTCHA_TILES_WAIT_MS = 240_000;
+
+/**
+ * The vision model, as the page side reaches it: one picture or several, and a token budget
+ * for the answers that need room -- nine tile verdicts and a list do not fit in the default.
+ */
+export type AiLocate = (
+  images: string | string[],
+  prompt: string,
+  maxTokens?: number,
+) => Promise<string>;
+
+/** Times the "I am human" box is pressed in one step before it is left alone. */
+const CAPTCHA_PRESS_TRIES = 2;
+
+/** Tokens allowed for a tile answer: nine short verdicts, plus the list of matches. */
+const CAPTCHA_TILES_TOKENS = 1_400;
+
+/**
+ * Asks about pictures already taken, rather than taking one.
+ *
+ * The captcha step has cropped its own -- the example and the badged grid -- so there is
+ * nothing to rule or clip here; what is left is the call, and saying plainly when the model
+ * would not answer.
+ */
+async function askAboutImages(
+  aiLocate: AiLocate,
+  images: string[],
+  prompt: string,
+  until: number,
+): Promise<string> {
+  if (msLeft(until) <= 0) throw new Error("no time left to ask the AI about the challenge");
+  const reply = await aiLocate(images, prompt, CAPTCHA_TILES_TOKENS).catch((err: any) => {
+    throw new Error(`the AI could not be asked: ${err?.message ?? err}`);
+  });
+  return reply ?? "";
+}
 
 /** Ceiling on positions one `ai_web_click_xy_multi` will click, however many the AI lists. */
 const MAX_WEB_POINTS = 20;
@@ -2871,7 +2930,7 @@ type WebRect = { x: number; y: number; width: number; height: number };
  */
 async function locateWebPoint(
   page: Page,
-  aiLocate: (image: string, prompt: string) => Promise<string>,
+  aiLocate: AiLocate,
   prompt: string,
   gap: number,
   clip?: WebRect,
@@ -2887,7 +2946,7 @@ async function locateWebPoint(
  */
 async function askAboutWebShot(
   page: Page,
-  aiLocate: (image: string, prompt: string) => Promise<string>,
+  aiLocate: AiLocate,
   prompt: string,
   gap: number,
   clip?: WebRect,
@@ -3215,7 +3274,7 @@ export type WebStepHooks = {
    * Hands a screenshot and a prompt to the vision model and returns its reply. Supplied by
    * the caller so the browser side stays clear of AI credentials and settings.
    */
-  aiLocate?: (image: string, prompt: string) => Promise<string>;
+  aiLocate?: AiLocate;
   /**
    * Values a `web_collect` with `skipUsed` should leave out, and where one is recorded once
    * the loop has been through it. Supplied by the caller for the same reason: what a job has
@@ -4500,6 +4559,126 @@ async function runStepList(
           break;
         }
 
+        case "ai_web_captcha": {
+          if (!hooks.aiLocate) throw new Error("no AI model is configured for this step");
+          const rounds = step.rounds && step.rounds > 0 ? Math.floor(step.rounds) : 4;
+          const asked = step.waitMs && step.waitMs > 0 ? step.waitMs : CAPTCHA_TILES_WAIT_MS;
+          const until = Math.min(Date.now() + asked, deadline);
+          const hint = fillVars(step.hint ?? "", run.current).trim() || undefined;
+
+          if (!hasPictureCaptcha(page)) {
+            if (step.optional === false)
+              throw new Error("no picture captcha is on the page");
+            log.outcome = "no picture captcha on the page, nothing to solve";
+            break;
+          }
+
+          // Already satisfied: a widget that cleared itself has written its token, and
+          // pressing at it again only reopens a challenge that was not needed
+          let token = await captchaToken(page);
+          if (token) {
+            log.outcome = `the captcha was already solved (token ${token.length} chars)`;
+            break;
+          }
+
+          const prompts: string[] = [];
+          const replies: string[] = [];
+          const passes: string[] = [];
+          const worked: string[] = [];
+          // The box is pressed when there is no panel, not once at the start: the first press
+          // can miss, and a widget that has just refused a round closes the panel again
+          let presses = 0;
+
+          for (let round = 1; round <= rounds; round++) {
+            token = await captchaToken(page);
+            if (token) break;
+            if (msLeft(until) <= 0) break;
+
+            let challenge = await readChallenge(page);
+            if (!challenge && step.pressCheckbox !== false && presses < CAPTCHA_PRESS_TRIES) {
+              presses++;
+              if (await pressCaptchaCheckbox(page)) {
+                // The panel takes a moment to open, and may never: an address hCaptcha
+                // likes is let through with a token and no challenge at all
+                await waitForChallenge(page, Math.min(Date.now() + 25_000, until));
+              }
+              token = await captchaToken(page);
+              if (token) break;
+              challenge = await readChallenge(page);
+            }
+            if (!challenge || !challenge.tiles.length) {
+              // Still nothing to work: give the widget a moment and look once more, then
+              // let the round count run out rather than pressing at it forever
+              await sleep(Math.min(2_000, msLeft(until)), until);
+              token = await captchaToken(page);
+              if (token) break;
+              continue;
+            }
+
+            const images: string[] = [];
+            if (challenge.example && challenge.example.width > 20) {
+              const shot = await screenshotOf(page, 88, {
+                x: Math.round(challenge.example.x),
+                y: Math.round(challenge.example.y),
+                width: Math.round(challenge.example.width),
+                height: Math.round(challenge.example.height),
+              });
+              if (shot) images.push(shot);
+            }
+            await drawTileBadges(page, challenge.tiles);
+            const grid = await screenshotOf(page, 88, tileGridBox(challenge.tiles));
+            await clearTileBadges(page);
+            if (!grid) throw new Error("the captcha grid could not be captured");
+            images.push(grid);
+
+            const prompt = buildCaptchaTilesPrompt(
+              challenge.question,
+              challenge.tiles.length,
+              images.length > 1,
+              hint,
+            );
+            const reply = await askAboutImages(hooks.aiLocate, images, prompt, until);
+            prompts.push(prompt);
+            replies.push(reply);
+            passes.push(`round ${round}: ${challenge.question || "(no question given)"}`);
+            keepAiImage(log, images[images.length - 1]);
+            log.aiPrompt = joinAiPasses(prompts, passes);
+            log.aiResponse = joinAiPasses(replies, passes);
+
+            const picked = parseCaptchaTiles(reply, challenge.tiles.length);
+            for (const n of picked) {
+              const tile = challenge.tiles.find((t) => t.n === n);
+              if (!tile) continue;
+              await clickCaptchaTile(page, tile);
+              await sleep(Math.min(320, msLeft(until)), until);
+            }
+            worked.push(
+              `${challenge.question || "(no question)"} -> ${
+                picked.length ? picked.join(",") : "nothing"
+              }`,
+            );
+
+            // Submitted either way: a round the model found nothing in is still a round, and
+            // hCaptcha answers a wrong or empty one with the next challenge rather than a
+            // dead panel -- where not submitting leaves the run staring at the same tiles
+            if (challenge.submit) await pressCaptchaSubmit(page, challenge.submit);
+            await sleep(Math.min(tune.confirmTimeoutMs, msLeft(until)), until);
+          }
+
+          token = token || (await captchaToken(page));
+          if (!token) {
+            throw new Error(
+              `the captcha was not solved in ${worked.length} round(s): ${
+                worked.join("; ") || "no challenge to work"
+              }`,
+            );
+          }
+          log.outcome =
+            `solved the captcha in ${worked.length} round(s) ` +
+            `(token ${token.length} chars): ${worked.join("; ")}`;
+          break;
+        }
+
         case "web_passkey_arm": {
           let auth = passkeyAuth.get(page);
           if (!auth) {
@@ -5533,6 +5712,8 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
       return `Read a code from ${fill(step.email ?? "")} into {${step.varName}}`;
     case "web_email_link":
       return `Read a link from ${fill(step.email ?? "")} into {${step.varName}}`;
+    case "ai_web_captcha":
+      return `AI solves the picture captcha${step.rounds ? ` (${Math.floor(step.rounds)} rounds)` : ""}`;
     case "web_passkey_arm":
       return step.folder?.trim()
         ? `Arm a passkey authenticator, loading ${dataLabel(step, fill)}`
