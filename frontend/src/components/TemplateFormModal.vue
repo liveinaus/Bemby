@@ -15,7 +15,7 @@
           <div style="display:flex;gap:6px">
             <select v-model="presetId" class="form-select" style="flex:1;min-width:0">
               <option value="">{{ t('templates.presets.none') }}</option>
-              <option v-for="p in availableTemplatePresets" :key="p.id" :value="p.id">{{ t(p.labelKey) }}</option>
+              <option v-for="p in availableTemplatePresets" :key="p.id" :value="p.id">{{ presetText(p.label) }}</option>
             </select>
             <button type="button" class="btn btn-secondary" :disabled="!presetId" @click="applyPreset">
               {{ t('templates.presets.apply') }}
@@ -456,7 +456,7 @@ import {
   type CustomActionForm,
 } from '../composables/customActions';
 import { proxyFields } from '../composables/proxyPick';
-import { availableTemplatePresets } from '../composables/templatePresets';
+import { availableTemplatePresets, presetText } from '../composables/templatePresets';
 import { loadDataStoreSetting } from '../composables/dataStore';
 import { msScale, durationLabel } from '../composables/preferSeconds';
 import NumberInput from './NumberInput.vue';
@@ -955,7 +955,7 @@ async function saveTemplate() {
 const presetId = ref('');
 const presetHint = computed(() => {
   const preset = availableTemplatePresets.value.find(p => p.id === presetId.value);
-  return preset ? t(preset.hintKey) : '';
+  return preset ? presetText(preset.hint) : '';
 });
 
 // Pasting a shared template over this one. The share carries what a template *is* -- its name,

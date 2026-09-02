@@ -1573,15 +1573,6 @@ const zh = {
       label: "内置模板",
       none: "不使用（从空白开始）",
       apply: "填入表单",
-      outlookProofs: "补齐 Outlook 辅助邮箱与两步验证",
-      outlookProofsHint:
-        "为 outlook 文件夹中缺少辅助邮箱（recovery）或两步验证密钥（totp）的记录补齐这两项：登录账号后进入「登录与验证方式」页面，辅助邮箱从 msOauth2api 邮箱池领取（微软发往该地址的验证码也由同一服务读回），两步验证则在设置页抓取密钥本身并立即写回记录，随后用它生成的动态码完成验证。已有的项目会跳过，因此重复运行只补缺口。前置条件：已配置 msOauth2api（地址池与 API Key）、已配置 AI 密钥（微软账户页面由脚本渲染且措辞常变，点击「添加验证方式」这类按钮走视觉模型），以及记录中已有 password。请先用「调试运行」跑一遍，按截图调整选择器——把这个模板当作起点，而不是成品",
-      outlookOauth: "获取 Outlook OAuth2 刷新令牌",
-      outlookOauthHint:
-        "用内置浏览器登录个人 Outlook 邮箱，并把它连接到 msOauth2api，由后者保存并续期刷新令牌（密码与两步验证无法直接交给邮件客户端，刷新令牌可以）。这里不需要任何应用（客户端）ID 或密钥：登录地址由 msOauth2api 下发，重定向、PKCE 与权限范围都由它决定，浏览器登录完成后落在它的回调地址上，由它换取并入库，令牌不会经过 Bemby。前置条件：① 在「设置 → msOauth2api」中填写服务地址与 API Key，并在其面板中配置好 OAuth 客户端 ID 与回调地址；② 在「数据」的 outlook 文件夹中，以邮箱地址为记录键，存入 {password, totp}（totp 填两步验证密钥本身，不是六位动态码）。运行时按位置逐条处理，已有 connectedAt 标记的记录直接跳过，因此重复运行只会补齐新增的邮箱——请把循环次数改为该文件夹的记录数。若浏览器登录成了另一个账号，msOauth2api 会比对后拒绝入库，该轮直接失败，不会把令牌存到错误的邮箱名下。微软登录页面时常改版，首次运行请用「调试运行」看截图，再按实际情况调整选择器",
-      tgApi: "获取 Telegram API ID / Hash（my.telegram.org）",
-      tgApiHint:
-        "用内置浏览器登录 my.telegram.org：手机号取自账号本身（{accountPhone}），登录验证码由该账号在 Telegram 中接收并自动读取；随后取用已有的 API 应用，没有则以随机名称新建一个（平台选 Web），最后把 api_id 与 api_hash 写回该账号（api_hash 加密保存），并在数据文件夹 tgApi 中另存一份。注意：my.telegram.org 会限制同一号码的验证码请求次数，短时间内反复运行会看到“too many tries”，需稍后再试",
     },
     labelName: "模板名称",
     oneTimeHint: "推送到所有关联任务；成功执行一次后自动停用",
@@ -4109,15 +4100,6 @@ const en: typeof zh = {
       label: "Start from a built-in template",
       none: "None (start blank)",
       apply: "Fill the form",
-      outlookProofs: "Fill in Outlook recovery email and 2FA",
-      outlookProofsHint:
-        "Gives the records in the outlook folder what they are missing: a recovery address and an authenticator secret. It signs in, opens the sign-in-and-verification page, takes a recovery address from the msOauth2api pool (reading the code Microsoft sends to it back through the same service), and for two-factor enrolment captures the secret off the page and writes it onto the record before proving it with a code worked out from it. Each part is skipped where the record already has it, so a re-run only fills gaps. It needs msOauth2api configured, an AI key (Microsoft's account pages are script-drawn and reworded often, so the named controls are pressed through the vision model) and a password on each record. Run it in debug first and expect to adjust the selectors from the screenshots -- this is a starting point, not a finished chain",
-      outlookOauth: "Get an Outlook OAuth2 refresh token",
-      outlookOauthHint:
-        "Signs in to a personal Outlook mailbox in the built-in browser and connects it to msOauth2api, which keeps the refresh token and renews it -- neither a password nor a second factor can be handed to a mail client, and a token can. No application (client) id or secret is needed here: msOauth2api hands out the sign-in address and owns the redirect, the PKCE pair and the scopes, and the browser lands back on its callback, which does the exchange and stores the account. No token passes through Bemby. It needs two things first: the service's base URL and API key under Settings, with its own OAuth client id and callback configured in its panel; and an outlook data folder holding {password, totp} under each address as its key -- totp being the authenticator secret itself, not a six-digit code. Rounds work the folder by position and pass over every record already marked connectedAt, so a re-run only picks up the mailboxes added since; set the number of rounds to how many the folder holds. Should the browser sign in as a different account, msOauth2api compares it against the address the flow was started for and stores nothing, so the round fails rather than filing the wrong mailbox's token. Microsoft redraws these pages often, so run it once in debug and check the screenshots before trusting the selectors",
-      tgApi: "Fetch Telegram API ID / hash (my.telegram.org)",
-      tgApiHint:
-        "Signs in to my.telegram.org in the built-in browser with the account's own number ({accountPhone}), reading the login code off the account inside Telegram. It then takes the API app the account already has, or registers one under a random name as a web app, and writes the api_id and api_hash back onto the account -- the hash encrypted -- keeping a copy in the tgApi data folder. Note that my.telegram.org rations code requests per number: running it repeatedly in quick succession earns a \"too many tries\" page, and it has to be left for a while",
     },
     labelName: "Template Name",
     oneTimeHint: "Pushed down to every linked job; each one switches off after a successful run",

@@ -41,3 +41,8 @@ Thumbs.db
 # and local settings are per-developer. A shared .claude/settings.json still commits.
 .claude/worktrees/
 .claude/settings.local.json
+
+# Preset job templates. Each chain drives a real site's pages, which change without notice, so
+# they are kept per-installation rather than shipped: frontend/src/composables/templatePresets.ts
+# holds the machinery and picks this up when it is present.
+frontend/src/composables/templatePresets.local.ts
