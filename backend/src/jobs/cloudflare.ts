@@ -2767,6 +2767,21 @@ async function dismissMsNotice(page: Page, deadline: number): Promise<void> {
   }
 }
 
+/** What currently has the focus, in the shortest form that identifies it, for the log. */
+async function focusedDescription(page: Page): Promise<string> {
+  return page
+    .evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el || el === document.body) return "the page itself, with no field focused";
+      const tag = el.tagName.toLowerCase();
+      const type = el.getAttribute("type");
+      const name = el.id ? `#${el.id}` : el.getAttribute("name") ? `[name=${el.getAttribute("name")}]` : "";
+      const label = el.getAttribute("aria-label") ?? el.getAttribute("placeholder") ?? "";
+      return `\`${tag}${type ? `[type=${type}]` : ""}${name}\`${label ? ` ("${label}")` : ""}`;
+    })
+    .catch(() => "whatever has the focus");
+}
+
 async function typeIntoFocused(page: Page, text: string): Promise<boolean> {
   let failed = false;
   await page.keyboard.type(text, { delay: 60 }).catch(() => {
@@ -3353,6 +3368,18 @@ async function runStepList(
           if (!(await typeInto(page, selector, text)))
             throw new Error(`nothing matching \`${selector}\` could be typed into`);
           log.outcome = `typed ${maskForLog(text, selector)} into \`${selector}\``;
+          break;
+        }
+
+        case "web_type": {
+          const text = fillContent(step.text, run.current);
+          if (!text) throw new Error("nothing was given to type");
+          // What had the focus, read before the typing: a step that went nowhere is worth
+          // telling apart from one the page simply ignored, and only the log can say which
+          const into = await focusedDescription(page);
+          if (!(await typeIntoFocused(page, text)))
+            throw new Error(`the keystrokes could not be sent (the focus was on ${into})`);
+          log.outcome = `typed ${maskForLog(text, into)} into ${into}`;
           break;
         }
 
@@ -4976,6 +5003,8 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
       return `Press \`${fill(step.selector)}\``;
     case "web_input":
       return `Type into \`${fill(step.selector)}\``;
+    case "web_type":
+      return "Type where the focus is";
     case "web_delay":
       return `Wait ${Math.round((step.waitMs || 0) / 1000)}s`;
     case "web_scroll":

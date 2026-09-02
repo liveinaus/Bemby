@@ -1284,6 +1284,65 @@ describe.skipIf(!exe)("page steps in a real browser", () => {
   );
 
   it(
+    "types where the page put the cursor, naming no element",
+    async () => {
+      const p = await open(`<input id="code" autofocus>`);
+      const run = await runWebSteps(
+        p,
+        [
+          { type: "web_set", vars: [{ name: "code", value: "483920" }] },
+          { type: "web_type", text: "{code}" },
+        ],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[1].error).toBeUndefined();
+      expect(await p.evaluate(() => (document.getElementById("code") as HTMLInputElement).value)).toBe(
+        "483920",
+      );
+      expect(run.logs[1].outcome).toContain("#code");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "follows the focus across a run of one-character boxes, which a selector cannot",
+    async () => {
+      // The shape an emailed code is often typed into: each box hands the focus to the next
+      // as it fills, so the element to type into changes between one keystroke and the next.
+      const p = await open(
+        `<input class="d" maxlength="1" autofocus><input class="d" maxlength="1">` +
+          `<input class="d" maxlength="1"><input class="d" maxlength="1">` +
+          `<script>document.querySelectorAll(".d").forEach((el, i, all) =>
+             el.addEventListener("input", () => all[i + 1] && all[i + 1].focus()))</script>`,
+      );
+      const run = await runWebSteps(p, [{ type: "web_type", text: "4839" }], Date.now() + 30_000, {});
+      expect(run.logs[0].error).toBeUndefined();
+      expect(
+        await p.evaluate(() =>
+          Array.from(document.querySelectorAll(".d"))
+            .map((el) => (el as HTMLInputElement).value)
+            .join(""),
+        ),
+      ).toBe("4839");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "says the keystrokes went to no field when nothing had the focus",
+    async () => {
+      const p = await open(`<div>nothing to type into</div>`);
+      const run = await runWebSteps(p, [{ type: "web_type", text: "hello" }], Date.now() + 30_000, {});
+      expect(run.logs[0].outcome).toContain("no field focused");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
     "leaves a plain CSS selector to the page, stamping nothing on it",
     async () => {
       const p = await open(BUTTONS);

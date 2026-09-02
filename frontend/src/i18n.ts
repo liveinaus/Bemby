@@ -1065,6 +1065,7 @@ const zh = {
         "本版本无法编辑该步骤类型（{type}），可能来自更新的版本或手工修改的配置。保存时会原样保留；若在上方改选其它类型，原内容将被丢弃",
       type: {
         web_input: "输入文本（CSS 选择器）",
+        web_type: "键盘输入（当前焦点处）",
         web_button: "点击按钮（CSS 选择器）",
         web_delay: "等待固定时间",
         web_scroll: "滚动页面（按像素）",
@@ -1403,6 +1404,8 @@ const zh = {
       textPlaceholder: "要输入的文本",
       textHint:
         "输入前会先清空该字段。支持随机占位符 {word:N}、{num:N}、{num:1-30}、{alpha:N}、{uuid}、{randomFirstName}、{randomLastName}（每次执行重新生成，循环中每轮都不同），也支持 {变量名} 引用前面步骤存下的值（如 {postId}）",
+      typeHint:
+        "不指定元素，直接把内容按键敲进当前有焦点的地方，也不会先清空。适用于页面自己把光标放好的情况：加载后自动聚焦的验证码框，或每输入一个字符就自动跳到下一个的分格验证码——这类分格框用「输入文本」按选择器点击反而会点错格子。占位符与变量写法同「输入文本」，例如 {code} 即前面 web_email_code 步骤取到的验证码。日志会记下当时焦点所在的元素，便于排查敲到了空处的情况",
       labelDelay: "等待时长（毫秒）",
       delayHint: "页面需要缓冲时使用，例如等待动画或跳转完成",
       labelTimeout: "超时（毫秒）",
@@ -3533,6 +3536,7 @@ const en: typeof zh = {
         "This build has no fields for a {type} step -- it came from a newer Bemby, or from a config edited by hand. Saving keeps it as it is; picking another type above discards it",
       type: {
         web_input: "Type text (CSS selector)",
+        web_type: "Type on the keyboard (wherever the focus is)",
         web_button: "Press a control (CSS selector)",
         web_delay: "Wait a fixed time",
         web_scroll: "Scroll the page (pixels)",
@@ -3879,6 +3883,8 @@ const en: typeof zh = {
       textPlaceholder: "What to type in",
       textHint:
         "The field is cleared first. Takes the random placeholders -- {word:N}, {num:N}, {num:1-30}, {alpha:N}, {uuid}, {randomFirstName}, {randomLastName} -- drawn afresh every time the step runs, so each round of a loop gets its own. {name} stands for whatever an earlier step held under that name",
+      typeHint:
+        "Sends the keystrokes to whatever has the focus, naming no element and clearing nothing. For a page that has placed the cursor itself: a code box focused on load, or the run of one-character boxes that move the focus on as each is filled -- where naming a selector clicks the wrong box halfway through the code. Takes the same placeholders and {name} values as Type text, e.g. {code} from a web_email_code step. The log records what had the focus, so keystrokes that went nowhere say so",
       labelDelay: "Wait (ms)",
       delayHint: "For a page that needs a moment, e.g. an animation or a redirect finishing",
       labelTimeout: "Timeout (ms)",

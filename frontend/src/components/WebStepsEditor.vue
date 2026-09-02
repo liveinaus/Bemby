@@ -648,7 +648,7 @@
         </div>
       </div>
 
-      <div v-if="s.type === 'web_input'">
+      <div v-if="s.type === 'web_input' || s.type === 'web_type'">
         <label class="form-label">{{ t("jobs.web.labelText") }}</label>
         <input
           v-model="s.text"
@@ -656,7 +656,7 @@
           :placeholder="t('jobs.web.textPlaceholder')"
         />
         <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
-          {{ t("jobs.web.textHint") }}
+          {{ s.type === "web_type" ? t("jobs.web.typeHint") : t("jobs.web.textHint") }}
         </div>
       </div>
 
@@ -1595,6 +1595,8 @@ function summaryDetail(s: WebStepForm): string {
     case "web_input":
     case "web_ai_input":
       return `${s.selector} ← ${s.text || s.hint}`;
+    case "web_type":
+      return s.text;
     case "web_set":
       return s.vars
         .filter((v) => v.name)

@@ -597,6 +597,19 @@ type WebStepKind =
       text: string;
     }
   | {
+      /**
+       * Type wherever the focus already is, naming no element at all. What a page that has
+       * put the cursor somewhere itself wants: a code box that focuses on load, or the next
+       * box in a run of one-character fields, which each move the focus on as they are
+       * filled. `web_input` cannot express either -- it clicks its selector first, and a
+       * selector that names one of six identical boxes names the wrong one by the time the
+       * code is half typed.
+       */
+      type: "web_type";
+      /** What to type, e.g. `{code}` from a `web_email_code`. Nothing is cleared first. */
+      text: string;
+    }
+  | {
       /** Press a control named by a CSS selector. */
       type: "web_button";
       selector: string;

@@ -699,6 +699,8 @@ export type WebStep = WebStepCommon & WebStepKind;
  */
 type WebStepKind =
   | { type: "web_input"; selector: string; text: string }
+  /** Types wherever the focus already is, naming no element. */
+  | { type: "web_type"; text: string }
   | { type: "web_button"; selector: string }
   | { type: "web_delay"; waitMs: number }
   | { type: "web_scroll"; x?: number; y?: number }

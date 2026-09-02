@@ -137,6 +137,7 @@ export type WebStepForm = {
 /** Order the editor offers them in: the selector steps first, then waits, then the AI ones. */
 export const WEB_STEP_TYPES: WebStepType[] = [
   "web_input",
+  "web_type",
   "web_button",
   "web_press",
   "web_hold",
@@ -325,6 +326,8 @@ function webStepBody(s: WebStepForm): WebStep {
   switch (s.type) {
     case "web_input":
       return { type: "web_input", selector: s.selector.trim(), text: s.text };
+    case "web_type":
+      return { type: "web_type", text: s.text };
     case "web_button":
       return { type: "web_button", selector: s.selector.trim() };
     case "web_delay":
@@ -662,6 +665,8 @@ function webStepFormBody(s: WebStep): WebStepForm {
   switch (s.type) {
     case "web_input":
       return { ...base, type: s.type, selector: s.selector, text: s.text };
+    case "web_type":
+      return { ...base, type: s.type, text: s.text };
     case "web_button":
       return { ...base, type: s.type, selector: s.selector };
     case "web_delay":
