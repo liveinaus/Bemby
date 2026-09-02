@@ -1646,7 +1646,7 @@
               </button>
               <button
                 class="btn btn-ghost btn-sm"
-                :disabled="providersSaving || !providers.length"
+                :disabled="providersSaving || !providersDirty"
                 @click="saveProviders"
               >
                 <i class="fa-solid fa-floppy-disk"></i>
@@ -3788,6 +3788,12 @@ const proxyTestResults = ref<Record<string, ProxyTestResult>>({});
 // only speak for what has been saved.
 const savedProxiesJson = ref("[]");
 const providers = ref<ProxyProvider[]>([]);
+// What the server holds, so an edit the panel has not sent yet is recognisable -- the
+// card's own Save flushes it, rather than leaving a removed row to come back on reload.
+const savedProvidersJson = ref("[]");
+const providersDirty = computed(
+  () => JSON.stringify(providers.value) !== savedProvidersJson.value,
+);
 const providersSaving = ref(false);
 const providersSyncing = ref(false);
 const providersMsg = ref("");
@@ -4460,6 +4466,13 @@ async function saveProxies() {
   proxiesError.value = "";
   proxiesSaving.value = true;
   try {
+    // The providers list lives in its own setting: flush it here too, so the card's Save
+    // covers everything on the card and a removed provider stays removed.
+    if (providersDirty.value) {
+      providersMsg.value = "";
+      providersErrorMsg.value = "";
+      if (!(await pushProviders())) return;
+    }
     const payload = JSON.stringify(proxies.value);
     await settingsApi.update({ proxies: payload });
     savedProxiesJson.value = payload;
@@ -4606,6 +4619,19 @@ async function loadProviders() {
   } catch {
     providers.value = [];
   }
+  savedProvidersJson.value = JSON.stringify(providers.value);
+}
+
+/** Sends the list as it stands. Returns false with the message set when the server refused. */
+async function pushProviders(): Promise<boolean> {
+  try {
+    providers.value = await settingsApi.saveProxyProviders(providers.value);
+    savedProvidersJson.value = JSON.stringify(providers.value);
+    return true;
+  } catch (err: any) {
+    providersErrorMsg.value = err.response?.data?.error ?? t("settings.saveFailed");
+    return false;
+  }
 }
 
 async function saveProviders() {
@@ -4613,10 +4639,7 @@ async function saveProviders() {
   providersErrorMsg.value = "";
   providersSaving.value = true;
   try {
-    providers.value = await settingsApi.saveProxyProviders(providers.value);
-    providersMsg.value = t("settings.saved");
-  } catch (err: any) {
-    providersErrorMsg.value = err.response?.data?.error ?? t("settings.saveFailed");
+    if (await pushProviders()) providersMsg.value = t("settings.saved");
   } finally {
     providersSaving.value = false;
   }
@@ -4628,7 +4651,7 @@ async function syncProviders(providerId?: string) {
   providersSyncing.value = true;
   try {
     // Save first, so a key or URL just typed in is the one used
-    providers.value = await settingsApi.saveProxyProviders(providers.value);
+    if (!(await pushProviders())) return;
     const res = await settingsApi.syncProxyProviders(providerId);
     if (!res.ok) {
       providersErrorMsg.value = res.error ?? t("settings.providerSyncFailed");
