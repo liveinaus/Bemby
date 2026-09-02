@@ -1861,6 +1861,14 @@ export const logsApi = {
     api.post<{ message: string }>(`/logs/${id}/cancel`).then((r) => r.data),
   retire: (id: number) =>
     api.patch<{ retired: boolean }>(`/logs/${id}/retire`).then((r) => r.data),
+  /** Sets many rows to the one state, rather than toggling each. */
+  bulkRetire: (ids: number[], retired: boolean) =>
+    api
+      .post<{ changed: number; retired: boolean }>("/logs/bulk-retire", {
+        ids,
+        retired,
+      })
+      .then((r) => r.data),
 };
 
 // ── Status ────────────────────────────────────────────────────────────────────

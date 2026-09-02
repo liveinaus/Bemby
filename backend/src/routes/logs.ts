@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db } from '../db/database';
 import { cancelJob, isJobRunning, getLiveDetail } from '../jobs/cancellation';
-import { parsePaging, textParam, escapeLike } from './list-query';
+import { parsePaging, textParam, escapeLike, bulkIds } from './list-query';
 
 const router = Router();
 
@@ -132,6 +132,24 @@ router.patch('/:id/retire', (req, res) => {
   const newVal = row.retired ? 0 : 1;
   db.prepare('UPDATE job_logs SET retired = ? WHERE id = ?').run(newVal, id);
   res.json({ retired: newVal === 1 });
+});
+
+/**
+ * POST /bulk-retire -- retire or bring back many rows at once, the bulk twin of
+ * PATCH /:id/retire. `retired` is set outright rather than toggled per row: a selection
+ * spanning both states is meant to end up all one way, which a toggle cannot do.
+ */
+router.post('/bulk-retire', (req, res) => {
+  const ids = bulkIds(req.body);
+  if (!ids) { res.status(400).json({ error: 'ids array required' }); return; }
+  const retired = (req.body as { retired?: unknown }).retired === false ? 0 : 1;
+  const update = db.prepare('UPDATE job_logs SET retired = ? WHERE id = ? AND retired != ?');
+  const apply = db.transaction((list: number[]) => {
+    let changed = 0;
+    for (const id of list) changed += update.run(retired, id, retired).changes;
+    return changed;
+  });
+  res.json({ changed: apply(ids), retired: retired === 1 });
 });
 
 /**

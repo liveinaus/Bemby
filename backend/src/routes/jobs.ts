@@ -4,7 +4,7 @@ import { refreshScheduler } from "../scheduler";
 import { startManualJobRun } from "../jobs/manualRun";
 import { rowToJob, type JobRow } from "../jobs/jobRows";
 import { testEmbyConnection } from "../jobs/embywatch";
-import { parsePaging, parseSort, textParam, escapeLike } from "./list-query";
+import { parsePaging, parseSort, textParam, escapeLike, bulkIds } from "./list-query";
 import { mergeIconIntoConfig } from "../jobs/configIcon";
 import { makeJobProxyResolver } from "../jobs/jobProxy";
 
@@ -251,18 +251,6 @@ router.post("/", (req, res) => {
   refreshScheduler();
   res.status(201).json(rowToJob(row));
 });
-
-/**
- * Ids a bulk route was handed, or null when the body carries nothing usable. A selection of
- * a couple of hundred is the point of these routes, so the whole list is taken at once
- * rather than being walked a request at a time.
- */
-function bulkIds(body: unknown): number[] | null {
-  const raw = (body as { ids?: unknown } | null)?.ids;
-  if (!Array.isArray(raw) || !raw.length) return null;
-  const ids = raw.map(Number).filter((id) => Number.isInteger(id) && id > 0);
-  return ids.length ? ids : null;
-}
 
 /**
  * PUT /bulk -- one patch applied to many jobs in a single statement each, inside one

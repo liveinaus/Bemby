@@ -1,5 +1,6 @@
 // GET /logs query hardening: limit clamped to 200, offset floored at 0,
 // jobId validated as a positive integer.
+// POST /logs/bulk-retire: ids validated, and the state set rather than toggled per row.
 
 let testDb!: InstanceType<typeof Database>;
 
@@ -14,7 +15,7 @@ vi.mock("../jobs/cancellation", () => ({
   getLiveDetail: vi.fn().mockReturnValue(null),
 }));
 
-import { describe, it, expect, vi, beforeAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import Database from "better-sqlite3";
 import logsRouter from "../routes/logs";
 
@@ -67,6 +68,21 @@ function list(query: Record<string, string>) {
   return res;
 }
 
+function bulkRetire(body: unknown) {
+  const res = makeRes();
+  routeHandler("post", "/bulk-retire")({ body }, res);
+  return res;
+}
+
+function retiredFlags(ids: number[]): number[] {
+  return ids.map(
+    (id) =>
+      (testDb.prepare("SELECT retired FROM job_logs WHERE id = ?").get(id) as {
+        retired: number;
+      }).retired,
+  );
+}
+
 beforeAll(() => {
   testDb = new Database(":memory:");
   testDb.exec(SCHEMA);
@@ -79,6 +95,43 @@ beforeAll(() => {
   for (let i = 0; i < 250; i++) {
     insert.run(Number(jobId), `2024-06-01T00:${String(i % 60).padStart(2, "0")}:00Z`);
   }
+});
+
+describe("POST /logs/bulk-retire", () => {
+  let ids: number[];
+
+  beforeEach(() => {
+    const insert = testDb.prepare(
+      "INSERT INTO job_logs (job_id, ran_at, status, retired) VALUES (1, '2024-07-01T00:00:00Z', 'success', ?)",
+    );
+    // One already retired, so setting rather than toggling can be told apart
+    ids = [0, 0, 1].map((retired) => Number(insert.run(retired).lastInsertRowid));
+  });
+
+  it("retires every id in one call, and counts only the rows it changed", () => {
+    const res = bulkRetire({ ids });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ changed: 2, retired: true });
+    expect(retiredFlags(ids)).toEqual([1, 1, 1]);
+  });
+
+  it("brings rows back when retired is false", () => {
+    const res = bulkRetire({ ids, retired: false });
+    expect(res.body).toEqual({ changed: 1, retired: false });
+    expect(retiredFlags(ids)).toEqual([0, 0, 0]);
+  });
+
+  it("drops anything that is not a positive integer id", () => {
+    const res = bulkRetire({ ids: [ids[0], "abc", 0, -2, null] });
+    expect(res.body.changed).toBe(1);
+    expect(retiredFlags(ids)).toEqual([1, 0, 1]);
+  });
+
+  it("rejects a body with no usable ids", () => {
+    expect(bulkRetire({ ids: [] }).statusCode).toBe(400);
+    expect(bulkRetire({ ids: ["abc"] }).statusCode).toBe(400);
+    expect(bulkRetire({}).statusCode).toBe(400);
+  });
 });
 
 describe("GET /logs query hardening", () => {

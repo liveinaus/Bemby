@@ -72,6 +72,17 @@ export function searchTerms(search: string): string[] {
   return [...terms];
 }
 
+/**
+ * The `ids` array a bulk endpoint acts on, or null when the body carries nothing usable.
+ * Anything that is not a positive integer is dropped rather than failing the whole request.
+ */
+export function bulkIds(body: unknown): number[] | null {
+  const raw = (body as { ids?: unknown } | null)?.ids;
+  if (!Array.isArray(raw) || !raw.length) return null;
+  const ids = raw.map(Number).filter((id) => Number.isInteger(id) && id > 0);
+  return ids.length ? ids : null;
+}
+
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;

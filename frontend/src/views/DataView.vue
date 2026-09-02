@@ -80,6 +80,59 @@
               </div>
             </div>
 
+            <!-- Filtering the folder in hand. The fields on offer are read off the folder's
+                 own records, since two folders rarely hold the same shape of value -->
+            <div v-if="records.length" class="data-filter-bar">
+              <input
+                v-model="filterSearch"
+                class="form-input data-filter-search"
+                :placeholder="t('data.filterSearch')"
+              />
+              <button class="btn btn-secondary btn-sm" @click="addFilter">
+                <i class="fa-solid fa-filter"></i> {{ t("data.addFilter") }}
+              </button>
+              <button v-if="filtering" class="btn btn-ghost btn-sm" @click="clearFilters">
+                <i class="fa-solid fa-xmark"></i> {{ t("data.clearFilters") }}
+              </button>
+              <span v-if="filtering" class="data-filter-count">
+                {{
+                  t("data.filterCount")
+                    .replace("{n}", String(sortedRecords.length))
+                    .replace("{total}", String(records.length))
+                }}
+              </span>
+            </div>
+
+            <div v-for="(f, i) in filters" :key="i" class="data-filter-row">
+              <select v-model="f.field" class="form-select">
+                <option :value="RECORD_KEY_FIELD">{{ t("data.filterFieldKey") }}</option>
+                <option v-for="path in fieldOptions" :key="path" :value="path">
+                  {{ path }}
+                </option>
+              </select>
+              <select v-model="f.op" class="form-select">
+                <option value="set">{{ t("data.filterOpSet") }}</option>
+                <option value="empty">{{ t("data.filterOpEmpty") }}</option>
+                <option value="contains">{{ t("data.filterOpContains") }}</option>
+                <option value="notContains">{{ t("data.filterOpNotContains") }}</option>
+                <option value="equals">{{ t("data.filterOpEquals") }}</option>
+              </select>
+              <input
+                v-if="opNeedsText(f.op)"
+                v-model="f.text"
+                class="form-input"
+                :placeholder="t('data.filterValue')"
+              />
+              <span v-else></span>
+              <button
+                class="btn btn-ghost btn-icon btn-sm"
+                :title="t('common.delete')"
+                @click="filters.splice(i, 1)"
+              >
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </div>
+
             <div class="table-wrap">
               <table>
                 <thead>
@@ -114,7 +167,9 @@
                 </thead>
                 <tbody>
                   <tr v-if="!sortedRecords.length">
-                    <td colspan="4" class="empty">{{ t("data.noRecords") }}</td>
+                    <td colspan="4" class="empty">
+                      {{ filtering ? t("data.noMatches") : t("data.noRecords") }}
+                    </td>
                   </tr>
                   <tr v-for="r in sortedRecords" :key="r.id">
                     <td style="font-family: monospace">{{ r.key }}</td>
@@ -441,6 +496,153 @@ const selectedFolder = computed(
   () => folders.value.find((f) => f.id === selectedFolderId.value) ?? null,
 );
 
+// ── Filtering ─────────────────────────────────────────────────────────────────
+//
+// The fields a condition can name are read off the folder's own records: an outlook folder
+// keeps a recovery address, a proxy folder keeps a port, and neither knows of the other's
+// fields. The whole folder is already in hand, so this is all local -- no request behind it.
+
+/** The record's own key as a filter target, spelt the way a data path spells it. */
+const RECORD_KEY_FIELD = "#key";
+
+type FilterOp = "set" | "empty" | "contains" | "notContains" | "equals";
+type RecordFilter = { field: string; op: FilterOp; text: string };
+
+const filterSearch = ref("");
+const filters = ref<RecordFilter[]>([]);
+
+/** How deep the picker looks into a value, and how many paths it will offer at most. */
+const FIELD_DEPTH = 3;
+const MAX_FIELD_PATHS = 200;
+
+const filtering = computed(
+  () => !!filterSearch.value.trim() || filters.value.some((f) => !!f.field),
+);
+
+/** Every field path the folder's records hold, nested ones written as `login.password`. */
+const discoveredFields = computed(() => {
+  const paths = new Set<string>();
+  for (const record of records.value) collectFieldPaths(record.value, "", paths, 0);
+  return paths;
+});
+
+/**
+ * What the field picker offers: what the records hold, plus whatever a condition already
+ * names -- editing the last record that had a field should not blank out the select.
+ */
+const fieldOptions = computed(() => {
+  const paths = new Set(discoveredFields.value);
+  for (const f of filters.value) {
+    if (f.field && f.field !== RECORD_KEY_FIELD) paths.add(f.field);
+  }
+  return [...paths].sort((a, b) => collator.compare(a, b));
+});
+
+function collectFieldPaths(
+  value: unknown,
+  prefix: string,
+  paths: Set<string>,
+  depth: number,
+): void {
+  if (!isPlainObject(value) || depth >= FIELD_DEPTH) return;
+  for (const [key, inner] of Object.entries(value)) {
+    if (paths.size >= MAX_FIELD_PATHS) return;
+    const path = joinFieldPath(prefix, key);
+    paths.add(path);
+    collectFieldPaths(inner, path, paths, depth + 1);
+  }
+}
+
+/** A field name holding a dot goes in brackets, the way a data reference writes one. */
+function joinFieldPath(prefix: string, key: string): string {
+  if (/[.[\]]/.test(key)) return `${prefix}[${key}]`;
+  return prefix ? `${prefix}.${key}` : key;
+}
+
+/** Reads a path apart again: `[name]` is one segment whatever it holds. */
+function splitFieldPath(path: string): string[] {
+  const parts: string[] = [];
+  let i = 0;
+  while (i < path.length) {
+    if (path[i] === "[") {
+      const end = path.indexOf("]", i + 1);
+      if (end === -1) break;
+      parts.push(path.slice(i + 1, end));
+      i = path[end + 1] === "." ? end + 2 : end + 1;
+      continue;
+    }
+    let end = i;
+    while (end < path.length && path[end] !== "." && path[end] !== "[") end++;
+    if (end > i) parts.push(path.slice(i, end));
+    i = path[end] === "." ? end + 1 : end;
+  }
+  return parts;
+}
+
+/** What a record holds at a field path, as text. Empty when there is nothing there. */
+function fieldText(record: DataRecord, path: string): string {
+  if (path === RECORD_KEY_FIELD) return record.key;
+  let here: unknown = record.value;
+  for (const segment of splitFieldPath(path)) {
+    if (!isPlainObject(here)) return "";
+    here = here[segment];
+  }
+  if (here === null || here === undefined) return "";
+  return typeof here === "string" ? here : JSON.stringify(here);
+}
+
+/** Whether the operator compares against something typed, or just asks if there is a value. */
+function opNeedsText(op: FilterOp): boolean {
+  return op !== "set" && op !== "empty";
+}
+
+function matchesFilter(record: DataRecord, filter: RecordFilter): boolean {
+  if (!filter.field) return true;
+  const value = fieldText(record, filter.field);
+  const needle = filter.text.trim().toLowerCase();
+  switch (filter.op) {
+    case "set":
+      return !!value.trim();
+    case "empty":
+      return !value.trim();
+    case "contains":
+      return !needle || value.toLowerCase().includes(needle);
+    case "notContains":
+      return !needle || !value.toLowerCase().includes(needle);
+    case "equals":
+      return !needle || value.trim().toLowerCase() === needle;
+  }
+}
+
+/** The search box: one substring, against the key and the whole value alike. */
+function matchesSearch(record: DataRecord, needle: string): boolean {
+  if (!needle) return true;
+  const value = typeof record.value === "string" ? record.value : JSON.stringify(record.value);
+  return `${record.key}\n${value ?? ""}`.toLowerCase().includes(needle);
+}
+
+const filteredRecords = computed(() => {
+  const needle = filterSearch.value.trim().toLowerCase();
+  if (!filtering.value) return records.value;
+  return records.value.filter(
+    (r) => matchesSearch(r, needle) && filters.value.every((f) => matchesFilter(r, f)),
+  );
+});
+
+/** A new condition starts on the first field of the folder, asking whether it has a value. */
+function addFilter() {
+  filters.value.push({
+    field: fieldOptions.value[0] ?? RECORD_KEY_FIELD,
+    op: "set",
+    text: "",
+  });
+}
+
+function clearFilters() {
+  filterSearch.value = "";
+  filters.value = [];
+}
+
 // The whole folder is in hand, so sorting is done here rather than asked of the server.
 // Key ascending is where it starts, which is the order the records arrive in.
 const sortKey = usePersistedRef<"key" | "value" | "updated">("bemby:data:sortKey", "key");
@@ -464,7 +666,7 @@ function sortIcon(key: string): string {
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 const sortedRecords = computed(() => {
-  const rows = [...records.value];
+  const rows = [...filteredRecords.value];
   const dir = sortDir.value === "asc" ? 1 : -1;
   rows.sort((a, b) => {
     if (sortKey.value === "updated") {
@@ -516,6 +718,8 @@ async function loadRecords() {
 }
 
 async function selectFolder(id: number) {
+  // A condition names a field of the folder it was made in, so it does not follow to the next
+  if (id !== selectedFolderId.value) clearFilters();
   selectedFolderId.value = id;
   await loadRecords();
 }
@@ -929,6 +1133,42 @@ async function exportStore(folderId?: number) {
   gap: 8px;
   flex-wrap: wrap;
   padding: 4px 6px 8px;
+}
+
+.data-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 0 6px 8px;
+}
+
+.data-filter-search {
+  width: 220px;
+}
+
+.data-filter-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Field, operator, value, remove -- the value column collapses on the operators that take none */
+.data-filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr) auto;
+  gap: 6px;
+  align-items: center;
+  padding: 0 6px 6px;
+}
+
+@media (max-width: 700px) {
+  .data-filter-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .data-filter-search {
+    width: 100%;
+  }
 }
 
 .data-value-head {

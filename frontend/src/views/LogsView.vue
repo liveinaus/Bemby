@@ -48,6 +48,29 @@
     </div>
 
     <div class="card">
+      <!-- Bulk action bar -->
+      <div v-if="selectedLogIds.size" class="bulk-bar">
+        <span class="bulk-count">{{
+          t("logs.selectedCount").replace("{n}", String(selectedLogIds.size))
+        }}</span>
+        <button class="btn btn-sm btn-danger" @click="bulkRetire(true)">
+          <i class="fa-solid fa-box-archive"></i>
+          {{ t("logs.bulkRetire").replace("{n}", String(selectedLogIds.size)) }}
+        </button>
+        <!-- Bringing rows back is only reachable while retired ones are on screen -->
+        <button v-if="showRetired" class="btn btn-sm btn-secondary" @click="bulkRetire(false)">
+          <i class="fa-solid fa-rotate-left"></i>
+          {{ t("logs.bulkUnretire").replace("{n}", String(selectedLogIds.size)) }}
+        </button>
+        <button
+          class="btn btn-sm btn-ghost"
+          style="margin-left: auto"
+          :title="t('common.deselectAll')"
+          @click="clearLogSelection"
+        >
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
       <PaginationBar
         :page="page"
         :page-size="pageSize"
@@ -59,6 +82,16 @@
         <table>
           <thead>
             <tr>
+              <th class="sel-cell">
+                <input
+                  type="checkbox"
+                  :checked="allLogsSelected"
+                  :disabled="!logs.length"
+                  :aria-label="t('common.selectAll')"
+                  :title="allLogsSelected ? t('common.deselectAll') : t('common.selectAll')"
+                  @click="toggleAllLogs($event)"
+                />
+              </th>
               <th>{{ t("logs.colTime") }}</th>
               <th>{{ t("logs.colJob") }}</th>
               <th class="col-hide-mobile">{{ t("logs.colAccount") }}</th>
@@ -68,14 +101,24 @@
           </thead>
           <tbody>
             <tr v-if="!logs.length">
-              <td colspan="5" class="empty">{{ t("logs.noLogs") }}</td>
+              <td colspan="6" class="empty">{{ t("logs.noLogs") }}</td>
             </tr>
             <template v-for="(l, idx) in logs" :key="l.id">
               <tr
                 style="cursor: pointer; user-select: none"
-                :class="[expandedId === l.id ? 'row-expanded' : idx % 2 === 1 ? 'row-even' : '', l.retired ? 'row-retired' : '']"
+                :class="[expandedId === l.id ? 'row-expanded' : idx % 2 === 1 ? 'row-even' : '', l.retired ? 'row-retired' : '', selectedLogIds.has(l.id) ? 'row-selected' : '']"
                 @click="toggleDetail(l)"
               >
+                <!-- The row itself opens the detail panel, so selecting has its own cell.
+                     Shift-click takes the range from the last row ticked without it. -->
+                <td class="sel-cell" @click.stop>
+                  <input
+                    type="checkbox"
+                    :checked="selectedLogIds.has(l.id)"
+                    :aria-label="t('logs.selectRow')"
+                    @click.stop="toggleLogSelect(l.id, idx, $event)"
+                  />
+                </td>
                 <td class="time-cell">
                   <span class="hide-mobile">{{ fmtDate(l.ranAt) }}</span>
                   <span class="show-mobile" style="display: none">{{
@@ -190,7 +233,7 @@
               <!-- Detail panel — checkin jobs: chat-style attempt log -->
               <tr v-if="l.jobType === 'checkin' && expandedId === l.id">
                 <td
-                  colspan="5"
+                  colspan="6"
                   style="padding: 0; background: var(--bg-subtle); border-top: none"
                 >
                   <div class="detail-panel">
@@ -522,7 +565,7 @@
               <!-- Detail panel — custom and autoreg jobs: step-by-step timeline -->
               <tr v-if="(l.jobType === 'custom' || l.jobType === 'autoreg') && expandedId === l.id">
                 <td
-                  colspan="5"
+                  colspan="6"
                   style="padding: 0; background: var(--bg-subtle); border-top: none"
                 >
                   <div class="detail-panel">
@@ -1048,7 +1091,7 @@
               <!-- Detail panel — embywatch jobs: playback summary -->
               <tr v-if="l.jobType === 'embywatch' && expandedId === l.id">
                 <td
-                  colspan="5"
+                  colspan="6"
                   style="padding: 0; background: var(--bg-subtle); border-top: none"
                 >
                   <div class="detail-panel">
@@ -1400,6 +1443,72 @@ function pollLiveRuns() {
   );
 }
 
+// ── Bulk selection ────────────────────────────────────────────────────────────
+// Ticking a row cannot be the row click here -- that opens the detail panel -- so selection
+// has a column of its own. Shift-click takes the whole range from the last row ticked
+// without it, as on the jobs and accounts lists.
+const selectedLogIds = ref(new Set<number>());
+let lastLogSelectedIdx: number | null = null;
+
+const allLogsSelected = computed(
+  () => logs.value.length > 0 && logs.value.every((l) => selectedLogIds.value.has(l.id)),
+);
+
+function clearLogSelection() {
+  selectedLogIds.value = new Set();
+  lastLogSelectedIdx = null;
+}
+
+/**
+ * A clicked box has already ticked itself, and Vue re-applies `:checked` only where the bound
+ * value changed -- so a Shift-click landing on a row that was selected already would be left
+ * unticked while still selected. The one box the click was on is put right from the state
+ * here; the rest of the range Vue draws itself. Preventing the native tick instead does not
+ * work: the browser restores it after the render has run, undoing what Vue wrote.
+ */
+function syncBox(event: Event | undefined, checked: boolean) {
+  const box = event?.currentTarget as HTMLInputElement | null;
+  if (box) box.checked = checked;
+}
+
+function toggleAllLogs(event?: Event) {
+  selectedLogIds.value = allLogsSelected.value
+    ? new Set()
+    : new Set(logs.value.map((l) => l.id));
+  lastLogSelectedIdx = null;
+  syncBox(event, allLogsSelected.value);
+}
+
+function toggleLogSelect(id: number, idx: number, event?: MouseEvent) {
+  const next = new Set(selectedLogIds.value);
+  if (event?.shiftKey && lastLogSelectedIdx !== null) {
+    // Shift-click would otherwise highlight the intervening table text
+    window.getSelection?.()?.removeAllRanges();
+    const [lo, hi] = [lastLogSelectedIdx, idx].sort((a, b) => a - b);
+    for (let i = lo; i <= hi; i++) {
+      const row = logs.value[i];
+      if (row) next.add(row.id);
+    }
+  } else {
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    lastLogSelectedIdx = idx;
+  }
+  selectedLogIds.value = next;
+  syncBox(event, next.has(id));
+}
+
+/** Retires or brings back the whole selection in one request. */
+async function bulkRetire(retired: boolean) {
+  const ids = [...selectedLogIds.value];
+  if (!ids.length) return;
+  const prompt = retired ? "logs.confirmBulkRetire" : "logs.confirmBulkUnretire";
+  if (!confirm(t(prompt).replace("{n}", String(ids.length)))) return;
+  await logsApi.bulkRetire(ids, retired);
+  clearLogSelection();
+  await load();
+}
+
 // ── Per-row shortcuts ─────────────────────────────────────────────────────────
 // The Messenger, the job's settings and its template's settings, each off until turned on in
 // Settings. They act on the run's job, so a row whose job is retired or gone shows none of
@@ -1645,6 +1754,12 @@ async function load() {
   }
   logs.value = res.items;
   total.value = res.total;
+  // The anchor indexes the list just replaced, and a row no longer on it cannot be acted on
+  lastLogSelectedIdx = null;
+  if (selectedLogIds.value.size)
+    selectedLogIds.value = new Set(
+      res.items.filter((l) => selectedLogIds.value.has(l.id)).map((l) => l.id),
+    );
 }
 
 function onFilterChange() {
@@ -1672,6 +1787,9 @@ async function toggleRetire(log: Log) {
   // if we're not showing retired, remove the row immediately when it gets retired
   if (!showRetired.value && result.retired) {
     logs.value = logs.value.filter(l => l.id !== log.id);
+    // A row that has left the list cannot stay in the selection the bulk bar counts
+    if (selectedLogIds.value.delete(log.id))
+      selectedLogIds.value = new Set(selectedLogIds.value);
   } else {
     log.retired = result.retired;
   }
@@ -1837,6 +1955,36 @@ function hasWarning(l: Log): boolean {
 
 .row-retired td {
   opacity: 0.45;
+}
+
+/* After the striped and expanded rules so a selected row keeps its tint either way */
+.row-selected td {
+  background: var(--primary-soft-strong);
+}
+
+.sel-cell {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.sel-cell input {
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.bulk-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border-faint);
+  background: var(--bg-subtle);
+}
+
+.bulk-count {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
 }
 
 /* Emby detail panel */
