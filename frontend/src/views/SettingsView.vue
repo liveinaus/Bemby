@@ -995,6 +995,53 @@
             </p>
           </div>
 
+          <!-- Per-row shortcut buttons on the logs page -->
+          <div class="settings-subsection" style="margin-top: 28px">
+            {{ t("settings.logsRowButtonsSection") }}
+          </div>
+          <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 10px">
+            {{ t("settings.logsRowButtonsHint") }}
+          </p>
+          <div class="form-group">
+            <label class="form-check">
+              <input
+                type="checkbox"
+                v-model="logsMessengerButtonSetting"
+                @change="saveLogsRowButtons('messenger')"
+              />
+              <span>{{ t("settings.logsMessengerButtonToggle") }}</span>
+            </label>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
+              {{ t("settings.logsMessengerButtonHint") }}
+            </p>
+          </div>
+          <div class="form-group">
+            <label class="form-check">
+              <input
+                type="checkbox"
+                v-model="logsJobEditButtonSetting"
+                @change="saveLogsRowButtons('jobEdit')"
+              />
+              <span>{{ t("settings.logsJobEditButtonToggle") }}</span>
+            </label>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
+              {{ t("settings.logsJobEditButtonHint") }}
+            </p>
+          </div>
+          <div class="form-group">
+            <label class="form-check">
+              <input
+                type="checkbox"
+                v-model="logsTemplateEditButtonSetting"
+                @change="saveLogsRowButtons('templateEdit')"
+              />
+              <span>{{ t("settings.logsTemplateEditButtonToggle") }}</span>
+            </label>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
+              {{ t("settings.logsTemplateEditButtonHint") }}
+            </p>
+          </div>
+
           <!-- Effective proxy column on the jobs page -->
           <div class="settings-subsection" style="margin-top: 28px">
             {{ t("settings.jobsProxyColumnSection") }}
@@ -2896,6 +2943,7 @@ import {
 } from "../composables/dataStore";
 import { applyMsApiSetting, msApiAvailable } from "../composables/msApi";
 import { setTemplateEditButton } from "../composables/templateEditButton";
+import { setLogRowButtons } from "../composables/logRowButtons";
 import { setJobProxyColumn } from "../composables/jobProxyColumn";
 import { setPreferSeconds } from "../composables/preferSeconds";
 import {
@@ -4025,6 +4073,9 @@ const defaultTgApiError = ref("");
 const accountDisplayWithTgName = ref(false);
 const scheduleSeparatePageSetting = ref(false);
 const jobsTemplateEditButtonSetting = ref(false);
+const logsMessengerButtonSetting = ref(false);
+const logsJobEditButtonSetting = ref(false);
+const logsTemplateEditButtonSetting = ref(false);
 const jobsProxyColumnSetting = ref(false);
 const preferSecondsSetting = ref(false);
 const dataStoreSetting = ref(false);
@@ -4262,6 +4313,9 @@ onMounted(async () => {
     accountDisplayWithTgName.value = s.account_display_with_tg_name === "true";
     scheduleSeparatePageSetting.value = s.schedule_separate_page === "true";
     jobsTemplateEditButtonSetting.value = s.jobs_template_edit_button === "true";
+    logsMessengerButtonSetting.value = s.logs_messenger_button === "true";
+    logsJobEditButtonSetting.value = s.logs_job_edit_button === "true";
+    logsTemplateEditButtonSetting.value = s.logs_template_edit_button === "true";
     jobsProxyColumnSetting.value = s.jobs_show_effective_proxy === "true";
     preferSecondsSetting.value = s.prefer_seconds === "true";
     // Unset means on: only an explicit "false" turns the check off
@@ -4866,6 +4920,28 @@ async function saveJobsTemplateEditButton() {
     setTemplateEditButton(jobsTemplateEditButtonSetting.value);
   } catch {
     jobsTemplateEditButtonSetting.value = !jobsTemplateEditButtonSetting.value;
+  }
+}
+
+/** One of the three logs-page row buttons; the flip is undone when the save fails. */
+async function saveLogsRowButtons(which: "messenger" | "jobEdit" | "templateEdit") {
+  const refs = {
+    messenger: logsMessengerButtonSetting,
+    jobEdit: logsJobEditButtonSetting,
+    templateEdit: logsTemplateEditButtonSetting,
+  };
+  const keys = {
+    messenger: "logs_messenger_button",
+    jobEdit: "logs_job_edit_button",
+    templateEdit: "logs_template_edit_button",
+  } as const;
+  const value = refs[which].value;
+  try {
+    await settingsApi.update({ [keys[which]]: String(value) });
+    // Show or hide the button on the logs page at once
+    setLogRowButtons({ [which]: value });
+  } catch {
+    refs[which].value = !value;
   }
 }
 

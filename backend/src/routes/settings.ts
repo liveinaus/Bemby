@@ -134,6 +134,10 @@ export const ALLOWED_KEYS = [
   "account_display_with_tg_name",
   "schedule_separate_page",
   "jobs_template_edit_button",
+  // Per-row shortcut buttons on the logs page; each is off by default
+  "logs_messenger_button",
+  "logs_job_edit_button",
+  "logs_template_edit_button",
   "jobs_show_effective_proxy",
   // Show every millisecond field in seconds. Display only -- what is stored stays in ms.
   "prefer_seconds",

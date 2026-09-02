@@ -1643,6 +1643,9 @@ const zh = {
     devLogsLabel: "开发者",
     retire: "移除",
     unretire: "取消移除",
+    openMessenger: "打开聊天（切换到该任务的账户）",
+    openJobSettings: "任务设置",
+    openTemplateSettings: "模版设置",
     confirmRerun: "确定重新运行此任务？",
     showRetired: "显示已移除",
     retiredLabel: "已移除",
@@ -1918,6 +1921,14 @@ const zh = {
     jobsTemplateEditSection: "模版快捷编辑",
     jobsTemplateEditToggle: "在任务列表中直接编辑模版",
     jobsTemplateEditHint: "开启后，使用模版的任务会多出一个模版编辑按钮，无需切换到模版页面。注意：修改会影响所有使用该模版的任务",
+    logsRowButtonsSection: "日志快捷按钮",
+    logsRowButtonsHint: "日志每一行可以带上几个快捷按钮，默认全部关闭。任务已移除或已删除时对应按钮不显示",
+    logsMessengerButtonToggle: "打开聊天按钮",
+    logsMessengerButtonHint: "跳转到聊天页面，并自动选中该任务绑定的账户",
+    logsJobEditButtonToggle: "任务设置按钮",
+    logsJobEditButtonHint: "跳转到任务页面并直接打开该任务的编辑窗口，便于快速修改",
+    logsTemplateEditButtonToggle: "模版设置按钮",
+    logsTemplateEditButtonHint: "仅使用模版的任务会显示，直接在日志页面打开模版编辑窗口。注意：修改会影响所有使用该模版的任务",
     jobsProxyColumnSection: "任务代理列",
     jobsProxyColumnToggle: "在任务列表中显示实际使用的代理",
     jobsProxyColumnHint:
@@ -4131,6 +4142,9 @@ const en: typeof zh = {
     devLogsLabel: "DEV",
     retire: "Retire",
     unretire: "Unretire",
+    openMessenger: "Open the Messenger on this job's account",
+    openJobSettings: "Job settings",
+    openTemplateSettings: "Template settings",
     confirmRerun: "Retry this job now?",
     showRetired: "Show retired",
     retiredLabel: "Retired",
@@ -4416,6 +4430,18 @@ const en: typeof zh = {
     jobsTemplateEditSection: "Template quick edit",
     jobsTemplateEditToggle: "Edit templates straight from the jobs list",
     jobsTemplateEditHint: "Adds a template-edit button to jobs that use a template, so there is no need to switch to the templates page. Note that an edit affects every job on that template",
+    logsRowButtonsSection: "Log row shortcuts",
+    logsRowButtonsHint:
+      "Buttons a log row can carry, all off by default. A row whose job has been retired or deleted shows none of them",
+    logsMessengerButtonToggle: "Open Messenger button",
+    logsMessengerButtonHint:
+      "Opens the Messenger on the account the job is linked to, rather than on whichever one it had last",
+    logsJobEditButtonToggle: "Job settings button",
+    logsJobEditButtonHint:
+      "Goes to the jobs page with that job's edit form already open, for a quick change",
+    logsTemplateEditButtonToggle: "Template settings button",
+    logsTemplateEditButtonHint:
+      "Shown only on jobs that use a template, and opens the template's form on the logs page itself. Note that an edit affects every job on that template",
     jobsProxyColumnSection: "Job proxy column",
     jobsProxyColumnToggle: "Show the proxy each job actually uses in the jobs list",
     jobsProxyColumnHint:

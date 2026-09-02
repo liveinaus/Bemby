@@ -1943,6 +1943,12 @@ export type Settings = {
   schedule_separate_page?: string;
   /** "true" adds a template-edit button to templated jobs on the jobs page. */
   jobs_template_edit_button?: string;
+  /** "true" adds a button opening the Messenger on the run's account to each log row. */
+  logs_messenger_button?: string;
+  /** "true" adds a job-settings button to each log row. */
+  logs_job_edit_button?: string;
+  /** "true" adds a template-settings button to log rows whose job uses a template. */
+  logs_template_edit_button?: string;
   /**
    * "true" shows every millisecond field in seconds, and takes what is typed as seconds.
    * Display only: values travel and are stored in milliseconds either way.

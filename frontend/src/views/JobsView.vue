@@ -865,6 +865,7 @@ import { useAvailableFilter } from '../composables/useAvailableFilter';
 import { formatAccountLabel, loadAccountDisplaySetting } from '../composables/accountDisplay';
 import { loadSchedulePageSetting, scheduleSeparatePage } from '../composables/schedulePage';
 import { loadTemplateEditButtonSetting, templateEditButton } from '../composables/templateEditButton';
+import { takeJobEditId } from '../composables/viewNav';
 import { jobProxyColumn, loadJobProxyColumnSetting } from '../composables/jobProxyColumn';
 import { msScale, durationLabel, loadPreferSecondsSetting } from '../composables/preferSeconds';
 import NumberInput from '../components/NumberInput.vue';
@@ -1268,7 +1269,17 @@ onMounted(async () => {
   void loadJobIcons();
   await Promise.all([loadJobs(), loadAccounts(), loadStatus(), loadSettings(), loadTemplates()]);
   pollLiveRuns();
+  await openRequestedJobEdit();
 });
+
+// The logs page can send us here to edit one job. That job need not be on the page the list
+// happens to be showing, so it is looked up in the full list when the page misses it.
+async function openRequestedJobEdit() {
+  const asked = takeJobEditId();
+  if (asked == null) return;
+  const job = jobs.value.find(j => j.id === asked) ?? (await jobsApi.list().catch(() => [])).find(j => j.id === asked);
+  if (job) openEdit(job);
+}
 
 // ── Effective proxy column ────────────────────────────────────────────────────
 // The server works the exit out from the job, its template and its account, and names it in

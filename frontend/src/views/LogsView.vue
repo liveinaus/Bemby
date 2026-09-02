@@ -146,6 +146,34 @@
                     >
                       <i class="fa-solid fa-rotate-right"></i>
                     </button>
+                    <!-- Shortcuts to what the run used; each is off until turned on in Settings -->
+                    <button
+                      v-if="logsMessengerButton && rowAccountId(l) !== null"
+                      class="btn btn-sm btn-ghost btn-icon"
+                      style="flex-shrink: 0; color: var(--text-faint)"
+                      :title="t('logs.openMessenger')"
+                      @click.stop="openMessengerFor(rowAccountId(l) as number)"
+                    >
+                      <i class="fa-brands fa-telegram"></i>
+                    </button>
+                    <button
+                      v-if="logsJobEditButton && rowJob(l)"
+                      class="btn btn-sm btn-ghost btn-icon"
+                      style="flex-shrink: 0; color: var(--text-faint)"
+                      :title="t('logs.openJobSettings')"
+                      @click.stop="openJobSettings(l)"
+                    >
+                      <i class="fa-solid fa-gear"></i>
+                    </button>
+                    <button
+                      v-if="logsTemplateEditButton && rowJob(l)?.templateId"
+                      class="btn btn-sm btn-ghost btn-icon"
+                      style="flex-shrink: 0; color: var(--text-faint)"
+                      :title="t('logs.openTemplateSettings')"
+                      @click.stop="openTemplateSettings(l)"
+                    >
+                      <i class="fa-solid fa-file-pen"></i>
+                    </button>
                     <button
                       v-if="l.status !== 'running'"
                       class="btn btn-sm btn-ghost btn-icon"
@@ -1260,6 +1288,12 @@
       @closed="manualBrowserRunId = null"
     />
   </div>
+  <TemplateFormModal
+    v-if="templateEditTarget"
+    :template="templateEditTarget"
+    @close="templateEditTarget = null"
+    @saved="onTemplateSaved"
+  />
 </template>
 
 <script setup lang="ts">
@@ -1267,6 +1301,7 @@ import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import DebugPanel from "../components/DebugPanel.vue";
 import PaginationBar from "../components/PaginationBar.vue";
 import ManualBrowser from "../components/ManualBrowser.vue";
+import TemplateFormModal from "../components/TemplateFormModal.vue";
 import {
   logsApi,
   jobsApi,
@@ -1274,8 +1309,10 @@ import {
   settingsApi,
   aiSuppliersApi,
   manualBrowserApi,
+  templatesApi,
   type Log,
   type Job,
+  type JobTemplate,
   type CheckinAttemptLog,
   type EmbywatchLog,
   type RealWatchNote,
@@ -1288,6 +1325,13 @@ import { t, locale } from "../i18n";
 import { usePersistedRef } from "../composables/usePersistedRef";
 import { useAvailableFilter } from "../composables/useAvailableFilter";
 import { debounce } from "../composables/useDebounce";
+import { openMessengerFor, openJobEditFor } from "../composables/viewNav";
+import {
+  loadLogRowButtonSettings,
+  logsMessengerButton,
+  logsJobEditButton,
+  logsTemplateEditButton,
+} from "../composables/logRowButtons";
 
 const logs = ref<Log[]>([]);
 const jobs = ref<Job[]>([]);
@@ -1354,6 +1398,45 @@ function pollLiveRuns() {
     },
     busy ? LIVE_RUN_POLL_BUSY_MS : LIVE_RUN_POLL_IDLE_MS,
   );
+}
+
+// ── Per-row shortcuts ─────────────────────────────────────────────────────────
+// The Messenger, the job's settings and its template's settings, each off until turned on in
+// Settings. They act on the run's job, so a row whose job is retired or gone shows none of
+// them: the list only holds live jobs.
+const templates = ref<JobTemplate[]>([]);
+const templateEditTarget = ref<JobTemplate | null>(null);
+
+const jobById = computed(() => new Map(jobs.value.map((j) => [j.id, j])));
+
+function rowJob(log: Log): Job | undefined {
+  return jobById.value.get(log.jobId);
+}
+
+/** The account the run went out on: the job's own, which is what the row's account names. */
+function rowAccountId(log: Log): number | null {
+  return rowJob(log)?.accountId ?? null;
+}
+
+/** The job form lives on the Jobs page, so this hands over rather than opening it here. */
+function openJobSettings(log: Log) {
+  const job = rowJob(log);
+  if (job) openJobEditFor(job.id);
+}
+
+/** Templates are fetched on the first ask: the list itself has no use for them. */
+async function openTemplateSettings(log: Log) {
+  const templateId = rowJob(log)?.templateId;
+  if (!templateId) return;
+  if (!templates.value.length)
+    templates.value = await templatesApi.list().catch(() => []);
+  templateEditTarget.value =
+    templates.value.find((tpl) => tpl.id === templateId) ?? null;
+}
+
+/** Re-read the templates so a second edit starts from what was just saved. */
+async function onTemplateSaved() {
+  templates.value = await templatesApi.list().catch(() => []);
 }
 
 // ── AI debug panel ────────────────────────────────────────────────────────────
@@ -1522,6 +1605,7 @@ function runAttemptLabel(n: number): string {
 }
 
 onMounted(async () => {
+  void loadLogRowButtonSettings();
   jobs.value = await jobsApi.list();
   await load();
   await refreshLiveRuns();

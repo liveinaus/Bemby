@@ -24,3 +24,18 @@ export function takeMessengerAccountId(): number | null {
   messengerAccountId.value = null;
   return id;
 }
+
+/** The job the Jobs view should open its edit form on. Taken by JobsView, which clears it. */
+export const jobEditId = ref<number | null>(null);
+
+export function openJobEditFor(jobId: number): void {
+  jobEditId.value = jobId;
+  requestedView.value = "jobs";
+}
+
+/** What the Jobs view was asked to edit, read once: a later visit is the person's own. */
+export function takeJobEditId(): number | null {
+  const id = jobEditId.value;
+  jobEditId.value = null;
+  return id;
+}
