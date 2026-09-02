@@ -42,7 +42,8 @@ export type JobProxyKind =
   | "random";
 
 /** Which of the three settings a job's exit came from, so the panel can say why it wins. */
-export type JobProxySource = "job" | "template" | "account";
+/** Where the pick came from: the job, its template, one of its steps, or the account. */
+export type JobProxySource = "job" | "template" | "action" | "account";
 
 /**
  * The exit a job leaves by, worked out from the job, its template and its account. A pool is
@@ -57,11 +58,17 @@ export type JobProxy = {
   /** Exits a draw may reach. Absent for a pinned exit and for direct. */
   poolSize?: number;
   /**
-   * The account's own exit, named only when the job or template overrides it. Telegram always
-   * follows the account's proxy whatever the job picks -- the job's is for the browser side --
-   * so a differing pick is worth showing rather than leaving to be found in a log.
+   * The account's own exit, named only when the job goes out by a different one. Telegram
+   * always follows the account's proxy whatever the job picks -- the job's is for the browser
+   * side -- so a differing pick is worth showing rather than leaving to be found in a log.
    */
   tgLabel?: string;
+  /**
+   * Set when the job's browser steps do not all leave by the exit shown: a step carries a
+   * pick of its own, so one exit cannot answer for the whole job. What is shown is then the
+   * first step's, and this says to open the job to see the rest.
+   */
+  stepsDiffer?: boolean;
   /**
    * Set when the pick names an exit that is no longer in the proxy list. Its label is then
    * the bare id, which reads like a name and is not one, so the page has to say so.

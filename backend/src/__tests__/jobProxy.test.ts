@@ -1,7 +1,8 @@
 // Which exit a job leaves by, as the optional column on the jobs page reports it. The chain
-// (job, then template, then account) and how a pool is named are what this pins down: a pool
-// must never be listed out, and a pick that overrides the account has to keep saying that
-// Telegram still follows the account's own proxy.
+// (a browser step's own pick, then the job, then its template, then the account) and how a
+// pool is named are what this pins down: a pool must never be listed out, and a pick that
+// overrides the account has to keep saying that Telegram still follows the account's own
+// proxy.
 
 import Database from "better-sqlite3";
 
@@ -51,6 +52,17 @@ function row(over: Partial<Parameters<ReturnType<typeof makeJobProxyResolver>>[0
 
 const cfg = (proxyId: string, proxyPool?: string[]) =>
   JSON.stringify({ proxyId, ...(proxyPool ? { proxyPool } : {}) });
+
+/** A custom job's config: its own proxy pick, where it has one, and its action chain. */
+const chain = (actions: unknown[], proxyId?: string) =>
+  JSON.stringify({ ...(proxyId ? { proxyId } : {}), actions });
+
+const openUrl = (proxyId?: string, proxyPool?: string[]) => ({
+  type: "open_url",
+  url: "https://example.com",
+  ...(proxyId ? { proxyId } : {}),
+  ...(proxyPool ? { proxyPool } : {}),
+});
 
 beforeAll(() => {
   testDb = new Database(":memory:");
@@ -181,6 +193,77 @@ describe("makeJobProxyResolver", () => {
     expect(resolve(row({ config: JSON.stringify(cfg("p1")) }))).toMatchObject({
       label: "Sydney",
       source: "job",
+    });
+  });
+
+  // A custom job with no template has no proxy picker of its own: the exit is set on the
+  // step. The column used to answer with the account's proxy, which such a job's browser
+  // never leaves by.
+  it("takes a browser step's own pick over the account's proxy", () => {
+    const resolve = makeJobProxyResolver();
+    const result = resolve(
+      row({ config: chain([openUrl("p1")]), account_proxy_id: "p2" }),
+    );
+    expect(result).toMatchObject({ kind: "proxy", label: "Sydney", source: "action" });
+    // Telegram is still dialled on the account's exit, even by a job that only opens a page
+    expect(result.tgLabel).toBe("2.2.2.2:8080");
+    expect(result.stepsDiffer).toBeUndefined();
+  });
+
+  it("names a step's draw the same way a job's is named", () => {
+    const resolve = makeJobProxyResolver();
+    expect(
+      resolve(row({ config: chain([openUrl("random", ["provider:acme"])]) })),
+    ).toEqual({ kind: "provider", label: "Acme Proxies", source: "action", poolSize: 2 });
+  });
+
+  it("follows the job's pick for a step left blank, and the account's for both blank", () => {
+    const resolve = makeJobProxyResolver();
+    expect(
+      resolve(row({ config: chain([openUrl()], "p1"), account_proxy_id: "p2" })),
+    ).toMatchObject({ label: "Sydney", source: "job" });
+    // Nothing picked anywhere: the browser falls back to the account's exit, so it is the
+    // answer here too
+    expect(
+      resolve(row({ config: chain([openUrl()]), account_proxy_id: "p2" })),
+    ).toMatchObject({ label: "2.2.2.2:8080", source: "account" });
+  });
+
+  it("flags steps that leave by different exits rather than picking one for them", () => {
+    const resolve = makeJobProxyResolver();
+    const result = resolve(
+      row({ config: chain([openUrl("p1"), openUrl("p2")]), account_proxy_id: "p1" }),
+    );
+    expect(result).toMatchObject({ label: "Sydney", source: "action", stepsDiffer: true });
+  });
+
+  it("counts a browser step inside a check's arm", () => {
+    const resolve = makeJobProxyResolver();
+    const config = chain([
+      {
+        type: "if_check",
+        check: "last_action",
+        then: [openUrl("p1")],
+        otherwise: [{ type: "end_job" }],
+      },
+    ]);
+    expect(resolve(row({ config, account_proxy_id: "p2" }))).toMatchObject({
+      label: "Sydney",
+      source: "action",
+    });
+  });
+
+  it("leaves a chain that opens no browser on the account's exit", () => {
+    const resolve = makeJobProxyResolver();
+    const config = chain([
+      { type: "send_command", content: "/checkin", proxyId: "p1" },
+      { type: "wait_reply", maxWaitMs: 1000 },
+    ]);
+    // The stray proxyId on a Telegram step is not an exit: nothing about that step goes
+    // out through anything but the account's own proxy
+    expect(resolve(row({ config, account_proxy_id: "p2" }))).toMatchObject({
+      label: "2.2.2.2:8080",
+      source: "account",
     });
   });
 

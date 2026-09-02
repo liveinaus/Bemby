@@ -1236,12 +1236,12 @@ export type JobProxyKind =
   | "provider"
   | "random";
 
-/** Which of the three settings a job's exit came from. */
-export type JobProxySource = "job" | "template" | "account";
+/** Which setting a job's exit came from: the job, its template, a step of its own, or the account. */
+export type JobProxySource = "job" | "template" | "action" | "account";
 
 /**
- * The exit a job leaves by, worked out from the job, its template and its account. A pool is
- * named by its supplier or counted rather than listed out.
+ * The exit a job leaves by, worked out from its browser steps, the job, its template and its
+ * account. A pool is named by its supplier or counted rather than listed out.
  */
 export type JobProxy = {
   kind: JobProxyKind;
@@ -1250,8 +1250,10 @@ export type JobProxy = {
   source: JobProxySource;
   /** Exits a draw may reach. Absent for a pinned exit and for direct. */
   poolSize?: number;
-  /** The account's own exit, named only when the job or template overrides it. */
+  /** The account's own exit, named only when the job goes out by a different one. */
   tgLabel?: string;
+  /** Set when the job's browser steps do not all leave by the exit shown; this is the first. */
+  stepsDiffer?: boolean;
   /** Set when the exit named here is no longer in the proxy list, so `label` is a bare id. */
   missing?: boolean;
   /** The same, for the account's exit in `tgLabel`. */

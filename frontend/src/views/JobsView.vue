@@ -1319,6 +1319,7 @@ function proxyTitle(p?: JobProxy): string {
   const lines = [t(`jobs.proxy.source.${p.source}`)];
   if (p.kind === 'global') lines.push(t('jobs.proxy.globalNote'));
   if (p.kind === 'provider' || p.kind === 'random') lines.push(t('jobs.proxy.drawnPerRun'));
+  if (p.stepsDiffer) lines.push(t('jobs.proxy.stepsDiffer'));
   if (p.tgLabel !== undefined) {
     lines.push(
       t('jobs.proxy.tgNote').replace('{exit}', p.tgLabel || t('jobs.proxy.direct')),

@@ -689,9 +689,11 @@ const zh = {
       tgNote: "Telegram 连接仍走账户自己的代理：{exit}",
       missing:
         "此代理已从代理列表中删除，这里显示的是它的 ID 而非名称。运行时会直接报错，不会改用直连。",
+      stepsDiffer: "该任务的各个浏览器步骤使用的出口并不相同，这里显示的是第一个。",
       source: {
         job: "来自任务自身的代理设置",
         template: "来自模版的代理设置",
+        action: "来自该步骤自身的代理设置",
         account: "来自账户的代理设置",
       },
     },
@@ -3195,9 +3197,11 @@ const en: typeof zh = {
       tgNote: "The Telegram connection still follows the account's proxy: {exit}",
       missing:
         "This proxy has been deleted from the proxy list, so what is shown is its id, not a name. A run fails with an error rather than falling back to a direct connection.",
+      stepsDiffer: "This job's browser steps do not all leave by the same exit; the first one is shown.",
       source: {
         job: "From the job's own proxy setting",
         template: "From the template's proxy setting",
+        action: "From the step's own proxy setting",
         account: "From the account's proxy setting",
       },
     },
