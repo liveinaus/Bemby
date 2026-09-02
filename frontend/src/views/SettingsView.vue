@@ -2816,6 +2816,15 @@
       </div>
     </div>
 
+    <!-- What the container log holds, read from inside: an operator on a compose file has
+         no shell on the host to run `docker logs` from -->
+    <div class="card settings-wide">
+      <div class="card-body">
+        <div class="card-section-title">{{ t("settings.systemLog.title") }}</div>
+        <SystemLogViewer />
+      </div>
+    </div>
+
     <!-- It takes every run in flight down with it, so it is asked for rather than assumed -->
     <div v-if="confirmRestart" class="modal-backdrop">
       <div class="modal" style="width: 420px">
@@ -2954,6 +2963,7 @@ import {
 } from "../composables/updateStatus";
 import { setTheme, themeMode, type ThemeMode } from "../composables/useTheme";
 import { copyText } from "../utils/clipboard";
+import SystemLogViewer from "../components/SystemLogViewer.vue";
 
 const THEME_MODES: ThemeMode[] = ["light", "dark", "auto"];
 const THEME_ICONS: Record<ThemeMode, string> = {

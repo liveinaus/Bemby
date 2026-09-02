@@ -1,4 +1,7 @@
 import "dotenv/config";
+// Ahead of every other import: it patches console, and only what prints after it lands in
+// the panel's system log viewer
+import "./system/consoleLog";
 import express from "express";
 import { createServer } from "http";
 

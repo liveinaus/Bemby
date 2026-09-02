@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { getSchedulerStatus, skipNextRun } from '../scheduler';
 import { memoryReport } from '../monitor/memory';
+import {
+  readSystemLog,
+  clearSystemLog,
+  type SystemLogLevel,
+} from '../system/consoleLog';
 
 const router = Router();
 
@@ -27,6 +32,34 @@ router.post('/skip/:jobId', (req, res) => {
 // Separate path so the schedule list above keeps returning a bare array
 router.get('/memory', (req, res) => {
   res.json(memoryReport());
+});
+
+const LOG_LEVELS = ['debug', 'log', 'info', 'warn', 'error'] as const;
+
+function parseLevel(raw: unknown): SystemLogLevel | undefined {
+  return LOG_LEVELS.includes(raw as SystemLogLevel) ? (raw as SystemLogLevel) : undefined;
+}
+
+/**
+ * The container log, read from inside. `since` makes the poll incremental: the viewer
+ * passes back the cursor it was given and gets only what has printed since.
+ */
+router.get('/system-log', (req, res) => {
+  const { since, level, search, limit } = req.query as Record<string, string>;
+  const parsedSince = Number(since);
+  const parsedLimit = Number(limit);
+  res.json(
+    readSystemLog({
+      since: Number.isFinite(parsedSince) ? Math.max(0, Math.floor(parsedSince)) : undefined,
+      level: parseLevel(level),
+      search: typeof search === 'string' && search.trim() ? search.trim() : undefined,
+      limit: Number.isFinite(parsedLimit) ? Math.min(20000, Math.max(1, Math.floor(parsedLimit))) : undefined,
+    }),
+  );
+});
+
+router.post('/system-log/clear', (_req, res) => {
+  res.json({ cleared: clearSystemLog() });
 });
 
 export default router;

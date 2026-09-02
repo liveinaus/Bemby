@@ -1898,6 +1898,36 @@ export const statusApi = {
       .post<{ ok: boolean; nextRun?: string }>(`/status/skip/${jobId}`)
       .then((r) => r.data),
   memory: () => api.get<MemoryReport>("/status/memory").then((r) => r.data),
+  /** The container log as the process saw it; `since` returns only what printed after. */
+  systemLog: (params?: {
+    since?: number;
+    level?: SystemLogLevel;
+    search?: string;
+    limit?: number;
+  }) => api.get<SystemLogPage>("/status/system-log", { params }).then((r) => r.data),
+  clearSystemLog: () =>
+    api.post<{ cleared: number }>("/status/system-log/clear").then((r) => r.data),
+};
+
+export type SystemLogLevel = "debug" | "log" | "info" | "warn" | "error";
+
+export type SystemLogEntry = {
+  seq: number;
+  at: string;
+  level: SystemLogLevel;
+  /** The leading [tag] the line carried, if any. */
+  scope: string | null;
+  text: string;
+};
+
+export type SystemLogPage = {
+  entries: SystemLogEntry[];
+  nextSeq: number;
+  oldestSeq: number;
+  buffered: number;
+  capacity: number;
+  dropped: number;
+  startedAt: string;
 };
 
 // ── Settings ──────────────────────────────────────────────────────────────────
