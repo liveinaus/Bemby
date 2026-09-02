@@ -1971,13 +1971,159 @@ async function scrollOutcome(page: Page, x: number, y: number): Promise<string |
   return `scrolled ${moved.what} to ${moved.x},${moved.y}${ends ? ` (${ends} at the end)` : ""}`;
 }
 
+// ── Branches and optional steps in an in-app sequence ─────────────────────────
+//
+// A Mini App does not put the same page up twice: a popup one run has and the next does not,
+// a claim button that is a "claimed" label by the time the job comes round again. A flat list
+// run to its first failure can say neither "press this if it is there" nor "and if it is not,
+// do that instead", so a sequence carries two more things.
+//
+// A step written `?press me` may fail without ending the run. An `if(...)` step opens a branch,
+// closed by `endif`, with an optional `else` between them:
+//
+//     if(css:#claim)
+//     css:#claim
+//     else
+//     text:已签到
+//     endif
+//
+// Both read as steps in the same flat list the panel already edits, which is why they are
+// lines rather than nesting: one row per step, and the block markers are rows of their own.
+
+/** What an `if(...)` asks about the app page. */
+export type InAppCondition = {
+  /** `css:` names an element that must be there; `text:` looks in the page's own words. */
+  check: "element" | "text";
+  /** The selector, or the words to look for -- `|` separated, any one of them counting. */
+  value: string;
+  /** `if(!...)`: run the branch when the page does *not* have it. */
+  negate: boolean;
+};
+
+/** One entry of a parsed sequence: a step to carry out, or a branch holding more of them. */
+export type InAppStep =
+  | {
+      kind: "do";
+      /** The step as written, without the `?` that marked it optional. */
+      text: string;
+      /** Written `?step`: log what went wrong and carry on, rather than ending the run. */
+      optional: boolean;
+    }
+  | { kind: "if"; cond: InAppCondition; then: InAppStep[]; otherwise: InAppStep[] };
+
+/** An `if(...)` condition as the run log says it. */
+export function describeInAppCondition(cond: InAppCondition): string {
+  return `${cond.negate ? "!" : ""}${cond.check === "element" ? "css" : "text"}:${cond.value}`;
+}
+
+/**
+ * The inside of an `if(...)`: `css:#id`, `text:签到成功`, either of them behind `!` or `not`.
+ * Returns null for anything else, which the caller reports rather than guesses at.
+ */
+export function parseInAppCondition(raw: string): InAppCondition | null {
+  let inner = raw.trim();
+  let negate = false;
+  const not = /^(?:!\s*|not\s+)([\s\S]*)$/i.exec(inner);
+  if (not) {
+    negate = true;
+    inner = not[1].trim();
+  }
+  const m = /^(css|text)\s*:\s*([\s\S]+)$/i.exec(inner);
+  if (!m) return null;
+  const value = m[2].trim();
+  if (!value) return null;
+  return { check: m[1].toLowerCase() === "css" ? "element" : "text", value, negate };
+}
+
+const IN_APP_IF = /^if\s*\(([\s\S]*)\)$/i;
+const IN_APP_ELSE = /^else$/i;
+const IN_APP_ENDIF = /^end\s*if$/i;
+
+/**
+ * Reads a flat list of steps as the tree it describes.
+ *
+ * Strict about the block markers on purpose: an `if` left unclosed, or an `else` with nothing
+ * above it, is a sequence whose author meant something the list does not say, and running a
+ * guess at it would report a checkin that never happened. The error names what is wrong so it
+ * can be fixed in the panel, and no steps are run.
+ */
+export function parseInAppSteps(steps: string[]): { steps: InAppStep[]; error?: string } {
+  type Frame = {
+    cond: InAppCondition;
+    then: InAppStep[];
+    otherwise: InAppStep[];
+    /** Whether the rows now arriving belong after the `else`. */
+    inElse: boolean;
+  };
+  const top: InAppStep[] = [];
+  const open: Frame[] = [];
+  const holding = (): InAppStep[] => {
+    const frame = open[open.length - 1];
+    if (!frame) return top;
+    return frame.inElse ? frame.otherwise : frame.then;
+  };
+  const fault = (error: string) => ({ steps: [], error });
+
+  for (const raw of steps) {
+    const text = (raw ?? "").trim();
+    if (!text) continue;
+
+    const opened = IN_APP_IF.exec(text);
+    if (opened) {
+      const cond = parseInAppCondition(opened[1]);
+      if (!cond)
+        return fault(
+          `\`${text}\` is not a condition this understands -- write if(css:#id), ` +
+            `if(text:签到成功), or if(!css:#id) for the other way round`,
+        );
+      open.push({ cond, then: [], otherwise: [], inElse: false });
+      continue;
+    }
+
+    if (IN_APP_ELSE.test(text)) {
+      const frame = open[open.length - 1];
+      if (!frame) return fault("`else` has no `if(...)` above it");
+      if (frame.inElse) return fault("one `if(...)` cannot have two `else` steps");
+      frame.inElse = true;
+      continue;
+    }
+
+    if (IN_APP_ENDIF.test(text)) {
+      const frame = open.pop();
+      if (!frame) return fault("`endif` has no `if(...)` above it");
+      holding().push({
+        kind: "if",
+        cond: frame.cond,
+        then: frame.then,
+        otherwise: frame.otherwise,
+      });
+      continue;
+    }
+
+    const optional = text.startsWith("?");
+    const body = optional ? text.slice(1).trim() : text;
+    // A control whose own label starts with a question mark is named with `css:` instead;
+    // a bare `?` says nothing about which step is meant to be optional
+    if (!body) return fault("`?` on its own is not a step");
+    holding().push({ kind: "do", text: body, optional });
+  }
+
+  if (open.length)
+    return fault(
+      open.length === 1
+        ? "an `if(...)` step has no `endif`"
+        : `${open.length} \`if(...)\` steps have no \`endif\``,
+    );
+  return { steps: top };
+}
+
 /**
  * Ceiling on the page texts one Mini App run keeps, together. These exist so a toast that
  * has since gone can still be matched, not as a transcript, and they travel with the result.
  */
 const MAX_SEEN_TEXT_CHARS = 40_000;
 
-async function runInAppClicks(
+export async function runInAppClicks(
   page: Page,
   steps: string[],
   deadline: number,
@@ -2019,169 +2165,236 @@ async function runInAppClicks(
   const readText = async (): Promise<string> => {
     const text = await page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
     noteText(text);
+    lastText = text;
     return text;
   };
   // Whether a step actually did something to the app. Waiting and scrolling are how a step
   // gets ready to act, not acting: counting them would let a page that rendered nothing
   // report a completed checkin on the strength of a delay.
   let acted = false;
+  // What the page last said, so a branch can ask about it without reading twice
+  let lastText: string | undefined;
 
-  for (const step of steps.length ? steps : [undefined]) {
-    if (msLeft(deadline) <= 0) {
-      failure = "ran out of time before the in-app steps finished";
-      break;
-    }
-    // Where the page stands going into this step: the step before it may have raised a
-    // toast that will be gone again by the end of the run.
-    await readText();
-    const pause = parseDelayStep(step);
-    if (pause !== null) {
-      // Bounded by the action budget, so a long delay cannot outlive it
-      await sleep(pause, deadline);
-      done.push(`waited ${pause}ms`);
-      continue;
-    }
+  /**
+   * One step carried out. Hands back a failure rather than ending the sequence itself, so a
+   * step marked optional can be stepped over and a branch can carry on past it; `stop` is for
+   * the two cases that mean the whole sequence is finished, not that it went wrong.
+   */
+  const runLeaf = async (
+    step: string | undefined,
+  ): Promise<{ failure?: string; stop?: boolean }> => {
+  // Where the page stands going into this step: the step before it may have raised a
+  // toast that will be gone again by the end of the run.
+  await readText();
+  const pause = parseDelayStep(step);
+  if (pause !== null) {
+    // Bounded by the action budget, so a long delay cannot outlive it
+    await sleep(pause, deadline);
+    done.push(`waited ${pause}ms`);
+    return {};
+  }
 
-    // Brings a control below the fold into view so the step after this one can press it.
-    // A page with nothing to scroll is not a failure -- the app may already fit on screen,
-    // and the step that wanted the control will say so itself.
-    const scroll = parseScrollStep(step);
-    if (scroll) {
-      if (isScrollToSelector(scroll)) {
-        const outcome = await scrollToSelector(page, scroll.selector, 5_000, deadline);
-        done.push(outcome ?? `scroll(css:${scroll.selector}) found nothing to scroll to`);
-      } else {
-        const outcome = await scrollOutcome(page, scroll.x, scroll.y);
-        done.push(outcome ?? `scroll(${scroll.x}, ${scroll.y}) found nothing that scrolls`);
-      }
-      await sleep(tune.inAppStepMs, deadline);
-      continue;
+  // Brings a control below the fold into view so the step after this one can press it.
+  // A page with nothing to scroll is not a failure -- the app may already fit on screen,
+  // and the step that wanted the control will say so itself.
+  const scroll = parseScrollStep(step);
+  if (scroll) {
+    if (isScrollToSelector(scroll)) {
+      const outcome = await scrollToSelector(page, scroll.selector, 5_000, deadline);
+      done.push(outcome ?? `scroll(css:${scroll.selector}) found nothing to scroll to`);
+    } else {
+      const outcome = await scrollOutcome(page, scroll.x, scroll.y);
+      done.push(outcome ?? `scroll(${scroll.x}, ${scroll.y}) found nothing that scrolls`);
     }
+    await sleep(tune.inAppStepMs, deadline);
+    return {};
+  }
 
-    // Ticks a Turnstile checkbox mid-sequence. A challenge sitting on the page when the app
-    // opens is already worked before these steps run, and again after them; this is for the
-    // one an app raises between two steps of its own flow.
-    if (parseTurnstileStep(step)) {
-      const tick = await tickTurnstile(page, deadline);
-      if (tick.failure) {
-        failure = `{turnstile}: ${tick.failure}`;
-        break;
-      }
-      // Deliberately not counted as having acted: ticking a checkbox is what makes the
-      // checkin possible, not the checkin itself.
-      done.push(`{turnstile} ${tick.outcome}`);
-      await sleep(tune.inAppStepMs, deadline);
-      continue;
+  // Ticks a Turnstile checkbox mid-sequence. A challenge sitting on the page when the app
+  // opens is already worked before these steps run, and again after them; this is for the
+  // one an app raises between two steps of its own flow.
+  if (parseTurnstileStep(step)) {
+    const tick = await tickTurnstile(page, deadline);
+    if (tick.failure) {
+      return { failure:
+ `{turnstile}: ${tick.failure}` };
     }
+    // Deliberately not counted as having acted: ticking a checkbox is what makes the
+    // checkin possible, not the checkin itself.
+    done.push(`{turnstile} ${tick.outcome}`);
+    await sleep(tune.inAppStepMs, deadline);
+    return {};
+  }
 
-    // Same machinery as the `ai_web_button` page step: outline every control, number it,
-    // and let the model pick from the picture rather than guess at coordinates.
-    const aiBtn = parseAiBtnStep(step);
-    if (aiBtn) {
-      if (!aiLocate) {
-        failure = "{aiBtn} needs an AI model, and none is configured";
-        break;
-      }
-      const marks = await markWebElements(page, CLICKABLE_SELECTOR, MAX_WEB_MARKS);
-      if (!marks.length) {
-        await clearWebMarkBadges(page);
-        failure = "{aiBtn} found no control to press in the app";
-        break;
-      }
-      const marked = await screenshotOf(page, 60);
+  // Same machinery as the `ai_web_button` page step: outline every control, number it,
+  // and let the model pick from the picture rather than guess at coordinates.
+  const aiBtn = parseAiBtnStep(step);
+  if (aiBtn) {
+    if (!aiLocate) {
+      return { failure:
+ "{aiBtn} needs an AI model, and none is configured" };
+    }
+    const marks = await markWebElements(page, CLICKABLE_SELECTOR, MAX_WEB_MARKS);
+    if (!marks.length) {
       await clearWebMarkBadges(page);
-      if (!marked) {
-        failure = "{aiBtn} could not capture the app page for the AI";
-        break;
-      }
-      const prompt = buildWebAiPrompt({ type: "ai_web_button", hint: aiBtn.hint }, marks, false);
-      const reply = await aiLocate(marked, prompt).catch((err: any) => {
-        throw new Error(`{aiBtn} could not reach the AI: ${err?.message ?? err}`);
-      });
-      const { mark } = parseWebAiReply(reply ?? "");
-      const chosen = mark ? marks.find((m) => m.n === mark) : undefined;
-      if (!chosen) {
-        done.push(`{aiBtn} chose nothing usable`);
-        failure = `{aiBtn}: the AI named no control on the page (replied "${oneLine(reply)}")`;
-        break;
-      }
-      const what = chosen.text ? `<${chosen.tag}> "${chosen.text}"` : `<${chosen.tag}>`;
-      if (!(await clickElement(page, `[data-bemby-mark='${mark}']`))) {
-        failure = `{aiBtn}: ${what} has no on-screen box to press`;
-        break;
-      }
-      done.push(`{aiBtn} pressed ${what}`);
-      acted = true;
-      await sleep(tune.inAppStepMs, deadline);
-      continue;
+      return { failure:
+ "{aiBtn} found no control to press in the app" };
     }
-
-    if (step === "{input}" || step === "{aiInput}") {
-      const question = await inAppQuestion(page);
-      let answer: string | undefined;
-      if (step === "{input}") {
-        answer = solveArithmetic(question);
-      } else if (solveQuestion) {
-        answer = (await solveQuestion(question).catch(() => undefined))?.trim();
-      }
-      if (!answer) {
-        done.push(`${step} unanswered`);
-        failure = `${step} could not be answered`;
-        break;
-      }
-      if (!(await fillInAppAnswer(page, answer))) {
-        done.push(`${step} has no field to fill`);
-        failure = `${step} found no input to fill`;
-        break;
-      }
-      done.push(`${step}="${answer}"`);
-      acted = true;
-      await sleep(tune.inAppStepMs, deadline);
-      continue;
+    const marked = await screenshotOf(page, 60);
+    await clearWebMarkBadges(page);
+    if (!marked) {
+      return { failure:
+ "{aiBtn} could not capture the app page for the AI" };
     }
-
-    // What the page reads now, so a click on something inert can be told from a real one
-    const before = await readText();
-    const click = await clickInAppControl(page, step, opts.exactLabels);
-    if (!click) {
-      // A label that never appears is worth reporting: the app may have changed
-      if (step) done.push(`"${step}" not found`);
-      const alts = step ? parseLabelAlternatives(step) : [];
-      failure =
-        alts.length > 1
-          ? `none of ${alts.map((a) => `"${a}"`).join(", ")} are on the app page`
-          : step
-            ? `"${step}" is not on the app page`
-            : "no checkin control was found in the app";
-      break;
+    const prompt = buildWebAiPrompt({ type: "ai_web_button", hint: aiBtn.hint }, marks, false);
+    const reply = await aiLocate(marked, prompt).catch((err: any) => {
+      throw new Error(`{aiBtn} could not reach the AI: ${err?.message ?? err}`);
+    });
+    const { mark } = parseWebAiReply(reply ?? "");
+    const chosen = mark ? marks.find((m) => m.n === mark) : undefined;
+    if (!chosen) {
+      done.push(`{aiBtn} chose nothing usable`);
+      return { failure:
+ `{aiBtn}: the AI named no control on the page (replied "${oneLine(reply)}")` };
     }
-    done.push(click.outcome);
+    const what = chosen.text ? `<${chosen.tag}> "${chosen.text}"` : `<${chosen.tag}>`;
+    if (!(await clickElement(page, `[data-bemby-mark='${mark}']`))) {
+      return { failure:
+ `{aiBtn}: ${what} has no on-screen box to press` };
+    }
+    done.push(`{aiBtn} pressed ${what}`);
     acted = true;
     await sleep(tune.inAppStepMs, deadline);
+    return {};
+  }
 
-    // Pressing plain text is a guess. If the app did not react to it, nothing happened,
-    // and reporting success would log a checkin that was never made -- unless the app is
-    // already showing the outcome, in which case the text pressed was that outcome and the
-    // checkin is made. Failing on that is the false alarm this catches.
-    if (click.weak) {
-      const after = await readText();
-      if (after === before) {
-        const spent = weakClickWasSpent({
-          text: after,
-          priorText: opts.priorText,
-          successContains: opts.successContains,
-        });
-        if (spent) {
-          done.push("the app already shows the action as done");
-          break;
-        }
-        failure =
-          `pressed "${click.outcome}" but it is not a control and the app did not react` +
-          " -- name the control exactly, or give a CSS selector (css:...)";
-        break;
+  if (step === "{input}" || step === "{aiInput}") {
+    const question = await inAppQuestion(page);
+    let answer: string | undefined;
+    if (step === "{input}") {
+      answer = solveArithmetic(question);
+    } else if (solveQuestion) {
+      answer = (await solveQuestion(question).catch(() => undefined))?.trim();
+    }
+    if (!answer) {
+      done.push(`${step} unanswered`);
+      return { failure:
+ `${step} could not be answered` };
+    }
+    if (!(await fillInAppAnswer(page, answer))) {
+      done.push(`${step} has no field to fill`);
+      return { failure:
+ `${step} found no input to fill` };
+    }
+    done.push(`${step}="${answer}"`);
+    acted = true;
+    await sleep(tune.inAppStepMs, deadline);
+    return {};
+  }
+
+  // What the page reads now, so a click on something inert can be told from a real one
+  const before = await readText();
+  const click = await clickInAppControl(page, step, opts.exactLabels);
+  if (!click) {
+    // A label that never appears is worth reporting: the app may have changed
+    if (step) done.push(`"${step}" not found`);
+    const alts = step ? parseLabelAlternatives(step) : [];
+    return { failure:
+      alts.length > 1
+        ? `none of ${alts.map((a) => `"${a}"`).join(", ")} are on the app page`
+        : step
+          ? `"${step}" is not on the app page`
+          : "no checkin control was found in the app" };
+  }
+  done.push(click.outcome);
+  acted = true;
+  await sleep(tune.inAppStepMs, deadline);
+
+  // Pressing plain text is a guess. If the app did not react to it, nothing happened,
+  // and reporting success would log a checkin that was never made -- unless the app is
+  // already showing the outcome, in which case the text pressed was that outcome and the
+  // checkin is made. Failing on that is the false alarm this catches.
+  if (click.weak) {
+    const after = await readText();
+    if (after === before) {
+      const spent = weakClickWasSpent({
+        text: after,
+        priorText: opts.priorText,
+        successContains: opts.successContains,
+      });
+      if (spent) {
+        done.push("the app already shows the action as done");
+        return { stop: true };
+      }
+      return { failure:
+        `pressed "${click.outcome}" but it is not a control and the app did not react` +
+        " -- name the control exactly, or give a CSS selector (css:...)" };
+    }
+  }
+  if (click.done) return { stop: true };
+    return {};
+  };
+
+  /** Whether an `if(...)` holds against the app as it stands right now. */
+  const conditionMet = async (cond: InAppCondition): Promise<boolean> => {
+    const held =
+      cond.check === "element"
+        ? await page
+            .evaluate((sel: string) => !!document.querySelector(sel), cond.value)
+            .catch(() => false)
+        : parseLabelAlternatives(cond.value).some((word) =>
+            (lastText ?? "").toLowerCase().includes(word.toLowerCase()),
+          );
+    return cond.negate ? !held : held;
+  };
+
+  /**
+   * Works a list, and the branches inside it. Recursive because an `if` holds steps of its
+   * own, and those may hold their own `if` in turn.
+   */
+  const runList = async (
+    list: InAppStep[],
+  ): Promise<{ failure?: string; stop?: boolean }> => {
+    for (const node of list) {
+      if (msLeft(deadline) <= 0) {
+        return { failure: "ran out of time before the in-app steps finished" };
+      }
+      if (node.kind === "if") {
+        // The page as it stands, so a `text:` condition asks about the toast the step before
+        // it raised rather than about whatever was on screen when the run began
+        lastText = await readText();
+        const met = await conditionMet(node.cond);
+        const branch = met ? node.then : node.otherwise;
+        done.push(
+          `if(${describeInAppCondition(node.cond)}) ${met ? "held" : "did not hold"}` +
+            (branch.length ? "" : ", and there is nothing to run for that"),
+        );
+        const inner = await runList(branch);
+        if (inner.failure || inner.stop) return inner;
+        continue;
+      }
+      const outcome = await runLeaf(node.text);
+      if (outcome.stop) return outcome;
+      if (outcome.failure) {
+        // Marked with a leading `?`, so this is a step the sequence can do without: what went
+        // wrong is still logged, and still red, because the steps after it may have needed it
+        if (!node.optional) return outcome;
+        done.push(`?${node.text} skipped: ${outcome.failure}`);
       }
     }
-    if (click.done) break;
+    return {};
+  };
+
+  const plan = parseInAppSteps(steps);
+  if (plan.error) {
+    failure = plan.error;
+  } else {
+    // An empty list is the ask to find a checkin-worded control by itself, which is what a
+    // leaf with no text does
+    const outcome = plan.steps.length
+      ? await runList(plan.steps)
+      : await runLeaf(undefined);
+    failure = outcome.failure;
   }
 
   // Let the last step's request round-trip before the page text is scraped
