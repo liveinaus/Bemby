@@ -19,6 +19,19 @@ export const DEFAULT_MSAPI_POOL_TYPE = "Telegram";
 /** How often the pool is asked again while waiting for a code. */
 const POLL_MS = 5_000;
 
+/**
+ * How many times a read that fails outright is tried again before the step gives up, and how
+ * long it waits after the first failure -- each gap after that is twice the one before.
+ *
+ * A read that fails is not the same answer as a mailbox with no mail in it yet, and a single
+ * try was losing signups that had already made an account: "Refresh token failed" is what a
+ * token endpoint that is rate-limiting says, and it is also what one that has stopped
+ * refreshing for good says. Five tries over about three quarters of a minute tells them apart
+ * without spending the step's whole wait on a mailbox that is never going to answer.
+ */
+const READ_RETRIES = 5;
+const READ_RETRY_MS = 3_000;
+
 /** How long a single call may take before it is abandoned. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -133,6 +146,32 @@ type CallOptions = {
 };
 
 /**
+ * What the service put in `details`, which is where it passes on whatever the token endpoint
+ * told it.
+ *
+ * Worth unpacking rather than dropping: "Refresh token failed" on its own does not say whether
+ * to ask again in a minute or never use this mailbox again, while
+ * `invalid_grant: AADSTS70000 ... service abuse mode` says which of the two it is -- and a run
+ * log that only carried the first sentence sent people looking for the fault in the wrong place.
+ */
+function reasonFromDetails(details: unknown): string {
+  if (typeof details !== "string" || !details.trim()) return "";
+  const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(details);
+  } catch {
+    // Not every service version sends JSON here
+    return oneLine(details).slice(0, 240);
+  }
+  const held = (parsed ?? {}) as Record<string, unknown>;
+  const named = [held.error, held.error_description ?? held.message]
+    .filter((part) => typeof part === "string" && part.trim())
+    .map((part) => oneLine(String(part)));
+  return (named.length ? named.join(": ") : oneLine(details)).slice(0, 240);
+}
+
+/**
  * One call to the service. The key goes in the header rather than the query string so it
  * stays out of the far side's access log.
  */
@@ -180,10 +219,11 @@ async function call(
 
   if (!res.ok && !opts.allowStatus?.includes(res.status)) {
     const detail = body?.error ?? `HTTP ${res.status}`;
+    const why = reasonFromDetails(body?.details);
     throw new Error(
       res.status === 401
         ? `msOauth2api rejected the API key (${detail})`
-        : `msOauth2api: ${detail}`,
+        : `msOauth2api: ${detail}${why ? ` -- ${why}` : ""}`,
     );
   }
   return { status: res.status, body };
@@ -232,6 +272,33 @@ export async function releaseEmail(email: string, type?: string): Promise<void> 
   }).catch(() => undefined);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, Math.max(0, ms)));
+}
+
+/**
+ * Whether a failed read is worth asking again for.
+ *
+ * A service that was restarting, a request that timed out, a token endpoint rate-limiting this
+ * minute: all of those answer differently a few seconds later, and a single try was losing
+ * signups whose account had already been made.
+ *
+ * Two kinds are not worth a second look. How this end is set up -- no service, no URL, no key,
+ * or a key the service turns down -- since no amount of waiting changes any of it. And a grant
+ * the token endpoint has finished with (`invalid_grant`, which is what a mailbox Microsoft has
+ * put in "service abuse mode" or whose password has changed comes back as): that mailbox is
+ * done, and the sooner the run hears so the sooner its next attempt takes a different address.
+ */
+function worthReadingAgain(err: unknown): boolean {
+  const message = String((err as { message?: unknown })?.message ?? err);
+  return !(
+    /^msOauth2api is not (enabled|configured)/.test(message) ||
+    /^no msOauth2api (base URL|API key) is set/.test(message) ||
+    /rejected the API key/.test(message) ||
+    /invalid_grant|abuse mode|AADSTS/i.test(message)
+  );
+}
+
 export type PollCodeOptions = {
   email: string;
   type?: string;
@@ -260,9 +327,35 @@ export async function pollForCode(opts: PollCodeOptions): Promise<PoolCode | nul
     since: opts.sinceMs,
   };
 
+  // Counted rather than remembered: one blip in the middle of a long wait should not spend
+  // the allowance a genuinely broken mailbox needs, so a read that answers resets this
+  let failures = 0;
+
   // Try at least once even on a spent budget: the mail may already be sitting there
   while (true) {
-    const { body } = await call("get-code", { params, signal: opts.signal });
+    let body: any;
+    try {
+      ({ body } = await call("get-code", { params, signal: opts.signal }));
+      failures = 0;
+    } catch (err: any) {
+      // A cancelled run is not a failed read, and neither is a deployment with no service to
+      // read from: both would only fail again, the first for as long as anyone waited
+      if (opts.signal?.aborted) throw err;
+      if (!worthReadingAgain(err)) throw err;
+
+      failures++;
+      const left = deadline - Date.now();
+      if (failures >= READ_RETRIES || left <= 0) {
+        throw new Error(
+          `${err?.message ?? err} (${failures} ${failures === 1 ? "try" : "tries"})`,
+        );
+      }
+      // Twice the last gap each time, so a service that is briefly under water is given room
+      // rather than hammered
+      await sleep(Math.min(READ_RETRY_MS * 2 ** (failures - 1), left));
+      continue;
+    }
+
     if (body?.status === "found" && body?.code) {
       return {
         code: String(body.code),
@@ -272,7 +365,7 @@ export async function pollForCode(opts: PollCodeOptions): Promise<PoolCode | nul
       };
     }
     if (Date.now() >= deadline) return null;
-    await new Promise((r) => setTimeout(r, Math.min(POLL_MS, deadline - Date.now())));
+    await sleep(Math.min(POLL_MS, deadline - Date.now()));
   }
 }
 

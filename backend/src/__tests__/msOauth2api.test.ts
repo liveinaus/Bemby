@@ -137,6 +137,28 @@ describe("leaseEmail", () => {
   });
 });
 
+/**
+ * Settles a poll that is waiting out its own backoff, without the test waiting with it: the
+ * gaps between failed reads double, so a run to the retry limit is the best part of a minute
+ * of real time and none of it is spent doing anything.
+ */
+async function runPastTheGaps<T>(pending: Promise<T>): Promise<T> {
+  vi.useFakeTimers();
+  // Held before the clock moves, so a rejection cannot land unhandled while time is advanced
+  const settled = pending.then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error }),
+  );
+  try {
+    await vi.advanceTimersByTimeAsync(120_000);
+  } finally {
+    vi.useRealTimers();
+  }
+  const outcome = (await settled) as { value?: T; error?: unknown };
+  if ("error" in outcome) throw outcome.error;
+  return outcome.value as T;
+}
+
 describe("pollForCode", () => {
   it("returns the code once the pool has found one", async () => {
     undiciFetch.mockResolvedValue(
@@ -165,6 +187,73 @@ describe("pollForCode", () => {
   it("gives up with null when the wait is over", async () => {
     undiciFetch.mockResolvedValue(jsonResponse({ status: "pending" }));
     expect(await pollForCode({ email: "a@b.com", waitMs: 0 })).toBeNull();
+    expect(undiciFetch).toHaveBeenCalledTimes(1);
+  });
+
+  // A read that fails is not the pool saying there is no mail. A token endpoint that refuses
+  // one refresh often takes the next, and a single try was losing signups whose account had
+  // already been made.
+  it("asks again after a failed read, and returns the code the next try finds", async () => {
+    undiciFetch
+      .mockResolvedValueOnce(jsonResponse({ error: "Refresh token failed" }, 500))
+      .mockResolvedValueOnce(jsonResponse({ status: "found", code: "83920117" }));
+    const found = await runPastTheGaps(pollForCode({ email: "a@b.com", waitMs: 60_000 }));
+    expect(found?.code).toBe("83920117");
+    expect(undiciFetch).toHaveBeenCalledTimes(2);
+  });
+
+  // And gives up on a mailbox that never answers, saying how many tries it took -- rather
+  // than spending the step's whole wait on one that is broken for good
+  it("gives up after a bounded number of failed reads, and says so", async () => {
+    undiciFetch.mockResolvedValue(jsonResponse({ error: "Refresh token failed" }, 500));
+    await expect(
+      runPastTheGaps(pollForCode({ email: "a@b.com", waitMs: 600_000 })),
+    ).rejects.toThrow(/Refresh token failed \(5 tries\)/);
+    expect(undiciFetch).toHaveBeenCalledTimes(5);
+  });
+
+  // A mailbox Microsoft has finished with is not coming back inside this run, and the run
+  // saying so at once is what sends its next attempt to a different address
+  it("does not retry a grant the token endpoint has rejected, and names why", async () => {
+    undiciFetch.mockResolvedValue(
+      jsonResponse(
+        {
+          error: "Refresh token failed",
+          details: JSON.stringify({
+            error: "invalid_grant",
+            error_description:
+              "AADSTS70000: User account is found to be in service abuse mode.",
+          }),
+        },
+        500,
+      ),
+    );
+    await expect(pollForCode({ email: "a@b.com", waitMs: 600_000 })).rejects.toThrow(
+      /Refresh token failed -- invalid_grant: AADSTS70000.*abuse mode/,
+    );
+    expect(undiciFetch).toHaveBeenCalledTimes(1);
+  });
+
+  // Nothing about the next four minutes fixes a key the service turns down, so that one is
+  // reported at once
+  it("does not retry a rejected API key", async () => {
+    undiciFetch.mockResolvedValue(jsonResponse({ error: "bad key" }, 401));
+    await expect(pollForCode({ email: "a@b.com", waitMs: 600_000 })).rejects.toThrow(
+      /rejected the API key/,
+    );
+    expect(undiciFetch).toHaveBeenCalledTimes(1);
+  });
+
+  // A cancelled run stops now, however much of its wait is left
+  it("stops when the run is cancelled rather than retrying", async () => {
+    const control = new AbortController();
+    undiciFetch.mockImplementation(async () => {
+      control.abort();
+      throw new Error("aborted");
+    });
+    await expect(
+      pollForCode({ email: "a@b.com", waitMs: 600_000, signal: control.signal }),
+    ).rejects.toThrow(/unreachable/);
     expect(undiciFetch).toHaveBeenCalledTimes(1);
   });
 });
