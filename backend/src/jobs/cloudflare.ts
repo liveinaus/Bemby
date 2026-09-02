@@ -2136,6 +2136,13 @@ export async function runInAppClicks(
     successContains?: string;
     /** Page text before any of these steps ran, to tell an outcome from page furniture. */
     priorText?: string;
+    /**
+     * Whether an empty list should fall back to hunting for a checkin-worded control.
+     * Defaults to true, which is what a Mini App action with nothing configured means.
+     * False where the action drove the app with typed steps: they have already said what to
+     * press, and a guess after them would press something nobody asked for.
+     */
+    autoDetect?: boolean;
   } = {},
 ): Promise<{
   trace?: string;
@@ -2388,13 +2395,13 @@ export async function runInAppClicks(
   const plan = parseInAppSteps(steps);
   if (plan.error) {
     failure = plan.error;
-  } else {
+  } else if (plan.steps.length) {
+    failure = (await runList(plan.steps)).failure;
+  } else if (opts.autoDetect ?? true) {
     // An empty list is the ask to find a checkin-worded control by itself, which is what a
-    // leaf with no text does
-    const outcome = plan.steps.length
-      ? await runList(plan.steps)
-      : await runLeaf(undefined);
-    failure = outcome.failure;
+    // leaf with no text does -- unless the action drove the app with typed steps instead,
+    // in which case pressing something else afterwards is the last thing it wants
+    failure = (await runLeaf(undefined)).failure;
   }
 
   // Let the last step's request round-trip before the page text is scraped
@@ -6097,6 +6104,7 @@ async function attemptLoad(
         exactLabels: opts.exactAppLabels,
         successContains: opts.successContains,
         priorText,
+        autoDetect: !opts.webSteps?.length,
       });
       inAppAction = clicks.trace;
       inAppFailure = clicks.failure;

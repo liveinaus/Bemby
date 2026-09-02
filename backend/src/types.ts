@@ -289,6 +289,18 @@ export type CustomAction = CustomActionCommon &
          */
         appButtons?: string[];
         /**
+         * The same typed sub-steps the `open_url` action drives a plain page with, run on the
+         * app's own page before `appButtons` does anything.
+         *
+         * These are what an app needs a branch or an optional step for: `web_if` asks what is
+         * actually on screen and holds a list for each answer, and any step may be set to
+         * carry on when it fails. `appButtons` remains the short way to say "press 签到", and
+         * the two work side by side -- but an app driven by these with no `appButtons` left
+         * does not fall back to hunting for a checkin-worded control, since the steps have
+         * already said what to press.
+         */
+        steps?: WebStep[];
+        /**
          * A step's label must be the control's whole text rather than part of it. Off by
          * default: a step naming `签到` usually means a button reading `立即签到 >`. On, that
          * step passes over a toast reading `签到成功` and holds out for the control itself,
@@ -343,6 +355,18 @@ export type CustomAction = CustomActionCommon &
          */
         appButtons?: string[];
         /**
+         * The same typed sub-steps the `open_url` action drives a plain page with, run on the
+         * app's own page before `appButtons` does anything.
+         *
+         * These are what an app needs a branch or an optional step for: `web_if` asks what is
+         * actually on screen and holds a list for each answer, and any step may be set to
+         * carry on when it fails. `appButtons` remains the short way to say "press 签到", and
+         * the two work side by side -- but an app driven by these with no `appButtons` left
+         * does not fall back to hunting for a checkin-worded control, since the steps have
+         * already said what to press.
+         */
+        steps?: WebStep[];
+        /**
          * A step's label must be the control's whole text rather than part of it. Off by
          * default: a step naming `签到` usually means a button reading `立即签到 >`. On, that
          * step passes over a toast reading `签到成功` and holds out for the control itself,
@@ -392,6 +416,18 @@ export type CustomAction = CustomActionCommon &
          * `{aiInput}`). Blank auto-detects a checkin control.
          */
         appButtons?: string[];
+        /**
+         * The same typed sub-steps the `open_url` action drives a plain page with, run on the
+         * app's own page before `appButtons` does anything.
+         *
+         * These are what an app needs a branch or an optional step for: `web_if` asks what is
+         * actually on screen and holds a list for each answer, and any step may be set to
+         * carry on when it fails. `appButtons` remains the short way to say "press 签到", and
+         * the two work side by side -- but an app driven by these with no `appButtons` left
+         * does not fall back to hunting for a checkin-worded control, since the steps have
+         * already said what to press.
+         */
+        steps?: WebStep[];
         /**
          * A step's label must be the control's whole text rather than part of it. Off by
          * default: a step naming `签到` usually means a button reading `立即签到 >`. On, that

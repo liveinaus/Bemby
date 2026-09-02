@@ -38,6 +38,7 @@ import {
   cfProfileVars,
   newCfRunState,
   type CfRunState,
+  type LoadOptions,
 } from "./cloudflare";
 import {
   expandDatePlaceholders,
@@ -1326,6 +1327,30 @@ export function assertActionDepth(actions: CustomAction[], depth = 0): void {
   }
 }
 
+/**
+ * The one-line result of a Mini App action, which now has two kinds of step to account for:
+ * the typed page steps that ran on the app, and the label steps that pressed things in it.
+ * Written together so a run driven entirely by typed steps does not read as one where
+ * nothing happened.
+ */
+function miniAppOutcome(
+  opened: string,
+  pressed: string | undefined,
+  asked: number,
+  ran: { outcome?: string }[] | undefined,
+  suffix = "",
+): string {
+  const parts: string[] = [];
+  if (asked) {
+    const done = (ran ?? []).filter((s) => s.outcome).length;
+    parts.push(`ran ${done}/${asked} page step${asked > 1 ? "s" : ""}`);
+  }
+  if (pressed) parts.push(`pressed "${pressed}"`);
+  return parts.length
+    ? `${opened}, ${parts.join(", ")}${suffix}`
+    : `${opened} (nothing pressed inside the app)${suffix}`;
+}
+
 export async function runCustom(
   apiId: number,
   apiHash: string,
@@ -1398,6 +1423,188 @@ export async function runCustom(
       // Last message we sent to each specific contact, keyed by the trimmed
       // contact handle -- the scope anchor for click_message_button.
       const contactAnchors = new Map<string, SendAnchor>();
+
+      /**
+       * Everything the page sub-steps need that lives on this side of the browser: the vision
+       * model, this job's own memory of what it has looped over, the notification bot, the
+       * mailbox pool, the account's Telegram client, the data store.
+       *
+       * Built once and spread into every action that drives a page. A Mini App is a page too --
+       * `open_mini_app` and its two siblings take the same typed steps as `open_url`, which is
+       * the only way an app sequence gets a branch or a step that may fail without ending the
+       * run -- so all four hand the solver the same hooks rather than each growing its own copy.
+       */
+      const pageStepHooks = (): Partial<LoadOptions> => ({
+      // The vision model lives on this side of the browser, so the page steps
+      // reach it through a callback rather than the solver importing it
+      aiLocate: async (image, prompt) => {
+        const { response } = await callAI([image], prompt, 512);
+        return response;
+      },
+      // Same reason: what this job has already looped over lives in the
+      // database, which the browser side does not reach into
+      usedValues: (varName) => usedWebValues(cfRun.jobId, varName),
+      markUsed: (varName, value) =>
+        rememberWebValue(cfRun.jobId, varName, value),
+      // And the same again for a `web_notify` step: the bot token and the chat
+      // to send to are settings, which the browser side does not read. Sent
+      // outright rather than through notifyJobEvent -- a step that says to send
+      // is an instruction, not something the success/failure switches govern.
+      notify: async (text, target) => {
+        const cfg = getNotifyConfig();
+        if (!cfg.botToken)
+          throw new Error("no notification bot token is set (see Settings)");
+        const chat = target?.trim() || cfg.botTarget;
+        if (!chat)
+          throw new Error(
+            "no chat to send to: set a default in Settings, or name one on the step",
+          );
+        await sendBotNotify(cfg.botToken, chat, text);
+      },
+      // And once more for a `web_email_code` step: the app password is a stored
+      // secret and the msOauth2api credentials are settings, neither of which the
+      // browser side reads. The config carries the name of a secret
+      // (`{gmailAppPassword}`) and it is resolved here.
+      emailCode: async (q) => {
+        if (q.source === "msapi") {
+          const found = await pollForCode({
+            email: q.email,
+            type: q.poolType,
+            fromContains: q.fromContains,
+            subjectContains: q.subjectContains,
+            waitMs: q.waitMs,
+            signal,
+          });
+          return found
+            ? {
+                code: found.code,
+                subject: found.subject ?? "",
+                from: found.from ?? "",
+                mailbox: found.mailbox,
+              }
+            : null;
+        }
+        const missing = missingSecretRefs(q.appPasswordRef ?? "");
+        if (missing.length)
+          throw new Error(
+            `no secret is stored under ${missing.map((m) => `{${m}}`).join(", ")} (see Settings)`,
+          );
+        const appPassword = fillSecrets(q.appPasswordRef ?? "").trim();
+        if (!appPassword) throw new Error("the app-password secret is empty");
+        return fetchGmailCode({
+          email: q.email,
+          appPassword,
+          fromContains: q.fromContains,
+          subjectContains: q.subjectContains,
+          pattern: q.pattern,
+          waitMs: q.waitMs,
+          // Look a little before now, so a code sent by an earlier step counts
+          sinceMs: Date.now() - EMAIL_CODE_LOOKBACK_MS,
+        });
+      },
+      // And for a `web_email_lease` step: which pool to draw from, and the key to
+      // draw with, are settings this side reads
+      emailLease: async (q) => leaseEmail(q.poolType, signal),
+      // And for a `web_tg_code` step: my.telegram.org posts its login code to
+      // the account inside Telegram, so the client this job is already running
+      // on is what reads it -- nothing about it reaches the browser
+      tgCode: async (q) =>
+        waitForTgLoginCode({
+          client,
+          sinceMs: Date.now(),
+          pattern: q.pattern,
+          waitMs: q.waitMs,
+          signal,
+        }),
+      // And for a `web_tg_send` step: the page shows a command the account itself
+      // has to send (a site linking a Telegram account reads who sent it), so it
+      // goes out on this same client while the page stays open
+      tgSend: async (q) => {
+        const entity = await resolvePeerTarget(client, q.contact);
+        const sent = await client.sendMessage(entity, {
+          message: q.text,
+        });
+        contactAnchors.set(q.contact, anchorFromSent(sent));
+        if (!q.waitMs) return {};
+        // Polled rather than event-driven, as the login-code step is: only what
+        // came back to the message just sent counts (`minId`), and a bot that
+        // answers in two goes gets until the deadline to say the wording asked
+        // for rather than the first line settling it
+        const deadline = Date.now() + q.waitMs;
+        let latest: string | undefined;
+        for (;;) {
+          if (signal?.aborted) throw new Error("Job cancelled");
+          const msgs = (await client
+            .getMessages(entity, { limit: 5, minId: sent.id })
+            .catch(() => [])) as Api.Message[];
+          // Oldest first, so a two-part answer reads in the order it was said
+          for (const msg of [...msgs].reverse()) {
+            const text = (msg?.message ?? "").trim();
+            if (!text || msg.out) continue;
+            latest = text;
+            if (matchesAnyLabel(text, q.replyContains)) return { reply: text };
+          }
+          const left = deadline - Date.now();
+          if (left <= 0) break;
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(3000, left)),
+          );
+        }
+        if (q.replyContains)
+          throw new Error(
+            `${q.contact} did not reply with "${q.replyContains}" within ` +
+              `${Math.round(q.waitMs / 1000)}s` +
+              (latest ? `; it said "${latest.slice(0, 120)}"` : ""),
+          );
+        return { reply: latest };
+      },
+      // And for a `web_job_handover`: which job is running is this side's to know,
+      // and the row it rewrites is one the browser side never sees
+      jobHandover: async (q) => {
+        // A debug or manual-browser run belongs to no job, so there is no row to
+        // point anywhere -- said plainly rather than rewriting whatever id turns up
+        if (!cfRun.jobId) throw new Error("this run has no job to hand over");
+        return handOverJob({
+          jobId: cfRun.jobId,
+          template: q.template,
+          name: q.name,
+          enabled: q.enabled,
+        });
+      },
+      // And for a `web_tg_api_save`: which account the run belongs to, and how
+      // its api_hash is stored, is this side's business
+      saveTgApi: async (creds) => {
+        if (!account)
+          throw new Error(
+            "this run has no account to save credentials to",
+          );
+        return saveAccountApiCredentials({
+          accountId: account.id,
+          ...creds,
+        });
+      },
+      // And for the `web_ms_oauth2_start` / `web_ms_oauth2` pair: the service's
+      // base URL and API key are settings, which the browser side never reads.
+      // Nothing about the OAuth2 application is Bemby's business any more --
+      // msOauth2api owns the registration and does the exchange on its callback.
+      msOauth2Start: async (q) => {
+        const flow = await startOauthFlow(q.email, q.authType, signal);
+        return { authorizeUrl: flow.authorizeUrl, redirectUri: flow.redirectUri };
+      },
+      msOauth2Verify: async (q) => accountStatus(q.email, signal),
+      // What the steps start with: one template drives my.telegram.org for every
+      // account linked to it, and the phone is the only thing that differs.
+      // `{jobId}` for the same reason a profile name takes one -- a site's
+      // credentials filed under the job that signs in with them are reachable as
+      // `{data.folder.{jobId}.password}`, so one template covers every job
+      webVars: {
+        jobId: String(cfRun.jobId),
+        ...(account
+          ? { accountPhone: account.phoneNumber, accountName: account.name }
+          : {}),
+      },
+      });
+
       let jobAttemptFailed = false;
       // Set by `end_job`: the chain is finished and the run counts as a success, so neither
       // the actions left nor another job attempt should follow.
@@ -3188,11 +3395,25 @@ export async function runCustom(
                   );
                 }
 
+                // The same check the plain-page action makes: a step that connects a mailbox
+                // has nothing to connect it to without the service configured
+                if (msOauthStepsIn(action.steps ?? []).length && !msApiConfigured()) {
+                  throw new Error(
+                    `Connecting a mailbox needs msOauth2api: ${msApiOffReason()}`,
+                  );
+                }
+
                 const cf = await loadCheckinUrl(url, webProxyUrl, {
                   miniApp: true,
                   // The signed URL names this account; anything the app kept from the last
                   // run would speak for another one, so it goes unless asked for
                   clearAppSession: !action.keepAppSession,
+                  // An app is a page, so it takes the same typed sub-steps a plain one does:
+                  // that is where a branch and a step allowed to fail come from. They run
+                  // before the label steps below, and the hooks they need are the same
+                  // bundle the `open_url` action hands over
+                  webSteps: action.steps ?? [],
+                  ...pageStepHooks(),
                   inAppClicks: (action.appButtons ?? []).map((b) => b.trim()).filter(Boolean),
                   exactAppLabels: action.exactAppLabels,
                   // Given to the browser side as well, so a step that presses an outcome
@@ -3234,6 +3455,7 @@ export async function runCustom(
                 step.cfChallenged = cf.challenged;
                 step.cfPassed = cf.ok;
                 step.cfMiniAppAction = cf.inAppAction;
+                step.webSteps = cf.webSteps;
                 step.cfProxy = cf.proxyLabel;
                 step.cfBuild = cf.browserTier;
                 step.cfProfile = cf.profileKey;
@@ -3254,9 +3476,12 @@ export async function runCustom(
                     cf.reason ?? cfFailureFallback(cf.challenged, true),
                   );
                 }
-                step.result = cf.inAppAction
-                  ? `Opened "${hit.web.text}", pressed "${cf.inAppAction}"`
-                  : `Opened "${hit.web.text}" (nothing pressed inside the app)`;
+                step.result = miniAppOutcome(
+                  `Opened "${hit.web.text}"`,
+                  cf.inAppAction,
+                  action.steps?.length ?? 0,
+                  cf.webSteps,
+                );
 
                 if (textSaysFail(cf.text, action.failContains)) {
                   throw new Error(`Page indicates failure: "${expandDatePlaceholders(action.failContains ?? "")}" detected`);
@@ -3380,11 +3605,25 @@ export async function runCustom(
                   );
                 }
 
+                // The same check the plain-page action makes: a step that connects a mailbox
+                // has nothing to connect it to without the service configured
+                if (msOauthStepsIn(action.steps ?? []).length && !msApiConfigured()) {
+                  throw new Error(
+                    `Connecting a mailbox needs msOauth2api: ${msApiOffReason()}`,
+                  );
+                }
+
                 const cf = await loadCheckinUrl(url, webProxyUrl, {
                   miniApp: true,
                   // The signed URL names this account; anything the app kept from the last
                   // run would speak for another one, so it goes unless asked for
                   clearAppSession: !action.keepAppSession,
+                  // An app is a page, so it takes the same typed sub-steps a plain one does:
+                  // that is where a branch and a step allowed to fail come from. They run
+                  // before the label steps below, and the hooks they need are the same
+                  // bundle the `open_url` action hands over
+                  webSteps: action.steps ?? [],
+                  ...pageStepHooks(),
                   inAppClicks: (action.appButtons ?? []).map((b) => b.trim()).filter(Boolean),
                   exactAppLabels: action.exactAppLabels,
                   // Given to the browser side as well, so a step that presses an outcome
@@ -3419,6 +3658,7 @@ export async function runCustom(
                 step.cfChallenged = cf.challenged;
                 step.cfPassed = cf.ok;
                 step.cfMiniAppAction = cf.inAppAction;
+                step.webSteps = cf.webSteps;
                 step.cfProxy = cf.proxyLabel;
                 step.cfBuild = cf.browserTier;
                 step.cfProfile = cf.profileKey;
@@ -3442,9 +3682,13 @@ export async function runCustom(
                 // Said plainly: an app that turns out to need an account will fail inside
                 // the page, and "opened, nothing pressed" alone would not explain why
                 const how = unsigned ? " (no bot named, so opened without account data)" : "";
-                step.result = cf.inAppAction
-                  ? `Opened the Mini App, pressed "${cf.inAppAction}"${how}`
-                  : `Opened the Mini App (nothing pressed inside it)${how}`;
+                step.result = miniAppOutcome(
+                  "Opened the Mini App",
+                  cf.inAppAction,
+                  action.steps?.length ?? 0,
+                  cf.webSteps,
+                  how,
+                );
 
                 if (textSaysFail(cf.text, action.failContains)) {
                   throw new Error(`Page indicates failure: "${expandDatePlaceholders(action.failContains ?? "")}" detected`);
@@ -3605,174 +3849,7 @@ export async function runCustom(
                   maxWaitMs: budgetLeft,
                   screenshot: true,
                   proxyCandidates: candidates,
-                  // The vision model lives on this side of the browser, so the page steps
-                  // reach it through a callback rather than the solver importing it
-                  aiLocate: async (image, prompt) => {
-                    const { response } = await callAI([image], prompt, 512);
-                    return response;
-                  },
-                  // Same reason: what this job has already looped over lives in the
-                  // database, which the browser side does not reach into
-                  usedValues: (varName) => usedWebValues(cfRun.jobId, varName),
-                  markUsed: (varName, value) =>
-                    rememberWebValue(cfRun.jobId, varName, value),
-                  // And the same again for a `web_notify` step: the bot token and the chat
-                  // to send to are settings, which the browser side does not read. Sent
-                  // outright rather than through notifyJobEvent -- a step that says to send
-                  // is an instruction, not something the success/failure switches govern.
-                  notify: async (text, target) => {
-                    const cfg = getNotifyConfig();
-                    if (!cfg.botToken)
-                      throw new Error("no notification bot token is set (see Settings)");
-                    const chat = target?.trim() || cfg.botTarget;
-                    if (!chat)
-                      throw new Error(
-                        "no chat to send to: set a default in Settings, or name one on the step",
-                      );
-                    await sendBotNotify(cfg.botToken, chat, text);
-                  },
-                  // And once more for a `web_email_code` step: the app password is a stored
-                  // secret and the msOauth2api credentials are settings, neither of which the
-                  // browser side reads. The config carries the name of a secret
-                  // (`{gmailAppPassword}`) and it is resolved here.
-                  emailCode: async (q) => {
-                    if (q.source === "msapi") {
-                      const found = await pollForCode({
-                        email: q.email,
-                        type: q.poolType,
-                        fromContains: q.fromContains,
-                        subjectContains: q.subjectContains,
-                        waitMs: q.waitMs,
-                        signal,
-                      });
-                      return found
-                        ? {
-                            code: found.code,
-                            subject: found.subject ?? "",
-                            from: found.from ?? "",
-                            mailbox: found.mailbox,
-                          }
-                        : null;
-                    }
-                    const missing = missingSecretRefs(q.appPasswordRef ?? "");
-                    if (missing.length)
-                      throw new Error(
-                        `no secret is stored under ${missing.map((m) => `{${m}}`).join(", ")} (see Settings)`,
-                      );
-                    const appPassword = fillSecrets(q.appPasswordRef ?? "").trim();
-                    if (!appPassword) throw new Error("the app-password secret is empty");
-                    return fetchGmailCode({
-                      email: q.email,
-                      appPassword,
-                      fromContains: q.fromContains,
-                      subjectContains: q.subjectContains,
-                      pattern: q.pattern,
-                      waitMs: q.waitMs,
-                      // Look a little before now, so a code sent by an earlier step counts
-                      sinceMs: Date.now() - EMAIL_CODE_LOOKBACK_MS,
-                    });
-                  },
-                  // And for a `web_email_lease` step: which pool to draw from, and the key to
-                  // draw with, are settings this side reads
-                  emailLease: async (q) => leaseEmail(q.poolType, signal),
-                  // And for a `web_tg_code` step: my.telegram.org posts its login code to
-                  // the account inside Telegram, so the client this job is already running
-                  // on is what reads it -- nothing about it reaches the browser
-                  tgCode: async (q) =>
-                    waitForTgLoginCode({
-                      client,
-                      sinceMs: Date.now(),
-                      pattern: q.pattern,
-                      waitMs: q.waitMs,
-                      signal,
-                    }),
-                  // And for a `web_tg_send` step: the page shows a command the account itself
-                  // has to send (a site linking a Telegram account reads who sent it), so it
-                  // goes out on this same client while the page stays open
-                  tgSend: async (q) => {
-                    const entity = await resolvePeerTarget(client, q.contact);
-                    const sent = await client.sendMessage(entity, {
-                      message: q.text,
-                    });
-                    contactAnchors.set(q.contact, anchorFromSent(sent));
-                    if (!q.waitMs) return {};
-                    // Polled rather than event-driven, as the login-code step is: only what
-                    // came back to the message just sent counts (`minId`), and a bot that
-                    // answers in two goes gets until the deadline to say the wording asked
-                    // for rather than the first line settling it
-                    const deadline = Date.now() + q.waitMs;
-                    let latest: string | undefined;
-                    for (;;) {
-                      if (signal?.aborted) throw new Error("Job cancelled");
-                      const msgs = (await client
-                        .getMessages(entity, { limit: 5, minId: sent.id })
-                        .catch(() => [])) as Api.Message[];
-                      // Oldest first, so a two-part answer reads in the order it was said
-                      for (const msg of [...msgs].reverse()) {
-                        const text = (msg?.message ?? "").trim();
-                        if (!text || msg.out) continue;
-                        latest = text;
-                        if (matchesAnyLabel(text, q.replyContains)) return { reply: text };
-                      }
-                      const left = deadline - Date.now();
-                      if (left <= 0) break;
-                      await new Promise((resolve) =>
-                        setTimeout(resolve, Math.min(3000, left)),
-                      );
-                    }
-                    if (q.replyContains)
-                      throw new Error(
-                        `${q.contact} did not reply with "${q.replyContains}" within ` +
-                          `${Math.round(q.waitMs / 1000)}s` +
-                          (latest ? `; it said "${latest.slice(0, 120)}"` : ""),
-                      );
-                    return { reply: latest };
-                  },
-                  // And for a `web_job_handover`: which job is running is this side's to know,
-                  // and the row it rewrites is one the browser side never sees
-                  jobHandover: async (q) => {
-                    // A debug or manual-browser run belongs to no job, so there is no row to
-                    // point anywhere -- said plainly rather than rewriting whatever id turns up
-                    if (!cfRun.jobId) throw new Error("this run has no job to hand over");
-                    return handOverJob({
-                      jobId: cfRun.jobId,
-                      template: q.template,
-                      name: q.name,
-                      enabled: q.enabled,
-                    });
-                  },
-                  // And for a `web_tg_api_save`: which account the run belongs to, and how
-                  // its api_hash is stored, is this side's business
-                  saveTgApi: async (creds) => {
-                    if (!account)
-                      throw new Error(
-                        "this run has no account to save credentials to",
-                      );
-                    return saveAccountApiCredentials({
-                      accountId: account.id,
-                      ...creds,
-                    });
-                  },
-                  // And for the `web_ms_oauth2_start` / `web_ms_oauth2` pair: the service's
-                  // base URL and API key are settings, which the browser side never reads.
-                  // Nothing about the OAuth2 application is Bemby's business any more --
-                  // msOauth2api owns the registration and does the exchange on its callback.
-                  msOauth2Start: async (q) => {
-                    const flow = await startOauthFlow(q.email, q.authType, signal);
-                    return { authorizeUrl: flow.authorizeUrl, redirectUri: flow.redirectUri };
-                  },
-                  msOauth2Verify: async (q) => accountStatus(q.email, signal),
-                  // What the steps start with: one template drives my.telegram.org for every
-                  // account linked to it, and the phone is the only thing that differs.
-                  // `{jobId}` for the same reason a profile name takes one -- a site's
-                  // credentials filed under the job that signs in with them are reachable as
-                  // `{data.folder.{jobId}.password}`, so one template covers every job
-                  webVars: {
-                    jobId: String(cfRun.jobId),
-                    ...(account
-                      ? { accountPhone: account.phoneNumber, accountName: account.name }
-                      : {}),
-                  },
+                  ...pageStepHooks(),
                   // Which cookie jar this runs on, and so what a login here belongs to
                   profile: { template: action.profileId, vars: cfProfileVars(cfRun) },
                   display: await displayForRun(cfRun),

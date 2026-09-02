@@ -348,6 +348,12 @@
       <div class="form-group" style="margin-bottom:0;margin-top:8px">
         <MiniAppStepsEditor :steps="action.appSteps" />
       </div>
+      <!-- The same typed steps the open_url action drives a page with: an app is a page, and
+           this is where a branch and a step allowed to fail come from -->
+      <div class="form-group" style="margin-bottom:0;margin-top:10px">
+        <WebStepsEditor :steps="action.webSteps" :ai-key-missing="aiKeyMissing" />
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.miniAppWebStepsHint') }}</div>
+      </div>
       <div class="form-group" style="margin-bottom:0;margin-top:8px">
         <label class="form-checkbox-label">
           <input type="checkbox" v-model="action.exactAppLabels" />

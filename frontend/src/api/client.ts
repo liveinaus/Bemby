@@ -525,6 +525,12 @@ export type CustomAction = CustomActionCommon &
       /** Bot that owns the app, used to sign the URL. Blank uses the job's bot. */
       contact?: string;
       appButtons?: string[];
+      /**
+       * The typed sub-steps the `open_url` action drives a page with, run on the app's own
+       * page before `appButtons`. Where a branch (`web_if`) or a step allowed to fail comes
+       * from; with these set, an empty `appButtons` no longer hunts for a checkin control.
+       */
+      steps?: WebStep[];
       /** A step's label must be the control's whole text rather than part of it. */
       exactAppLabels?: boolean;
       successContains?: string;
@@ -552,6 +558,12 @@ export type CustomAction = CustomActionCommon &
       /** Bot whose menu button to open. Blank uses the job's bot. */
       contact?: string;
       appButtons?: string[];
+      /**
+       * The typed sub-steps the `open_url` action drives a page with, run on the app's own
+       * page before `appButtons`. Where a branch (`web_if`) or a step allowed to fail comes
+       * from; with these set, an empty `appButtons` no longer hunts for a checkin control.
+       */
+      steps?: WebStep[];
       /** A step's label must be the control's whole text rather than part of it. */
       exactAppLabels?: boolean;
       successContains?: string;
@@ -578,6 +590,12 @@ export type CustomAction = CustomActionCommon &
       contact?: string;
       button?: string;
       appButtons?: string[];
+      /**
+       * The typed sub-steps the `open_url` action drives a page with, run on the app's own
+       * page before `appButtons`. Where a branch (`web_if`) or a step allowed to fail comes
+       * from; with these set, an empty `appButtons` no longer hunts for a checkin control.
+       */
+      steps?: WebStep[];
       /** A step's label must be the control's whole text rather than part of it. */
       exactAppLabels?: boolean;
       successContains?: string;
