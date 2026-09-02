@@ -1388,6 +1388,18 @@
           {{ t("jobs.web.writeVarNameHint") }}
         </div>
       </div>
+
+      <!-- Carried by every type but the two loops, which spell their own version of it in
+           terms of a round rather than a step -->
+      <div v-if="s.type !== 'web_repeat' && s.type !== 'web_for_each'" class="web-step-wide">
+        <label class="form-checkbox-label" style="margin-top: 8px">
+          <input v-model="s.continueAfterFail" type="checkbox" />
+          {{ t("jobs.web.labelContinueAfterFail") }}
+        </label>
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
+          {{ t("jobs.web.continueAfterFailHint") }}
+        </div>
+      </div>
       </div>
     </div>
 

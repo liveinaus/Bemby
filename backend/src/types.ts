@@ -536,8 +536,33 @@ export type CustomAction = CustomActionCommon &
       }
   );
 
+/** What every page sub-step carries, whatever its type. */
+type WebStepCommon = {
+  /**
+   * Carry on with the next step when this one fails, rather than stopping the run there.
+   * What an optional step needs: a cookie banner that is only sometimes up, a "maybe later"
+   * dialog that shows on the first visit alone. The failure is still logged, so a run that
+   * stepped over one says so.
+   *
+   * Not read on `web_repeat` and `web_for_each`, where the same name already means "carry on
+   * with the next round".
+   */
+  continueOnError?: boolean;
+};
+
+/** One sub-step of `open_url`, with what every one of them carries. */
+export type WebStep = WebStepCommon & WebStepKind;
+
 /**
  * One sub-step of `open_url`, run against the loaded page.
+ *
+ * Every `selector` field takes a plain CSS selector, and on top of it the pieces of
+ * Playwright's own syntax that CSS has no answer for: `:has-text("Accept")` for a control
+ * matched on the words it shows, `:text-is("Accept")` for its whole text,
+ * `:text-matches("Accept|Agree")` for a pattern, and `:visible` for the one of several
+ * matches that is actually on screen. A page whose classes are build hashes often leaves its
+ * wording as the only stable handle. Either of two is a comma-separated pair, and the match
+ * the page holds first is the one taken.
  *
  * The `ai_*` variants hand a screenshot to the vision model rather than naming an element.
  * `ai_web_button` and `ai_web_input` number the interactive elements on the shot first, so
@@ -564,7 +589,7 @@ export type CustomAction = CustomActionCommon &
  * the round leaves the list page behind (open each post in turn), and for the `web_pick` pair
  * when it does not.
  */
-export type WebStep =
+type WebStepKind =
   | {
       /** Type text into a field named by a CSS selector. */
       type: "web_input";

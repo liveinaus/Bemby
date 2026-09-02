@@ -511,12 +511,19 @@
                       {{ t("logs.detail.noDetail") }}
                     </div>
                     <div v-else class="custom-steps">
+                      <template v-for="(s, sIdx) in customDetail" :key="sIdx">
+                      <!-- Opens each run attempt, so a failed first attempt is not read as
+                           the verdict of a run that went on to succeed -->
                       <div
-                        v-for="(s, sIdx) in customDetail"
-                        :key="sIdx"
+                        v-if="s.runAttempt && s.runAttempt !== customDetail[sIdx - 1]?.runAttempt"
+                        class="run-attempt-divider"
+                      >
+                        {{ runAttemptLabel(s.runAttempt) }}
+                      </div>
+                      <div
                         class="custom-step"
                         :class="
-                          s.error && !s.continued && !retriedStepNums.has(s.step)
+                          s.error && !s.continued && !retriedStepNums.has(stepKey(s))
                             ? 'custom-step-error'
                             : ''
                         "
@@ -533,7 +540,7 @@
                             >{{ s.durationMs }}ms</span
                           >
                           <span
-                            v-if="s.error && retriedStepNums.has(s.step)"
+                            v-if="s.error && retriedStepNums.has(stepKey(s))"
                             class="badge badge-orange"
                             style="font-size: 10px"
                             >retried</span
@@ -1004,6 +1011,7 @@
                           />
                         </template>
                       </div>
+                      </template>
                     </div>
                   </div>
                 </td>
@@ -1272,6 +1280,7 @@ import {
   type EmbywatchLog,
   type RealWatchNote,
   type CustomStepLog,
+  type CustomJobLog,
   type WebStepLog,
   type AiSupplier,
 } from "../api/client";
@@ -1296,7 +1305,9 @@ const pageSize = usePersistedRef<number>("bemby:logs:pageSize", 50);
 const total = ref(0);
 
 const expandedId = ref<number | null>(null);
-const expandedDetail = ref<CheckinAttemptLog[] | EmbywatchLog[] | { steps: CustomStepLog[] } | null>(null);
+const expandedDetail = ref<
+  CheckinAttemptLog[] | EmbywatchLog[] | CustomJobLog[] | null
+>(null);
 const detailLoading = ref(false);
 const stopping = ref(new Set<number>());
 const rerunning = ref(new Set<number>());
@@ -1463,25 +1474,52 @@ const embywatchDetail = computed(() => {
   return null;
 });
 
-const customDetail = computed(() => {
-  if (!expandedDetail.value) return null;
-  const d = expandedDetail.value as any;
-  // detail is stored as an array; custom log is the first element
-  const first = Array.isArray(d) ? d[0] : d;
-  if (first && "steps" in first && Array.isArray(first.steps))
-    return first.steps as CustomStepLog[];
-  return null;
-});
+/** A step as shown, tagged with the run attempt it belongs to when there was more than one. */
+type CustomStepRow = CustomStepLog & { runAttempt?: number };
 
-// Step numbers that had at least one failure followed by a success (action-level retries)
-const retriedStepNums = computed(() => {
-  const steps = customDetail.value;
-  if (!steps) return new Set<number>();
-  const succeeded = new Set(steps.filter((s) => !s.error).map((s) => s.step));
-  return new Set(
-    steps.filter((s) => s.error && succeeded.has(s.step)).map((s) => s.step),
+const customDetail = computed<CustomStepRow[] | null>(() => {
+  const d = expandedDetail.value;
+  if (!d) return null;
+  // Detail holds one log per run attempt: a job with retryMax > 1 whose first attempt
+  // failed leaves that failure here alongside the attempt that succeeded, so every entry
+  // is shown -- reading only the first made a successful run look as though it had failed.
+  const logs = (Array.isArray(d) ? d : [d]).filter(
+    (entry): entry is CustomJobLog =>
+      !!entry && Array.isArray((entry as CustomJobLog).steps),
+  );
+  if (!logs.length) return null;
+  return logs.flatMap((entry, i) =>
+    entry.steps.map((s) => ({
+      ...s,
+      ...(logs.length > 1 ? { runAttempt: i + 1 } : {}),
+    })),
   );
 });
+
+/** How many run attempts the expanded detail holds, for the attempt headings. */
+const customRunAttempts = computed(
+  () => customDetail.value?.reduce((n, s) => Math.max(n, s.runAttempt ?? 1), 1) ?? 1,
+);
+
+/** Identifies a step within its run attempt, so retries are matched inside one attempt only. */
+function stepKey(s: CustomStepRow): string {
+  return `${s.runAttempt ?? 1}:${s.step}`;
+}
+
+// Steps that had at least one failure followed by a success (action-level retries)
+const retriedStepNums = computed(() => {
+  const steps = customDetail.value;
+  if (!steps) return new Set<string>();
+  const succeeded = new Set(steps.filter((s) => !s.error).map(stepKey));
+  return new Set(steps.filter((s) => s.error && succeeded.has(stepKey(s))).map(stepKey));
+});
+
+/** Label for the divider that opens each run attempt. */
+function runAttemptLabel(n: number): string {
+  return t("logs.detail.runAttempt")
+    .replace("{n}", String(n))
+    .replace("{total}", String(customRunAttempts.value));
+}
 
 onMounted(async () => {
   jobs.value = await jobsApi.list();
@@ -1974,6 +2012,16 @@ function hasWarning(l: Log): boolean {
   flex-direction: column;
   gap: 10px;
   max-width: 560px;
+}
+
+.run-attempt-divider {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: center;
+  margin: 4px 0;
 }
 
 .custom-step {

@@ -589,6 +589,88 @@ async function launchAlignedBrowser(
 }
 
 /**
+ * Selector syntax the browser's own `querySelector` knows nothing about but Playwright's
+ * engine does: `:has-text("Accept")`, `:text-is("Accept")`, `:visible`, `>>` chaining,
+ * `text=` and `xpath=`. Matching a control on the words it shows is what a page whose
+ * classes are build hashes leaves as the only stable handle, and CSS cannot ask about text.
+ */
+const PLAYWRIGHT_SELECTOR =
+  /:has-text\(|:text\(|:text-is\(|:text-matches\(|:visible\b|:nth-match\(|>>|^\s*(?:text|xpath)=|^\s*\/\//;
+
+/** Stamped on whatever such a selector matched, so every step after it works in plain CSS. */
+const RESOLVED_ATTR = "data-bemby-sel";
+
+/** Enough for any list a step works through, and short of stamping a whole page. */
+const MAX_RESOLVED = 200;
+
+let resolveSeq = 0;
+
+/**
+ * Turns a selector the page cannot run into one it can.
+ *
+ * Plain CSS is handed straight back, so nothing about an existing template changes. Anything
+ * carrying Playwright's own syntax is queried through the driver instead, and each match is
+ * stamped with an attribute the caller then selects on -- which keeps every helper below
+ * working in `document.querySelector` terms while the step above it may say "the button
+ * reading Accept". Document order is kept, so "the first match" still means the first.
+ *
+ * Resolved afresh on each call rather than once per step: the waiting steps poll, and a
+ * control that has yet to be drawn must be findable on the poll that comes after it is.
+ * `firstOnly` stamps the first match alone, for the callers that hand the selector to the
+ * driver rather than to `querySelector` -- those refuse one naming more than one element.
+ */
+async function resolveSelector(
+  page: Page,
+  selector: string,
+  opts: { firstOnly?: boolean } = {},
+): Promise<string> {
+  if (!PLAYWRIGHT_SELECTOR.test(selector)) return selector;
+
+  let found: Array<{ dispose: () => Promise<void> }> = [];
+  try {
+    found = await page.locator(selector).elementHandles();
+  } catch {
+    // A selector the engine cannot parse: left to the caller to report as nothing found,
+    // which is what a selector matching nothing amounts to anyway
+    return selector;
+  }
+
+  const token = `r${++resolveSeq}`;
+  await page
+    .evaluate(
+      (arg: { els: Element[]; attr: string; token: string }) => {
+        for (const el of Array.from(document.querySelectorAll(`[${arg.attr}]`)))
+          el.removeAttribute(arg.attr);
+        for (const el of arg.els) el?.setAttribute(arg.attr, arg.token);
+      },
+      // The handles cross as the elements themselves; the driver's own typing for that is
+      // a deep structural mapping TypeScript will not line up with `Element`
+      {
+        els: found.slice(0, opts.firstOnly ? 1 : MAX_RESOLVED),
+        attr: RESOLVED_ATTR,
+        token,
+      } as any,
+    )
+    .catch(() => {});
+  await Promise.all(found.map((h) => h.dispose().catch(() => {})));
+
+  return `[${RESOLVED_ATTR}="${token}"]`;
+}
+
+/** Whether a selector names something on the page with a box on screen. */
+async function isVisible(page: Page, selector: string): Promise<boolean> {
+  const sel = await resolveSelector(page, selector);
+  return page
+    .evaluate((s: string) => {
+      const el = document.querySelector(s) as HTMLElement | null;
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    }, sel)
+    .catch(() => false);
+}
+
+/**
  * Clicks an element by moving the pointer to it, rather than through `page.click`.
  *
  * The driver's own click first waits for the element to be scrolled into view and stable,
@@ -602,6 +684,7 @@ async function elementCentre(
   page: Page,
   selector: string,
 ): Promise<{ x: number; y: number } | null> {
+  const resolved = await resolveSelector(page, selector);
   return page
     .evaluate((sel: string) => {
       const el = document.querySelector(sel) as HTMLElement | null;
@@ -610,7 +693,7 @@ async function elementCentre(
       const r = el.getBoundingClientRect();
       if (r.width < 1 || r.height < 1) return null;
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-    }, selector)
+    }, resolved)
     .catch(() => null);
 }
 
@@ -623,6 +706,7 @@ async function elementBox(
   page: Page,
   selector: string,
 ): Promise<{ x: number; y: number; width: number; height: number } | null> {
+  const resolved = await resolveSelector(page, selector);
   return page
     .evaluate((sel: string) => {
       const el = document.querySelector(sel) as HTMLElement | null;
@@ -631,7 +715,7 @@ async function elementBox(
       const r = el.getBoundingClientRect();
       if (r.width < 1 || r.height < 1) return null;
       return { x: r.x, y: r.y, width: r.width, height: r.height };
-    }, selector)
+    }, resolved)
     .catch(() => null);
 }
 
@@ -1844,6 +1928,7 @@ async function scrollToSelector(
   const tune = cfTuning();
   const until = Math.min(Date.now() + Math.max(0, waitMs), deadline);
   for (;;) {
+    const resolved = await resolveSelector(page, selector);
     const moved = await page
       .evaluate((sel: string) => {
         const el = document.querySelector(sel) as HTMLElement | null;
@@ -1858,7 +1943,7 @@ async function scrollToSelector(
           at: { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) },
           visible: box.width > 0 && box.height > 0,
         };
-      }, selector)
+      }, resolved)
       .catch(() => null);
 
     if (moved) {
@@ -2660,15 +2745,7 @@ async function waitForVisible(
 ): Promise<boolean> {
   const until = Math.min(Date.now() + ms, deadline);
   for (;;) {
-    const seen = await page
-      .evaluate((sel: string) => {
-        const el = document.querySelector(sel) as HTMLElement | null;
-        if (!el) return false;
-        const r = el.getBoundingClientRect();
-        return r.width > 0 && r.height > 0;
-      }, selector)
-      .catch(() => false);
-    if (seen) return true;
+    if (await isVisible(page, selector)) return true;
     if (Date.now() >= until) return false;
     await sleep(400, deadline);
   }
@@ -2700,7 +2777,8 @@ async function typeIntoFocused(page: Page, text: string): Promise<boolean> {
 
 /** Types into the element carrying `data-bemby-mark=n`, or a plain CSS selector. */
 async function typeInto(page: Page, selector: string, text: string): Promise<boolean> {
-  if (!(await clickElement(page, selector))) return false;
+  const resolved = await resolveSelector(page, selector);
+  if (!(await clickElement(page, resolved))) return false;
   // Replace rather than append: a field a previous attempt filled would otherwise
   // end up with both values concatenated
   await page
@@ -2709,7 +2787,7 @@ async function typeInto(page: Page, selector: string, text: string): Promise<boo
       if (!el) return;
       if (el.isContentEditable) el.textContent = "";
       else if (typeof el.value === "string") el.value = "";
-    }, selector)
+    }, resolved)
     .catch(() => {});
   return typeIntoFocused(page, text);
 }
@@ -2950,6 +3028,7 @@ const ROUND_INDEX_VAR = "i";
  * how the `otpauth://` inside a QR service's address comes back readable.
  */
 async function pageOtpCandidates(page: Page, selector: string): Promise<string[]> {
+  const resolved = selector ? await resolveSelector(page, selector) : selector;
   return page
     .evaluate((sel: string) => {
       const root = sel ? document.querySelector(sel) : document.body;
@@ -2977,7 +3056,7 @@ async function pageOtpCandidates(page: Page, selector: string): Promise<string[]
         }
       }
       return out;
-    }, selector)
+    }, resolved)
     .catch(() => [] as string[]);
 }
 
@@ -3102,6 +3181,7 @@ async function readCandidates(
   selector: string,
   attribute: string | undefined,
 ): Promise<Array<{ value: string; text: string }>> {
+  const resolved = await resolveSelector(page, selector);
   return page
     .evaluate(
       (arg: { sel: string; attr: string; cap: number }) =>
@@ -3114,7 +3194,7 @@ async function readCandidates(
               text: ((el as HTMLElement).innerText ?? "").trim(),
             };
           }),
-      { sel: selector, attr: attribute?.trim() ?? "", cap: MAX_COLLECTED },
+      { sel: resolved, attr: attribute?.trim() ?? "", cap: MAX_COLLECTED },
     )
     .catch(() => [] as Array<{ value: string; text: string }>);
 }
@@ -3310,14 +3390,7 @@ async function runStepList(
           const until = Math.min(Date.now() + waitMs, deadline);
           let seen = false;
           for (;;) {
-            seen = await page
-              .evaluate((sel: string) => {
-                const el = document.querySelector(sel) as HTMLElement | null;
-                if (!el) return false;
-                const r = el.getBoundingClientRect();
-                return r.width > 0 && r.height > 0;
-              }, selector)
-              .catch(() => false);
+            seen = await isVisible(page, selector);
             if (seen || Date.now() >= until) break;
             // Nothing the site owns is on an interstitial, so waiting out the rest of the
             // timeout only delays the real answer -- and buries it under a step error
@@ -3637,7 +3710,7 @@ async function runStepList(
           const text = await page
             .evaluate(
               (sel: string) => (document.querySelector(sel) as HTMLElement | null)?.innerText ?? "",
-              selector,
+              await resolveSelector(page, selector),
             )
             .catch(() => "");
           const trimmed = text.trim().replace(/\s+\n/g, "\n");
@@ -4156,15 +4229,7 @@ async function runStepList(
             if (!selector) throw new Error("no CSS selector given to look for");
             what = `\`${selector}\``;
             // Same test as `web_wait_element`: a hidden login form is not a login form
-            look = () =>
-              page
-                .evaluate((sel: string) => {
-                  const el = document.querySelector(sel) as HTMLElement | null;
-                  if (!el) return false;
-                  const r = el.getBoundingClientRect();
-                  return r.width > 0 && r.height > 0;
-                }, selector)
-                .catch(() => false);
+            look = () => isVisible(page, selector);
           } else if (step.check === "value") {
             // Nothing on the page to wait for: what a name is holding is settled the moment
             // the step runs, so this one answers at once whatever the wait says
@@ -4459,7 +4524,10 @@ async function runStepList(
           const timeout = Math.max(1_000, capped(5_000, deadline));
           let pressError: string | undefined;
           if (selector) {
-            await page.press(selector, key, { timeout }).catch((err: any) => {
+            // Only the first match is stamped: `page.press` refuses a selector naming more
+            // than one element, and a control picked out by its wording often matches several
+            const resolved = await resolveSelector(page, selector, { firstOnly: true });
+            await page.press(resolved, key, { timeout }).catch((err: any) => {
               pressError = err?.message ?? String(err);
             });
           } else {
@@ -4483,8 +4551,9 @@ async function runStepList(
           const option = fillVars(step.option ?? "", run.current).trim();
           if (!option) throw new Error("no option given to choose");
           const timeout = Math.max(1_000, capped(5_000, deadline));
+          const resolved = await resolveSelector(page, selector, { firstOnly: true });
           const choose = (arg: { label: string } | { value: string }) =>
-            page.selectOption(selector, arg, { timeout }).catch(() => [] as string[]);
+            page.selectOption(resolved, arg, { timeout }).catch(() => [] as string[]);
           // A dropdown is written either way round -- the label is what a person reads, the
           // value what the form sends -- so whichever of them matches is taken
           let picked = await choose({ label: option });
@@ -4858,7 +4927,19 @@ async function runStepList(
       }
       if (marked) await clearWebMarkBadges(page);
     }
-    if (log.error) return `${log.label}: ${log.error}`;
+
+    if (log.error) {
+      // The two loops read `continueOnError` as "carry on with the next round", so it cannot
+      // also stand for "carry on past this step" without meaning two things at once
+      const carryOn =
+        step.continueOnError === true &&
+        step.type !== "web_repeat" &&
+        step.type !== "web_for_each";
+      if (!carryOn) return `${log.label}: ${log.error}`;
+      // Still logged, and still red: what a run stepped over is exactly what is wanted when
+      // the steps after it turn out to have needed it
+      log.error += " -- carried on";
+    }
   }
 
   return undefined;

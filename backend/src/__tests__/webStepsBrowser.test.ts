@@ -1039,4 +1039,289 @@ describe.skipIf(!exe)("page steps in a real browser", () => {
     },
     60_000,
   );
+
+  // Selecting on the words a control shows. CSS cannot ask about text at all, so these forms
+  // are resolved through the driver's own engine and stamped back onto the page as an
+  // attribute -- which is the part worth covering against a real browser: a stamp that never
+  // lands reads exactly like a button that was not there.
+  const BUTTONS = `
+    <button id="cancel" onclick="window.__hit='cancel'">Cancel</button>
+    <button id="accept" onclick="window.__hit='accept'">Accept all cookies</button>
+    <button id="exact" onclick="window.__hit='exact'">Accept</button>`;
+
+  it(
+    "presses the button whose words match, rather than one CSS can name",
+    async () => {
+      const p = await open(BUTTONS);
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: 'button:has-text("Accept all")' }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      expect(await p.evaluate(() => (window as any).__hit)).toBe("accept");
+      // The log says what was asked for, not the attribute it was resolved to
+      expect(run.logs[0].outcome).toContain('button:has-text("Accept all")');
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "takes the whole text for :text-is, not the button that merely starts with it",
+    async () => {
+      const p = await open(BUTTONS);
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: 'button:text-is("Accept")' }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      expect(await p.evaluate(() => (window as any).__hit)).toBe("exact");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "waits for a button that is drawn late, re-asking rather than resolving once",
+    async () => {
+      const p = await open(
+        `<script>setTimeout(() => {
+           const b = document.createElement("button");
+           b.textContent = "Continue";
+           document.body.appendChild(b);
+         }, 700)</script>`,
+      );
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_wait_element", selector: 'button:has-text("Continue")', waitMs: 8000 }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      expect(run.ok).toBe(true);
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "passes over the hidden twin when the selector asks for the visible one",
+    async () => {
+      const p = await open(
+        `<button style="display:none" onclick="window.__hit='hidden'">Next</button>` +
+          `<button onclick="window.__hit='shown'">Next</button>`,
+      );
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: 'button:has-text("Next"):visible' }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      expect(await p.evaluate(() => (window as any).__hit)).toBe("shown");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "reports the selector as it was written when nothing reads that way",
+    async () => {
+      const p = await open(BUTTONS);
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: 'button:has-text("Decline")' }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.ok).toBe(false);
+      expect(run.logs[0].error).toBe(
+        'nothing matching `button:has-text("Decline")` is on the page',
+      );
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "collects every match of a text selector, in the order the page holds them",
+    async () => {
+      const p = await open(
+        `<a href="/post-1">giveaway one</a><a href="/x">something else</a>` +
+          `<a href="/post-2">giveaway two</a>`,
+      );
+      const run = await runWebSteps(
+        p,
+        [
+          {
+            type: "web_collect",
+            selector: 'a:has-text("giveaway")',
+            varName: "posts",
+            attribute: "href",
+          },
+          { type: "web_for_each", varName: "posts", steps: [{ type: "web_delay", waitMs: 1 }] },
+        ],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      expect(run.logs[0].outcome).toContain("/post-1");
+      expect(run.logs[0].outcome).toContain("/post-2");
+      expect(run.logs[0].outcome).not.toContain("/x");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "types into the field its own label names, which nothing about the input says",
+    async () => {
+      const p = await open(
+        `<label>Username<input id="u"></label><label>Password<input id="p"></label>`,
+      );
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_input", selector: 'label:has-text("Password") input', text: "hunter2" }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      expect(await p.evaluate(() => (document.getElementById("p") as HTMLInputElement).value)).toBe(
+        "hunter2",
+      );
+      expect(await p.evaluate(() => (document.getElementById("u") as HTMLInputElement).value)).toBe(
+        "",
+      );
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "sends a key to the field a text selector names, taking the first of several matches",
+    async () => {
+      const p = await open(
+        `<label>Search<input id="s" onkeydown="if(event.key==='Enter')window.__sent=this.id"></label>`,
+      );
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_press", key: "Enter", selector: 'label:has-text("Search") input' }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      expect(await p.evaluate(() => (window as any).__sent)).toBe("s");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "takes either of two wordings, and the one the page holds first",
+    async () => {
+      // The comma list is the CSS way to say "either"; a space between the two would say
+      // "a Next inside an Accept" and match nothing. Which one wins is decided by the page,
+      // not by the order they were written in: Accept is first in the document here.
+      const p = await open(BUTTONS + `<button onclick="window.__hit='next'">Next</button>`);
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: 'button:text-is("Next"), button:text-is("Accept")' }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      expect(await p.evaluate(() => (window as any).__hit)).toBe("exact");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "falls through to the wording that is there when the other is not",
+    async () => {
+      const p = await open(`<button onclick="window.__hit='next'">Next</button>`);
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: 'button:text-is("Accept"), button:text-is("Next")' }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      expect(await p.evaluate(() => (window as any).__hit)).toBe("next");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "matches a wording written as a pattern, which :text-is reads as literal text",
+    async () => {
+      const p = await open(`<button onclick="window.__hit='next'">Next</button>`);
+      const asPattern = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: 'button:text-matches("Accept|Next")' }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(asPattern.logs[0].error).toBeUndefined();
+      expect(await p.evaluate(() => (window as any).__hit)).toBe("next");
+
+      // The same alternation given to :text-is looks for a button reading "Accept|Next"
+      const asText = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: 'button:text-is("Accept|Next")' }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(asText.ok).toBe(false);
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "leaves a plain CSS selector to the page, stamping nothing on it",
+    async () => {
+      const p = await open(BUTTONS);
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: "#cancel" }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      expect(await p.evaluate(() => (window as any).__hit)).toBe("cancel");
+      expect(await p.evaluate(() => document.querySelectorAll("[data-bemby-sel]").length)).toBe(0);
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "carries on past a step marked to, and stops at one that is not",
+    async () => {
+      const p = await open(BUTTONS);
+      const steps = (soft: boolean) => [
+        { type: "web_button" as const, selector: "#nowhere", ...(soft ? { continueOnError: true } : {}) },
+        { type: "web_button" as const, selector: "#cancel" },
+      ];
+
+      const stopped = await runWebSteps(p, steps(false), Date.now() + 30_000, {});
+      expect(stopped.ok).toBe(false);
+      expect(stopped.logs).toHaveLength(1);
+      expect(await p.evaluate(() => (window as any).__hit)).toBeUndefined();
+
+      const carried = await runWebSteps(p, steps(true), Date.now() + 30_000, {});
+      expect(carried.ok).toBe(true);
+      expect(carried.logs[0].error).toContain("carried on");
+      expect(carried.logs[1].error).toBeUndefined();
+      expect(await p.evaluate(() => (window as any).__hit)).toBe("cancel");
+      await p.close();
+    },
+    60_000,
+  );
 });

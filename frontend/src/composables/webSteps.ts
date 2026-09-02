@@ -109,7 +109,10 @@ export type WebStepForm = {
   refine: boolean;
   /** ai_web_click_xy_multi: take the wide look at the captcha panel alone, ruled finely. */
   zoom: boolean;
+  /** web_repeat / web_for_each: carry on with the next round after one fails. */
   continueOnError: boolean;
+  /** Every other type: carry on with the next step when this one fails. */
+  continueAfterFail: boolean;
   betweenMs: number;
   check: "element" | "text" | "url" | "value";
   negate: boolean;
@@ -295,6 +298,7 @@ export function defaultWebStep(): WebStepForm {
     refine: true,
     zoom: true,
     continueOnError: true,
+    continueAfterFail: false,
     betweenMs: 45000,
     check: "element",
     negate: false,
@@ -303,8 +307,18 @@ export function defaultWebStep(): WebStepForm {
   };
 }
 
-/** Drops the fields the chosen type does not use, so the saved config stays readable. */
+/**
+ * Drops the fields the chosen type does not use, so the saved config stays readable. The
+ * flag every type carries is added on top of whatever its own type wrote.
+ */
 export function webStepToConfig(s: WebStepForm): WebStep {
+  const body = webStepBody(s);
+  // The two loops spell their own `continueOnError`, which means the round rather than the step
+  const carries = s.type !== "web_repeat" && s.type !== "web_for_each";
+  return carries && s.continueAfterFail ? { ...body, continueOnError: true } : body;
+}
+
+function webStepBody(s: WebStepForm): WebStep {
   // Written back as it was read, so opening a config this build cannot edit and saving it does
   // not quietly drop the step. Changing the type off the dropdown falls through to the fields.
   if (s.unknown && s.unknown.type === s.type) return s.unknown;
@@ -638,6 +652,12 @@ export function webStepsToConfig(steps: WebStepForm[]): WebStep[] {
 
 /** Fills the fields a saved step does not carry with the defaults, so the form is complete. */
 export function webStepFromConfig(s: WebStep): WebStepForm {
+  const form = webStepFormBody(s);
+  const carries = s.type !== "web_repeat" && s.type !== "web_for_each";
+  return carries ? { ...form, continueAfterFail: s.continueOnError === true } : form;
+}
+
+function webStepFormBody(s: WebStep): WebStepForm {
   const base = defaultWebStep();
   switch (s.type) {
     case "web_input":

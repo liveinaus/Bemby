@@ -680,8 +680,24 @@ export type CustomAction = CustomActionCommon &
     }
   );
 
+/** What every page sub-step carries, whatever its type. */
+type WebStepCommon = {
+  /**
+   * Carry on with the next step when this one fails. Not read on `web_repeat` and
+   * `web_for_each`, where the same name means "carry on with the next round".
+   */
+  continueOnError?: boolean;
+};
+
 /** One sub-step of `open_url`, run against the loaded page. */
-export type WebStep =
+export type WebStep = WebStepCommon & WebStepKind;
+
+/**
+ * Every `selector` field takes a plain CSS selector, and on top of it the pieces of
+ * Playwright's own syntax CSS has no answer for: `:has-text("Accept")`, `:text-is("Accept")`
+ * and `:visible`.
+ */
+type WebStepKind =
   | { type: "web_input"; selector: string; text: string }
   | { type: "web_button"; selector: string }
   | { type: "web_delay"; waitMs: number }
@@ -1206,6 +1222,11 @@ export type CustomStepLog = {
   webSteps?: WebStepLog[];
 };
 
+/** One run attempt of a custom job. A retried run stores one of these per attempt. */
+export type CustomJobLog = {
+  steps: CustomStepLog[];
+};
+
 export type JobProxyKind =
   | "direct"
   | "global"
@@ -1360,8 +1381,12 @@ export type Log = {
   status: "success" | "failed" | "running";
   message: string | null;
   retired: boolean;
+  /** One entry per run attempt, so a retried run carries the log of every attempt. */
   detail?:
-    CheckinAttemptLog[] | EmbywatchLog[] | { steps: CustomStepLog[] } | null;
+    | CheckinAttemptLog[]
+    | EmbywatchLog[]
+    | CustomJobLog[]
+    | null;
 };
 
 export type ScheduleStatus = {

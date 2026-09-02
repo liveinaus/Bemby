@@ -1389,12 +1389,16 @@ const zh = {
         "本循环执行多少轮，即本次运行回复多少个帖子。无需变量：每轮都自己去列表页挑一个帖子。页面上已无可回复的新帖时循环提前结束，且不算失败",
       labelBetween: "每轮间隔（毫秒）",
       betweenHint: "两轮之间等待，避免以浏览器的最快速度连续请求站点",
+      labelContinueAfterFail: "本步骤失败后继续",
+      continueAfterFailHint:
+        "勾选后本步骤失败不再中断整个流程，后续步骤照常执行，日志中仍记录该失败，并在末尾标注 carried on。适用于可有可无的步骤：只在首次访问出现的 Cookie 提示、偶尔弹出的「稍后再说」弹窗。注意后续步骤会在页面并非预期状态下继续执行，因此通常配合条件分支使用",
       labelContinueOnError: "某一轮失败后继续下一轮",
       continueOnErrorHint:
         "开启（默认）时单个帖子失败不影响其余帖子；关闭则第一轮失败即停止循环。所有轮次都失败时该步骤仍算失败",
       labelSelector: "CSS 选择器",
       selectorPlaceholder: "#username 或 button.submit",
-      selectorHint: "标准 CSS 选择器，取第一个匹配到的元素",
+      selectorHint:
+        '标准 CSS 选择器，取第一个匹配到的元素。CSS 本身无法按文字查找，因此另外支持三种写法：button:has-text("Accept") 匹配显示文字中含「Accept」的元素（不区分大小写）、button:text-is("Accept") 要求整段文字与之完全相同、button:text-matches("Accept|同意") 按正则匹配（第二个参数写 "i" 忽略大小写，用于同一个按钮有多种写法）、:visible 只匹配页面上可见的元素（同一个按钮常另有隐藏的移动端副本）。「二者取其一」用逗号分隔两个选择器，取页面上排在前面的那一个；中间留空格是「后者在前者之内」，匹配不到任何元素。类名是构建哈希、只有按钮文字稳定时用这几种写法，所有填选择器的步骤都适用',
       labelText: "输入内容",
       textPlaceholder: "要输入的文本",
       textHint:
@@ -1654,6 +1658,7 @@ const zh = {
     },
     detail: {
       attempt: "第 {n} 次尝试",
+      runAttempt: "第 {n}/{total} 次运行尝试",
       noDetail: "无详细记录",
       loading: "加载中...",
     },
@@ -3860,12 +3865,16 @@ const en: typeof zh = {
         "How many times to run the steps below -- so, how many posts get a reply this run. No list and no variable needed: each round goes and finds its own post. When the page holds nothing new the loop ends early, and that is not a failure",
       labelBetween: "Wait between rounds (ms)",
       betweenHint: "Paced so the site is not hit as fast as the browser can go",
+      labelContinueAfterFail: "Carry on if this step fails",
+      continueAfterFailHint:
+        "On, this step failing no longer stops the run: the steps after it go ahead, and the failure is still logged, marked as carried on. For a step that is optional -- a cookie banner shown on the first visit alone, a \"maybe later\" dialog that only sometimes appears. The steps after it then run against a page that is not in the state they assume, so this usually pairs with a condition",
       labelContinueOnError: "Carry on after a round that fails",
       continueOnErrorHint:
         "On (the default), one post going wrong does not cost the rest; off stops the loop at the first failure. Either way the step fails if no round got through at all",
       labelSelector: "CSS selector",
       selectorPlaceholder: "#username or button.submit",
-      selectorHint: "A standard CSS selector; the first element it matches is used",
+      selectorHint:
+        'A standard CSS selector; the first element it matches is used. CSS cannot ask about text, so three more forms are understood: button:has-text("Accept") for a control whose words contain Accept (case ignored), button:text-is("Accept") for one whose whole text reads exactly that, button:text-matches("Accept|Agree") for a pattern (a second argument of "i" ignores case, for a control worded several ways), and :visible for the one match actually on screen (a button often has a hidden mobile twin). For either of two, separate the selectors with a comma and the one the page holds first is taken; a space between them instead means the second inside the first, which matches nothing. Reach for them when the classes are build hashes and the wording is the only stable handle; every step with a selector takes them',
       labelText: "Text to type",
       textPlaceholder: "What to type in",
       textHint:
@@ -4131,6 +4140,7 @@ const en: typeof zh = {
     },
     detail: {
       attempt: "Attempt {n}",
+      runAttempt: "Run attempt {n} of {total}",
       noDetail: "No detail recorded",
       loading: "Loading...",
     },
