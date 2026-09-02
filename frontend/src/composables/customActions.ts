@@ -3,7 +3,11 @@ import type {
   CustomCondition,
   CustomConditionArm,
 } from "../api/client";
-import { appButtonsOf } from "./miniAppSteps";
+import {
+  appButtonsOf,
+  miniAppStepsFromConfig,
+  type MiniAppStepForm,
+} from "./miniAppSteps";
 import { proxyFields } from "./proxyPick";
 import { webStepsFromConfig, webStepsToConfig, type WebStepForm } from "./webSteps";
 
@@ -87,7 +91,7 @@ export type CustomActionForm = {
   verifyMaskedName: boolean;
   channelId: string;
   /** Mini App actions: the in-app steps, one per entry, run in order */
-  appSteps: string[];
+  appSteps: MiniAppStepForm[];
   /** Mini App actions: a step's label must be the control's whole text, not part of it */
   exactAppLabels: boolean;
   /** Mini App / open_url: browser budget, 0 = default */
@@ -360,7 +364,7 @@ export function actionsFromConfig(actions: CustomAction[] | undefined): CustomAc
         contact: a.contact ?? "",
         button: a.type === "open_mini_app" ? (a.button ?? "") : "",
         url: a.type === "open_mini_app_url" ? (a.url ?? "") : "",
-        appSteps: [...(a.appButtons ?? [])],
+        appSteps: miniAppStepsFromConfig(a.appButtons),
         webSteps: webStepsFromConfig(a.steps),
         exactAppLabels: a.exactAppLabels ?? false,
         successContains: a.successContains ?? "",

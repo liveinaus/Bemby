@@ -346,7 +346,7 @@
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.miniAppButtonHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0;margin-top:8px">
-        <MiniAppStepsEditor :steps="action.appSteps" />
+        <MiniAppStepsEditor :steps="action.appSteps" :ai-key-missing="aiKeyMissing" />
       </div>
       <!-- The same typed steps the open_url action drives a page with: an app is a page, and
            this is where a branch and a step allowed to fail come from -->
