@@ -8,6 +8,7 @@ import {
   startManualSession,
   stopManualSession,
   touchManualSession,
+  typeIntoManualSession,
   watchRun,
 } from "../jobs/manualBrowser";
 import { resolveWebProxyUrl } from "../jobs/runner";
@@ -86,6 +87,22 @@ router.post("/goto", async (req, res) => {
   const url = String((req.body as { url?: string }).url ?? "");
   try {
     res.json({ url: await gotoManualSession(url) });
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message ?? String(e) });
+  }
+});
+
+/**
+ * Types text into the focused field through the browser itself.
+ *
+ * The VNC keyboard cannot carry anything the remote keymap lacks, which is every CJK
+ * character, so this is what the panel uses for those.
+ */
+router.post("/type", async (req, res) => {
+  const text = String((req.body as { text?: string }).text ?? "");
+  try {
+    await typeIntoManualSession(text);
+    res.json({ ok: true });
   } catch (e: any) {
     res.status(400).json({ error: e?.message ?? String(e) });
   }

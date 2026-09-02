@@ -257,9 +257,14 @@ function sendClipboard() {
   rfb.clipboardPasteFrom(clipText.value);
   // The wire format is one byte per character unless the server offers the extended
   // clipboard, which x11vnc does not: anything outside Latin-1 arrives mangled
-  clipMsg.value = /^[\x20-\xff\r\n\t]*$/.test(clipText.value)
+  clipMsg.value = isLatin1(clipText.value)
     ? t("manualBrowser.clipboardSent")
     : t("manualBrowser.clipboardSentLossy");
+}
+
+/** What the VNC clipboard, and the remote keymap, can carry as itself. */
+function isLatin1(text: string): boolean {
+  return /^[\x20-\xff\r\n\t]*$/.test(text);
 }
 
 /**
@@ -284,6 +289,22 @@ async function typeText() {
   typing.value = true;
   clipMsg.value = t("manualBrowser.typingHint");
   try {
+    // Keysyms outside Latin-1 are not in the remote keymap, and x11vnc grafting one onto a
+    // spare keycode is slower than the keys arrive: a Chinese string typed this way loses
+    // most of itself. The browser can insert those characters directly, which is what an IME
+    // does anyway, so ask the server to do it instead.
+    if (!isLatin1(clipText.value)) {
+      try {
+        await manualBrowserApi.type(clipText.value);
+        clipMsg.value = t("manualBrowser.typedDone");
+        return;
+      } catch (e: any) {
+        // A watched run's screen has no page the panel may drive, and a page with nothing
+        // focused says so. Neither is worth falling back to keys that would drop characters.
+        clipMsg.value = e?.response?.data?.error ?? t("manualBrowser.typeInsertFailed");
+        return;
+      }
+    }
     for (const ch of clipText.value) {
       rfb.sendKey(keysymOf(ch), null);
       // A field with a keystroke handler on every character needs room to keep up

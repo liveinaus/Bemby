@@ -1458,7 +1458,9 @@ const zh = {
     clipboardSentLossy:
       "已放入远端剪贴板，但 VNC 剪贴板只支持 Latin-1，非西文字符会乱码 —— 这种情况请改用「直接输入」",
     typeIt: "直接输入",
-    typeItTip: "模拟键盘逐字输入到远端当前的输入框；请先在远端页面点中输入框",
+    typeItTip:
+      "把内容送进远端当前的输入框；请先在远端页面点中输入框。西文按键逐字模拟，中文等非西文字符由远端浏览器直接插入（VNC 键盘无法传送这些字符）",
+    typeInsertFailed: "无法直接输入：远端浏览器不接受插入的文字（正在查看运行中的任务时不可用）",
     typingNow: "输入中…",
     typingHint: "正在逐字输入 —— 请勿点击远端页面，以免焦点跑掉",
     typedDone: "输入完成",
@@ -3940,7 +3942,10 @@ const en: typeof zh = {
     clipboardSentLossy:
       "Sent, but the VNC clipboard carries Latin-1 only, so anything outside it will arrive mangled -- use 'Type it' for that",
     typeIt: "Type it",
-    typeItTip: "Sends it as keystrokes to whatever field has the focus over there, so click the field first",
+    typeItTip:
+      "Sends it to whatever field has the focus over there, so click the field first. Latin text goes as keystrokes; Chinese and anything else outside Latin-1 is inserted by the remote browser, because the VNC keyboard cannot carry those characters",
+    typeInsertFailed:
+      "Could not insert the text: the remote browser would not take it (a run being watched cannot be typed into)",
     typingNow: "Typing...",
     typingHint: "Typing it in -- leave the remote page alone so the focus does not move",
     typedDone: "Typed",

@@ -13,6 +13,7 @@ import {
 import { configuredProfileId } from "./cfBrowser";
 import { vncCommand } from "./vncInstall";
 import { runDisplay } from "./runDisplays";
+import type { Page } from "playwright-core";
 import type { CustomAction, CustomConfig, Job } from "../types";
 
 /**
@@ -396,6 +397,51 @@ export async function gotoManualSession(url: string): Promise<string> {
   await page.goto(target, { waitUntil: "domcontentloaded", timeout: 60_000 });
   current.url = page.url();
   return current.url;
+}
+
+/** The tab the operator is looking at: whichever holds the focus, else the one it opened with. */
+async function focusedManualPage(): Promise<Page | undefined> {
+  const browser = current?.browser;
+  if (!browser) return undefined;
+  for (const page of browser.context.pages()) {
+    if (page.isClosed()) continue;
+    const has = await page.evaluate(() => document.hasFocus()).catch(() => false);
+    if (has) return page;
+  }
+  return browser.page;
+}
+
+/**
+ * Puts text straight into the field that has the focus over there.
+ *
+ * The panel's other way in sends X keysyms over VNC, and x11vnc has to graft any keysym the
+ * remote keymap lacks onto a spare keycode before it can press it. The browser only honours
+ * that mapping once it has processed the change, so keys sent faster than that arrive as
+ * nothing. Every CJK character is such a keysym, which is why Chinese comes out with holes
+ * in it. This inserts the text the way an IME commits it, so nothing touches the X keymap.
+ */
+export async function typeIntoManualSession(text: string): Promise<void> {
+  if (!current) throw new Error("No browser is open");
+  if (!text) return;
+  const page = await focusedManualPage();
+  if (!page) {
+    throw new Error("This screen belongs to a running job, so the panel cannot type into it");
+  }
+  current.lastSeenAt = Date.now();
+  // Insertion goes wherever the renderer's focus is, and a page with none swallows it
+  // silently. Better to say so than to look like the text vanished again.
+  const focus = await page
+    .evaluate(() => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el) return "none";
+      if (el.isContentEditable) return "editable";
+      return el.tagName.toLowerCase();
+    })
+    .catch(() => "unknown");
+  if (focus === "none" || focus === "body" || focus === "html") {
+    throw new Error("Nothing over there has the keyboard focus: click the field first, then send it");
+  }
+  await page.keyboard.insertText(text);
 }
 
 /** Closes the session, releasing the profile so the job can run on it again. */

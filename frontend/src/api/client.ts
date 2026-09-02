@@ -2117,6 +2117,9 @@ export const manualBrowserApi = {
   /** Sends the open browser to an address; there is no address bar inside it. */
   goto: (url: string) =>
     api.post<{ url: string }>("/manual-browser/goto", { url }).then((r) => r.data),
+  /** Inserts text into the focused field over there, for characters VNC keys cannot carry. */
+  type: (text: string) =>
+    api.post<{ ok: true }>("/manual-browser/type", { text }).then((r) => r.data),
   stop: () => api.post("/manual-browser/stop").then((r) => r.data),
 };
 
