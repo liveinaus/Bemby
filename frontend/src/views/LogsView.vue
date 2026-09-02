@@ -2108,6 +2108,8 @@ function hasWarning(l: Log): boolean {
   background: #1e1e2e;
   border-radius: 8px;
   padding: 8px 12px;
+  /* The panel is dark whatever the theme, so its text cannot inherit the page's */
+  color: #cdd6f4;
 }
 
 .dev-block-label {
