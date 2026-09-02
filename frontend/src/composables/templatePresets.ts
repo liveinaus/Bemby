@@ -14,6 +14,10 @@ import { msApiConfigured } from "./msApi";
 // stale one shipped to everybody would be worse than none. This file holds the machinery, and
 // each installation keeps its own `templatePresets.local.ts` beside it: gitignored, and picked
 // up below if it is there. Without one the picker is not shown at all.
+//
+// That file is therefore backed up by nothing, so `scripts/presets.sh` keeps it in a
+// repository of your own next to the checkout and symlinks it in -- `scripts/presets.sh
+// status` says where it resolves, `link` puts the symlink back after a `git clean`.
 
 /** A name or a hint, in each language the panel speaks. */
 export type PresetText = { zh: string; en: string };
