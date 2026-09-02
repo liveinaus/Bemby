@@ -983,6 +983,38 @@ type WebStepKind =
     }
   | {
       /**
+       * Read a confirmation link out of a mailbox and hold it under a name, for a later
+       * `web_goto {name}` to open. What a signup that confirms by link rather than by code
+       * needs -- Cloudflare's own account signup is one: nothing to type, just an address
+       * that has to be visited before the account counts as verified.
+       *
+       * msOauth2api only, and a mailbox it holds: the link lives in the message body, which
+       * is what separates this from `web_email_code` -- that asks the service for the code
+       * it extracted and never sees the mail itself, so no expression can reach a URL
+       * sitting in an anchor's href.
+       */
+      type: "web_email_link";
+      /** The mailbox to read, e.g. `{email}` from a `web_email_lease`. */
+      email: string;
+      /** Pool type the address was leased under; blank uses the configured default. */
+      poolType?: string;
+      /** Name to hold the link under. */
+      varName: string;
+      /** Only consider mail whose sender contains this. Case is ignored. */
+      fromContains?: string;
+      /** Only consider mail whose subject contains this. Case is ignored. */
+      subjectContains?: string;
+      /**
+       * Only take a link carrying this, e.g. `email-verification`. Blank takes the first
+       * link in the message, which is rarely the one wanted -- a header logo usually comes
+       * first.
+       */
+      urlContains?: string;
+      /** How long to wait for the mail to arrive. Blank/0 waits 120s. */
+      waitMs?: number;
+    }
+  | {
+      /**
        * Point this job at another template, and rename it while at it. What a job whose purpose
        * changes does last: one that exists to register an account signs it up once, and from then
        * on is that account's daily job.
@@ -1216,6 +1248,56 @@ type WebStepKind =
       /** Field inside the record to hold the credential, e.g. `passkey`. */
       path?: string;
       /** Enrol another passkey even if the record already holds one at `path`. */
+      force?: boolean;
+    }
+  | {
+      /**
+       * Arm a virtual authenticator for the rest of this page's run, so a passkey or
+       * security key can be registered with no hardware -- and, where a saved one is named,
+       * load it in so a sign-in challenge answers itself.
+       *
+       * Site-agnostic, unlike `web_ms_passkey`: this arms the authenticator and leaves the
+       * site's own pages to the steps around it, which is what a form that differs from
+       * Microsoft's needs. Put it before the press that starts the registration (or before
+       * the sign-in, when loading a saved key), and `web_passkey_save` after.
+       *
+       * Registration is otherwise refused on purpose: a real `navigator.credentials.create`
+       * opens a native dialog no selector can reach and hangs the run until it times out, so
+       * every page a job drives has that call neutralised unless a step like this one says
+       * the run means to register.
+       */
+      type: "web_passkey_arm";
+      /** Data-store folder holding a passkey to load, e.g. `cloudflare`. Blank loads none. */
+      folder?: string;
+      /** Record key inside that folder, e.g. `{email}`. */
+      key?: string;
+      /** Field holding the saved passkey, e.g. `passkey`. */
+      path?: string;
+    }
+  | {
+      /**
+       * Save the passkey the site just had the authenticator mint.
+       *
+       * Runs after the press that registers one: the virtual authenticator answers the
+       * site's `create()` on its own, so there is no button for this -- the credential
+       * simply appears, and this waits for it and writes it to the data store. The private
+       * key is the point: a passkey Bemby holds the key for can sign a later sign-in itself
+       * (see `web_passkey_arm`).
+       */
+      type: "web_passkey_save";
+      /** Data-store folder to write the credential to, e.g. `cloudflare`. */
+      folder?: string;
+      /** Record key inside that folder, e.g. `{email}`. */
+      key?: string;
+      /** Field inside the record to hold the credential, e.g. `passkey`. */
+      path?: string;
+      /** Only take a credential whose site (RP id) carries this, e.g. `cloudflare.com`. */
+      rpContains?: string;
+      /** Name to hold the saved credential's id under, for a later step. */
+      varName?: string;
+      /** How long to wait for the credential to be minted. Blank/0 waits 30s. */
+      waitMs?: number;
+      /** Register another even if the record already holds one at `path`. */
       force?: boolean;
     }
   | {

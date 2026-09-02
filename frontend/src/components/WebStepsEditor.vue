@@ -369,6 +369,79 @@
         </div>
       </div>
 
+      <!-- Read a confirmation link out of a mailbox, for a signup that verifies by link -->
+      <div v-if="s.type === 'web_email_link'" class="web-step-wide">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelEmail") }}</label>
+            <input
+              v-model.trim="s.email"
+              class="form-input"
+              :placeholder="t('jobs.web.emailPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelLinkVarName") }}</label>
+            <input
+              v-model.trim="s.varName"
+              class="form-input"
+              :placeholder="t('jobs.web.linkVarNamePlaceholder')"
+            />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
+          {{ msApiEnabled ? t("jobs.web.emailLinkHint") : t("jobs.web.msApiNotConfigured") }}
+        </div>
+
+        <div class="form-row" style="margin-top: 8px">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelPoolType") }}</label>
+            <input
+              v-model.trim="s.poolType"
+              class="form-input"
+              :placeholder="t('jobs.web.poolTypePlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelUrlContains") }}</label>
+            <input
+              v-model.trim="s.urlContains"
+              class="form-input"
+              :placeholder="t('jobs.web.urlContainsPlaceholder')"
+            />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
+          {{ t("jobs.web.urlContainsHint") }}
+        </div>
+
+        <div class="form-row" style="margin-top: 8px">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelFromContains") }}</label>
+            <input
+              v-model.trim="s.fromContains"
+              class="form-input"
+              :placeholder="t('jobs.web.fromContainsPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelSubjectContains") }}</label>
+            <input
+              v-model.trim="s.subjectContains"
+              class="form-input"
+              :placeholder="t('jobs.web.subjectContainsPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ durationLabel(t("jobs.web.labelMailWait")) }}</label>
+            <NumberInput v-model="s.waitMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
+          {{ t("jobs.web.mailFilterHint") }}
+        </div>
+      </div>
+
       <!-- Take an address from the msOauth2api pool for a signup form to use -->
       <div v-if="s.type === 'web_email_lease'" class="web-step-wide">
         <div class="form-row">
@@ -1022,6 +1095,100 @@
         </div>
       </div>
 
+      <!-- Arm a virtual authenticator, so a passkey can be registered without hardware -->
+      <div v-if="s.type === 'web_passkey_arm'" class="web-step-wide">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataFolder") }}</label>
+            <input
+              v-model.trim="s.folder"
+              class="form-input"
+              :list="folderListId"
+              :placeholder="t('jobs.web.msFolderPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataKey") }}</label>
+            <input
+              v-model.trim="s.recordKey"
+              class="form-input"
+              :placeholder="t('jobs.web.msKeyPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataPath") }}</label>
+            <input
+              v-model.trim="s.path"
+              class="form-input"
+              :placeholder="t('jobs.web.passkeyPathPlaceholder')"
+            />
+          </div>
+        </div>
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
+          {{ t("jobs.web.passkeyArmHint") }}
+        </div>
+      </div>
+
+      <!-- Keep the credential the site just had the authenticator mint -->
+      <div v-if="s.type === 'web_passkey_save'" class="web-step-wide">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataFolder") }}</label>
+            <input
+              v-model.trim="s.folder"
+              class="form-input"
+              :list="folderListId"
+              :placeholder="t('jobs.web.msFolderPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataKey") }}</label>
+            <input
+              v-model.trim="s.recordKey"
+              class="form-input"
+              :placeholder="t('jobs.web.msKeyPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelDataPath") }}</label>
+            <input
+              v-model.trim="s.path"
+              class="form-input"
+              :placeholder="t('jobs.web.passkeyPathPlaceholder')"
+            />
+          </div>
+        </div>
+        <div class="form-row" style="margin-top: 8px">
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelRpContains") }}</label>
+            <input
+              v-model.trim="s.rpContains"
+              class="form-input"
+              :placeholder="t('jobs.web.rpContainsPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ t("jobs.web.labelVarName") }}</label>
+            <input
+              v-model.trim="s.varName"
+              class="form-input"
+              :placeholder="t('jobs.web.passkeyVarPlaceholder')"
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label">{{ durationLabel(t("jobs.web.labelPasskeyWait")) }}</label>
+            <NumberInput v-model="s.waitMs" class="form-input" :min="0" :step="1000" :scale="msScale" />
+          </div>
+        </div>
+        <label class="form-checkbox-label" style="margin-top: 8px">
+          <input v-model="s.optional" type="checkbox" />
+          {{ t("jobs.web.labelPasskeyForce") }}
+        </label>
+        <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
+          {{ t("jobs.web.passkeySaveHint") }}
+        </div>
+      </div>
+
       <div v-if="s.type === 'web_pick' || s.type === 'web_collect'" class="web-step-wide">
         <div class="form-group">
           <label class="form-label">{{ t("jobs.web.labelContainsText") }}</label>
@@ -1612,9 +1779,13 @@ function summaryDetail(s: WebStepForm): string {
       return `${s.folder}[${s.index}] → {${s.varName}}`;
     case "web_ms_oauth2":
       return `→ {${s.varName}}${s.folder ? ` · ${[s.folder, s.recordKey, s.path].filter(Boolean).join(".")}` : ""}`;
+    case "web_passkey_arm":
+    case "web_passkey_save":
+      return [s.folder, s.recordKey, s.path].filter(Boolean).join(".");
     case "web_totp":
     case "web_otp_secret":
     case "web_email_code":
+    case "web_email_link":
     case "web_email_lease":
     case "web_tg_code":
     case "web_read":

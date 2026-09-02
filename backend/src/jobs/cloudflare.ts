@@ -369,6 +369,8 @@ export type LoadOptions = {
   notify?: (text: string, target?: string) => Promise<void>;
   /** Reads a code out of a mailbox, for the `web_email_code` sub-step. */
   emailCode?: WebStepHooks["emailCode"];
+  /** Reads a confirmation link out of a mailbox, for the `web_email_link` sub-step. */
+  emailLink?: WebStepHooks["emailLink"];
   /** Takes an address from the msOauth2api pool, for the `web_email_lease` sub-step. */
   emailLease?: WebStepHooks["emailLease"];
   /** Waits for Telegram's own login code, for the `web_tg_code` sub-step. */
@@ -680,21 +682,63 @@ async function isVisible(page: Page, selector: string): Promise<boolean> {
  * page and dispatching real pointer events avoids the wait entirely, and is closer to what
  * a person does anyway.
  */
+async function measureCentre(
+  page: Page,
+  resolved: string,
+  scroll: boolean,
+): Promise<{ x: number; y: number } | null> {
+  return page
+    .evaluate(
+      ({ sel, scroll }: { sel: string; scroll: boolean }) => {
+        const el = document.querySelector(sel) as HTMLElement | null;
+        if (!el) return null;
+        // `instant` rather than the default: a page whose CSS asks for smooth scrolling
+        // would otherwise still be animating when this measures, and the figures returned
+        // would be of the position the element is leaving
+        if (scroll) el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+        const r = el.getBoundingClientRect();
+        if (r.width < 1 || r.height < 1) return null;
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      },
+      { sel: resolved, scroll },
+    )
+    .catch(() => null);
+}
+
+/** How many times a moving target is measured again before it is pressed where it is. */
+const STABLE_TRIES = 6;
+
+/**
+ * Where an element is, once it has stopped moving.
+ *
+ * Measuring once is not enough on a page that is still laying itself out, and the failure
+ * is silent: the pointer goes to where the element was and presses whatever arrived there.
+ * Cloudflare's own signup page is the case that found this -- its form is centred
+ * vertically, so the Turnstile widget rendering a moment after load lifts everything above
+ * it by half the widget's height, and an address typed into the email field went into the
+ * password box instead, the click having landed on the label below it.
+ *
+ * So the box is read, given a moment, and read again; a target that has settled costs one
+ * extra round trip, and one that is still moving is followed until it stops.
+ */
 async function elementCentre(
   page: Page,
   selector: string,
 ): Promise<{ x: number; y: number } | null> {
   const resolved = await resolveSelector(page, selector);
-  return page
-    .evaluate((sel: string) => {
-      const el = document.querySelector(sel) as HTMLElement | null;
-      if (!el) return null;
-      el.scrollIntoView({ block: "center", inline: "center" });
-      const r = el.getBoundingClientRect();
-      if (r.width < 1 || r.height < 1) return null;
-      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-    }, resolved)
-    .catch(() => null);
+  let last = await measureCentre(page, resolved, true);
+  if (!last) return null;
+
+  for (let i = 0; i < STABLE_TRIES; i++) {
+    await new Promise((r) => setTimeout(r, 120));
+    // Scrolled only on the first pass: scrolling again is what would keep a centred
+    // layout moving, and by now the element is in view
+    const next = await measureCentre(page, resolved, false);
+    if (!next) return last;
+    if (Math.abs(next.x - last.x) < 2 && Math.abs(next.y - last.y) < 2) return next;
+    last = next;
+  }
+  return last;
 }
 
 /**
@@ -801,16 +845,25 @@ const DEEP_QUERY_FN = `
 `;
 
 /**
- * An interactive Turnstile challenge is on the page. The response field is the reliable
- * marker: Turnstile creates it for every widget, including ones rendered explicitly into
- * the site's own element, whose iframe then lives in a closed shadow root that no
- * selector can reach.
+ * Every selector a Turnstile widget can be found by.
+ *
+ * The response field is the reliable marker: Turnstile creates one for every widget,
+ * including ones rendered explicitly into the site's own element, whose iframe then lives
+ * in a closed shadow root that no selector can reach. Two names for it, not one --
+ * `cf-turnstile-response` is what the script names it, and a site is free to ask for
+ * another: Cloudflare's own dashboard signup calls it `cf_challenge_response`, and keying
+ * on the hyphenated name alone reported no widget on a page carrying a drawn checkbox.
  */
+const TURNSTILE_MARKERS =
+  ".cf-turnstile, iframe[src*='challenges.cloudflare.com'], " +
+  "[name='cf-turnstile-response'], [name='cf_challenge_response'], [id^='cf-chl-widget']";
+
+/** An interactive Turnstile challenge is on the page. */
 async function hasTurnstileWidget(page: Page): Promise<boolean> {
   return page
     .evaluate(
       `(function () { ${DEEP_QUERY_FN}
-         return __deepQuery(".cf-turnstile, iframe[src*='challenges.cloudflare.com'], [name='cf-turnstile-response']").length > 0;
+         return __deepQuery("${TURNSTILE_MARKERS}").length > 0;
        })()`,
     )
     .then((v) => !!v)
@@ -908,7 +961,7 @@ export async function clickTurnstileWidget(page: Page): Promise<boolean> {
     box = (await page
       .evaluate(
         `(function () { ${DEEP_QUERY_FN}
-           var el = __deepQuery("iframe[src*='challenges.cloudflare.com'], .cf-turnstile, [name='cf-turnstile-response']")[0];
+           var el = __deepQuery("${TURNSTILE_MARKERS}")[0];
            if (!el) return null;
            // Climb to something actually laid out: the widget's own slot in the page
            var node = el;
@@ -939,8 +992,9 @@ export async function turnstileToken(page: Page): Promise<string> {
   return page
     .evaluate(
       `(function () { ${DEEP_QUERY_FN}
-         var el = __deepQuery("[name='cf-turnstile-response']")[0];
-         if (el && el.value) return el.value;
+         var el = __deepQuery("[name='cf-turnstile-response'], [name='cf_challenge_response']")
+           .filter(function (n) { return n.value; })[0];
+         if (el) return el.value;
          try { return window.turnstile && window.turnstile.getResponse ? (window.turnstile.getResponse() || '') : ''; }
          catch (e) { return ''; }
        })()`,
@@ -1204,6 +1258,27 @@ const WEBVIEW_PROXY_SHIM = `
 // The virtual authenticator armed for a passkey run, kept per page so the step that reads the
 // credential out uses the same CDP client that minted it (authenticators are per-client).
 const passkeyAuth = new WeakMap<Page, VirtualAuthenticator>();
+
+// What that authenticator already held when it was armed, so `web_passkey_save` can tell the
+// credential the site just minted from one loaded in for a sign-in.
+const passkeyBefore = new WeakMap<Page, Set<string>>();
+
+/**
+ * The steps that mean a run intends to register or load a passkey.
+ *
+ * A run containing one of these gets a virtual authenticator armed at launch and is spared
+ * the `create()` neutraliser; everything else keeps it, since a passkey prompt nobody asked
+ * for opens a native dialog that hangs the run until it times out.
+ */
+const PASSKEY_STEP_TYPES = [
+  "web_ms_passkey",
+  "web_ms_passkey_login",
+  "web_passkey_arm",
+  "web_passkey_save",
+] as const satisfies ReadonlyArray<WebStep["type"]>;
+
+/** How long a mint is waited for when the step names no time of its own. */
+const PASSKEY_MINT_WAIT_MS = 30_000;
 
 /** Whether any step in the tree is of `type`, loops and branches included. */
 function stepsIncludeType(steps: WebStep[] | undefined, type: WebStep["type"]): boolean {
@@ -3016,10 +3091,32 @@ async function typeIntoFocused(page: Page, text: string): Promise<boolean> {
   return !failed;
 }
 
-/** Types into the element carrying `data-bemby-mark=n`, or a plain CSS selector. */
+/** Whether the element the keystrokes were aimed at is the one that has the focus. */
+async function focusIsOn(page: Page, resolved: string): Promise<boolean> {
+  return page
+    .evaluate((sel: string) => {
+      const el = document.querySelector(sel);
+      return !!el && document.activeElement === el;
+    }, resolved)
+    .catch(() => false);
+}
+
+/**
+ * Types into the element carrying `data-bemby-mark=n`, or a plain CSS selector.
+ *
+ * The focus is checked before a keystroke is sent, and the field pressed again where it
+ * went elsewhere. A press that misses is not hypothetical: a layout still settling moves
+ * the target between the measure and the click, and a click landing on a neighbouring
+ * label focuses that field instead -- which fills the wrong box with no error anywhere.
+ */
 async function typeInto(page: Page, selector: string, text: string): Promise<boolean> {
   const resolved = await resolveSelector(page, selector);
   if (!(await clickElement(page, resolved))) return false;
+  if (!(await focusIsOn(page, resolved))) {
+    // Measured afresh: wherever the first press landed, the page has had a moment to
+    // settle since
+    if (!(await clickElement(page, resolved))) return false;
+  }
   // Replace rather than append: a field a previous attempt filled would otherwise
   // end up with both values concatenated
   await page
@@ -3136,6 +3233,21 @@ export type WebStepHooks = {
     pattern?: string;
     waitMs: number;
   }) => Promise<{ code: string; subject: string; from: string; mailbox?: string } | null>;
+  /**
+   * Reads a confirmation link out of a mailbox, for a `web_email_link` step. Supplied by the
+   * caller for the same reason as `emailCode`: the service's URL and key are settings, which
+   * this side does not read.
+   */
+  emailLink?: (query: {
+    email: string;
+    /** Pool type the address was leased under; blank uses the configured default. */
+    poolType?: string;
+    fromContains?: string;
+    subjectContains?: string;
+    /** Only take a link carrying this, e.g. `email-verification`. */
+    urlContains?: string;
+    waitMs: number;
+  }) => Promise<{ url: string; subject?: string; from?: string; mailbox?: string } | null>;
   /**
    * Takes an address from the msOauth2api pool, for a `web_email_lease` step. Supplied by the
    * caller for the same reason as the rest: the service's URL and key are settings, which this
@@ -4104,6 +4216,41 @@ async function runStepList(
           break;
         }
 
+        case "web_email_link": {
+          if (!hooks.emailLink) throw new Error("reading a mailbox is not available here");
+          const name = step.varName.trim();
+          if (!name) throw new Error("no name given to hold the link under");
+          const email = fillVars(step.email ?? "", run.current).trim();
+          if (!email) throw new Error("no mailbox given to read");
+
+          // Capped at what is left of the action's budget, as a code read is: a link that
+          // arrives after the deadline leaves no time to open it
+          const asked = step.waitMs && step.waitMs > 0 ? step.waitMs : EMAIL_CODE_WAIT_MS;
+          const waitMs = Math.max(0, Math.min(asked, msLeft(deadline)));
+          const found = await hooks.emailLink({
+            email,
+            poolType: fillVars(step.poolType ?? "", run.current).trim() || undefined,
+            fromContains: fillVars(step.fromContains ?? "", run.current).trim() || undefined,
+            subjectContains:
+              fillVars(step.subjectContains ?? "", run.current).trim() || undefined,
+            urlContains: fillVars(step.urlContains ?? "", run.current).trim() || undefined,
+            waitMs,
+          });
+          if (!found)
+            throw new Error(
+              `no matching link reached ${email} within ${Math.round(waitMs / 1000)}s`,
+            );
+          run.current.set(name, found.url);
+          const where =
+            found.mailbox && found.mailbox !== "INBOX" ? `, in ${found.mailbox}` : "";
+          // Cut short in the log: a confirmation link is mostly one long single-use token,
+          // and the host and path are what says whether the right mail was read
+          log.outcome =
+            `{${name}} = ${found.url.slice(0, 60)}${found.url.length > 60 ? "..." : ""}` +
+            ` (from ${oneLine(found.from ?? "")}${where})`;
+          break;
+        }
+
         case "web_email_lease": {
           if (!hooks.emailLease)
             throw new Error("leasing an address is not available here");
@@ -4336,6 +4483,94 @@ async function runStepList(
           log.outcome =
             `${email} is connected to msOauth2api${saved}` +
             (status.disabled ? " (the account is disabled there)" : "");
+          break;
+        }
+
+        case "web_passkey_arm": {
+          let auth = passkeyAuth.get(page);
+          if (!auth) {
+            auth = await armVirtualAuthenticator(page);
+            passkeyAuth.set(page, auth);
+          }
+          // Noted now: whatever turns up after this is what the site had minted
+          passkeyBefore.set(page, await credentialIds(auth));
+
+          if (!step.folder?.trim() || !step.key?.trim()) {
+            log.outcome = "armed a virtual authenticator for this page";
+            break;
+          }
+          const where = dataTarget(step, run);
+          const saved = readDataValue(where.folder, where.key, where.path);
+          let cred: any;
+          try {
+            cred = saved ? JSON.parse(saved) : null;
+          } catch {
+            cred = null;
+          }
+          if (!cred?.credentialId || !cred?.privateKey) {
+            // Not a failure: the same template covers accounts that have a key and ones
+            // about to get one
+            log.outcome = `armed a virtual authenticator; nothing saved at ${where.label} to load`;
+            break;
+          }
+          await injectCredential(auth, cred);
+          log.outcome = `armed a virtual authenticator and loaded the saved passkey (rp ${cred.rpId})`;
+          break;
+        }
+
+        case "web_passkey_save": {
+          const where = dataTarget(step, run); // folder/key/path required: nowhere else to keep it
+
+          // Self-skipping, so a template can run over a whole folder and only touch the
+          // records with no key yet
+          if (!step.force) {
+            const existing = readDataValue(where.folder, where.key, where.path);
+            if (existing && existing.trim() && existing !== "null") {
+              log.outcome = `already has a passkey in ${where.label}`;
+              break;
+            }
+          }
+
+          const auth = passkeyAuth.get(page);
+          if (!auth)
+            throw new Error(
+              "no virtual authenticator is armed -- put a `web_passkey_arm` step before the registration",
+            );
+          const before = passkeyBefore.get(page) ?? new Set<string>();
+          const rp = fillVars(step.rpContains ?? "", run.current).trim().toLowerCase();
+          const asked = step.waitMs && step.waitMs > 0 ? step.waitMs : PASSKEY_MINT_WAIT_MS;
+          const until = Math.min(Date.now() + asked, deadline);
+
+          let created: PasskeyCredential | undefined;
+          for (;;) {
+            created = (await listCredentials(auth)).find(
+              (c) =>
+                !before.has(c.credentialId) &&
+                (!rp || c.rpId.toLowerCase().includes(rp)),
+            );
+            if (created || Date.now() >= until) break;
+            await sleep(1_000, until);
+          }
+          if (!created)
+            throw new Error(
+              rp
+                ? `no passkey for a site matching "${rp}" was minted within ${Math.round(asked / 1000)}s`
+                : `no passkey was minted within ${Math.round(asked / 1000)}s`,
+            );
+
+          const record = {
+            credentialId: created.credentialId,
+            rpId: created.rpId,
+            userHandle: created.userHandle,
+            privateKey: created.privateKey,
+            signCount: created.signCount,
+            isResidentCredential: created.isResidentCredential,
+            createdAt: new Date().toISOString(),
+          };
+          writeDataValue(where.folder, where.key, where.path, record);
+          const heldAs = step.varName?.trim();
+          if (heldAs) run.current.set(heldAs, created.credentialId);
+          log.outcome = `saved the passkey the site minted (rp ${created.rpId}) to ${where.label}`;
           break;
         }
 
@@ -5282,6 +5517,14 @@ function describeWebStep(step: WebStep, run: WebStepRun): string {
       );
     case "web_email_code":
       return `Read a code from ${fill(step.email ?? "")} into {${step.varName}}`;
+    case "web_email_link":
+      return `Read a link from ${fill(step.email ?? "")} into {${step.varName}}`;
+    case "web_passkey_arm":
+      return step.folder?.trim()
+        ? `Arm a passkey authenticator, loading ${dataLabel(step, fill)}`
+        : "Arm a passkey authenticator";
+    case "web_passkey_save":
+      return `Save the passkey the site minted to ${dataLabel(step, fill)}`;
     case "web_email_lease":
       return `Take an address${step.poolType?.trim() ? ` for ${fill(step.poolType.trim())}` : ""} into {${step.varName}}`;
     case "web_tg_code":
@@ -5922,7 +6165,7 @@ async function attemptLoad(
       .addInitScript("window.__name = window.__name || function (a) { return a; };")
       .catch(() => {});
 
-    if (stepsIncludeType(opts.webSteps, "web_ms_passkey") || stepsIncludeType(opts.webSteps, "web_ms_passkey_login")) {
+    if (PASSKEY_STEP_TYPES.some((type) => stepsIncludeType(opts.webSteps, type))) {
       // This run means to register a passkey, so `create()` has to reach a real authenticator
       // rather than be rejected. Arm a virtual one before any navigation; it also auto-answers
       // any passkey prompt Microsoft throws up during the sign-in itself.
@@ -6057,6 +6300,7 @@ async function attemptLoad(
           markUsed: opts.markUsed,
           notify: opts.notify,
           emailCode: opts.emailCode,
+          emailLink: opts.emailLink,
           emailLease: opts.emailLease,
           tgCode: opts.tgCode,
           tgSend: opts.tgSend,

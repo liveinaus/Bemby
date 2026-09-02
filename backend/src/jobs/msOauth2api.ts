@@ -369,6 +369,202 @@ export async function pollForCode(opts: PollCodeOptions): Promise<PoolCode | nul
   }
 }
 
+export type PollLinkOptions = {
+  email: string;
+  type?: string;
+  /** Case-insensitive sender filter. */
+  fromContains?: string;
+  subjectContains?: string;
+  /** Only take a link carrying this, e.g. `email-verification`. Case is ignored. */
+  urlContains?: string;
+  /** Ignore mail older than this. Blank looks back {@link LINK_LOOKBACK_MS}. */
+  sinceMs?: number;
+  waitMs: number;
+  signal?: AbortSignal;
+};
+
+export type PoolLink = { url: string; from?: string; subject?: string; mailbox?: string };
+
+/**
+ * How far back a link read looks when the caller names no window.
+ *
+ * A pool address is handed out again once its lease lapses, so the mailbox can hold the
+ * confirmation mail of an earlier signup for the same service -- and opening that link
+ * verifies nothing about this account. Wide enough for a signup whose form took a while
+ * (a challenge waiting on a person), short enough that a previous run's mail is out.
+ */
+const LINK_LOOKBACK_MS = 30 * 60_000;
+
+/** Messages this read looks at per mailbox, newest first. */
+const LINK_MAIL_LIMIT = 10;
+
+const MAILBOXES = ["INBOX", "Junk"] as const;
+
+/** Unpicks the entities an href carries in HTML, which a browser would not be given. */
+function unescapeHtml(value: string): string {
+  return value
+    .replace(/&amp;/gi, "&")
+    .replace(/&#38;/g, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+/**
+ * The first link in a message that carries `contains`.
+ *
+ * Anchors are read before the plain-text part: a service that sends both puts the real
+ * address in the HTML and a shortened or tracked one in the text.
+ */
+export function linkFromMessage(
+  message: { html?: string; text?: string },
+  contains?: string,
+): string | undefined {
+  const needle = (contains ?? "").trim().toLowerCase();
+  const hrefs = [...String(message.html ?? "").matchAll(/href\s*=\s*["']([^"']+)["']/gi)].map(
+    (m) => unescapeHtml(m[1]),
+  );
+  const bare = [
+    ...String(message.text ?? "").matchAll(/https?:\/\/[^\s<>"')\]]+/gi),
+  ].map((m) => m[0]);
+
+  for (const url of [...hrefs, ...bare]) {
+    if (!/^https?:\/\//i.test(url)) continue;
+    if (needle && !url.toLowerCase().includes(needle)) continue;
+    return url;
+  }
+  return undefined;
+}
+
+/**
+ * Asks the service for the link, where it offers that.
+ *
+ * `get-link` is the endpoint that answers this question properly: it reads the mail, picks
+ * the anchor carrying `contains`, and retires the address the way a code read does. Older
+ * deployments have no such route and answer 404, which is what `false` reports -- the
+ * caller then reads the mail itself.
+ */
+async function askForLink(
+  opts: PollLinkOptions,
+  since: number,
+  signal?: AbortSignal,
+): Promise<PoolLink | null | false> {
+  const { status, body } = await call("get-link", {
+    params: {
+      email: normaliseEmail(opts.email),
+      type: resolvePoolType(opts.type),
+      from: opts.fromContains,
+      subject: opts.subjectContains,
+      contains: opts.urlContains,
+      since,
+    },
+    allowStatus: [404],
+    signal,
+  });
+  // 404 is the route being absent on this deployment -- but it is also what a mailbox the
+  // service does not hold answers with, and that is a real error worth reporting
+  if (status === 404) {
+    const detail = String(body?.error ?? "");
+    if (/no stored account/i.test(detail)) throw new Error(`msOauth2api: ${detail}`);
+    return false;
+  }
+  if (body?.status === "found" && body?.link) {
+    return {
+      url: String(body.link),
+      from: body?.message?.from,
+      subject: body?.message?.subject,
+      mailbox: body?.message?.mailbox,
+    };
+  }
+  return null;
+}
+
+/**
+ * Polls a mailbox until a matching link arrives or the wait runs out.
+ *
+ * A link is asked of `get-link`, and the mail is only read here where that route is not
+ * there yet: `get-code` hands back the code it extracted and nothing of the body, so a
+ * confirmation whose whole point is a URL in an anchor is invisible to it. Inbox and junk
+ * are both read, for the same reason `get-code` reads both -- mail from a service the
+ * mailbox has never heard from is often filtered.
+ */
+export async function pollForLink(opts: PollLinkOptions): Promise<PoolLink | null> {
+  const deadline = Date.now() + Math.max(0, opts.waitMs);
+  const since = opts.sinceMs ?? Date.now() - LINK_LOOKBACK_MS;
+  const from = (opts.fromContains ?? "").trim().toLowerCase();
+  const subject = (opts.subjectContains ?? "").trim().toLowerCase();
+
+  let failures = 0;
+  // Asked once per poll until it answers 404, then not again for this read
+  let serviceReads = true;
+
+  // Try at least once even on a spent budget: the mail may already be sitting there
+  while (true) {
+    let messages: any[] = [];
+    try {
+      if (serviceReads) {
+        const asked = await askForLink(opts, since, opts.signal);
+        if (asked) return asked;
+        if (asked === false) serviceReads = false;
+      }
+      if (!serviceReads) {
+        for (const mailbox of MAILBOXES) {
+          const { body } = await call("mail-all", {
+            params: {
+              email: normaliseEmail(opts.email),
+              mailbox,
+              limit: String(LINK_MAIL_LIMIT),
+            },
+            signal: opts.signal,
+          });
+          for (const message of Array.isArray(body) ? body : []) {
+            messages.push({ ...message, mailbox });
+          }
+        }
+      }
+      failures = 0;
+    } catch (err: any) {
+      // Same two exceptions as a code read: a cancelled run, and a mailbox or deployment
+      // that would answer no differently however long anyone waited
+      if (opts.signal?.aborted) throw err;
+      if (!worthReadingAgain(err)) throw err;
+
+      failures++;
+      const left = deadline - Date.now();
+      if (failures >= READ_RETRIES || left <= 0) {
+        throw new Error(
+          `${err?.message ?? err} (${failures} ${failures === 1 ? "try" : "tries"})`,
+        );
+      }
+      await sleep(Math.min(READ_RETRY_MS * 2 ** (failures - 1), left));
+      continue;
+    }
+
+    for (const message of messages) {
+      const at = Date.parse(String(message?.date ?? ""));
+      // A message whose date cannot be read fails the window rather than passing it: the
+      // point of the window is to keep an earlier signup's link out of this run
+      if (!Number.isFinite(at) || at < since) continue;
+      if (from && !String(message?.send ?? "").toLowerCase().includes(from)) continue;
+      if (subject && !String(message?.subject ?? "").toLowerCase().includes(subject)) continue;
+
+      const url = linkFromMessage(message, opts.urlContains);
+      if (url) {
+        return {
+          url,
+          from: message?.send,
+          subject: message?.subject,
+          mailbox: message?.mailbox,
+        };
+      }
+    }
+
+    if (Date.now() >= deadline) return null;
+    await sleep(Math.min(POLL_MS, deadline - Date.now()));
+  }
+}
+
 export type OauthFlowStart = {
   authorizeUrl: string;
   state: string;

@@ -893,6 +893,24 @@ type WebStepKind =
     }
   | {
       /**
+       * Read a confirmation link out of a mailbox and hold it under a name, for a later
+       * `web_goto {name}`. For a signup that verifies by link rather than by code: the URL
+       * sits in the message body, which `web_email_code` never sees.
+       */
+      type: "web_email_link";
+      email: string;
+      /** msOauth2api pool type; blank uses the configured default. */
+      poolType?: string;
+      varName: string;
+      fromContains?: string;
+      subjectContains?: string;
+      /** Only take a link carrying this, e.g. `email-verification`. */
+      urlContains?: string;
+      /** How long to wait for the mail. Blank/0 waits 120s. */
+      waitMs?: number;
+    }
+  | {
+      /**
        * Take an address from the msOauth2api pool and hold it under a name, for a signup form
        * to type and a later `web_email_code` to read the code from.
        */
@@ -1048,6 +1066,35 @@ type WebStepKind =
       key?: string;
       /** Field holding the saved passkey, e.g. `passkey`. */
       path?: string;
+    }
+  | {
+      /**
+       * Arm a virtual authenticator so a passkey or security key can be registered with no
+       * hardware, and load a saved one where the record names it. Site-agnostic: put it
+       * before the press that starts the registration, or before a sign-in that answers a
+       * passkey challenge, with `web_passkey_save` after.
+       */
+      type: "web_passkey_arm";
+      /** Data-store folder holding a passkey to load, e.g. `cloudflare`. Blank loads none. */
+      folder?: string;
+      /** Record key inside that folder, e.g. `{email}`. */
+      key?: string;
+      /** Field holding the saved passkey, e.g. `passkey`. */
+      path?: string;
+    }
+  | {
+      /** Save the passkey the site just had the authenticator mint, private key and all. */
+      type: "web_passkey_save";
+      folder?: string;
+      key?: string;
+      path?: string;
+      /** Only take a credential whose site (RP id) carries this, e.g. `cloudflare.com`. */
+      rpContains?: string;
+      varName?: string;
+      /** How long to wait for the credential. Blank/0 waits 30s. */
+      waitMs?: number;
+      /** Register another even if the record already holds one. */
+      force?: boolean;
     }
   | { type: "web_goto"; url: string; waitMs?: number }
   | { type: "web_back"; waitMs?: number }

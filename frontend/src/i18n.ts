@@ -1134,6 +1134,7 @@ const zh = {
         web_read: "读取页面文字（存为变量）",
         web_eval: "在页面执行脚本（存为变量）",
         web_email_code: "从邮箱获取验证码（存为变量）",
+        web_email_link: "从邮箱获取验证链接（存为变量）",
         web_email_lease: "领取一个邮箱地址（存为变量）",
         web_job_handover: "移交任务给其他模版（并改名）",
         web_otp_secret: "抓取两步验证密钥（存为变量）",
@@ -1145,6 +1146,8 @@ const zh = {
       web_ms_oauth2: "确认邮箱已连接（msOauth2api）",
         web_ms_passkey: "注册通行密钥并保存（msOauth2api）",
         web_ms_passkey_login: "载入已保存的通行密钥用于登录",
+        web_passkey_arm: "启用虚拟安全密钥（可载入已保存的）",
+        web_passkey_save: "保存网站刚生成的通行密钥",
         web_set: "设置变量（自定义取值，可多个）",
         web_data_read: "读取数据（存为变量）",
         web_data_pick: "按序号取记录（数据）",
@@ -1220,6 +1223,21 @@ const zh = {
       appPasswordPlaceholder: "{gmailAppPassword}",
       appPasswordHint:
         "这里填的是密钥名称，不是密码本身。请先在【设置 → 密钥】中添加，例如名称 gmailAppPassword，值为 Gmail 的应用专用密码；密码只保存在后端，任务配置与导出内容中都只有名称",
+      labelRpContains: "限定站点（RP ID 包含）",
+      rpContainsPlaceholder: "cloudflare.com",
+      labelPasskeyWait: "等待生成（毫秒）",
+      passkeyArmHint:
+        "在浏览器中启用一个虚拟安全密钥（通过 CDP），使网站的「添加通行密钥／安全密钥」流程无需真实硬件即可完成——默认情况下任务浏览器会拒绝这类注册请求，因为真实请求会弹出无法操作的系统对话框并把任务卡到超时。请放在触发注册的那一步之前。若填了数据位置且其中已存有通行密钥，则同时把它载入，使登录时的通行密钥验证自动通过（没有则跳过，不算失败）",
+      passkeySaveHint:
+        "放在触发注册的那一步之后：虚拟安全密钥会自行响应网站的注册请求，因此没有按钮可点——本步骤等待新凭据出现并写入数据（含私钥，这才是能在以后登录时自己签名的关键）。「限定站点」用于排除同一次运行中载入的旧凭据；记录中已有内容时默认跳过，除非勾选下面的强制重新注册",
+      labelLinkVarName: "变量名",
+      linkVarNamePlaceholder: "verifyLink",
+      emailLinkHint:
+        "用于「点链接确认」而不是「填验证码」的注册流程（Cloudflare 注册就是这样）：从 msOauth2api 读取该邮箱的邮件（收件箱与垃圾邮件都会看），取出邮件正文里的链接存为变量，之后用「跳转到网址」打开 {变量名} 即可完成验证。地址一般填上一步「领取一个邮箱地址」得到的 {变量名}。仅支持 msOauth2api 邮箱池：链接在邮件正文里，而「从邮箱获取验证码」只拿得到服务端提取出的验证码",
+      labelUrlContains: "链接包含",
+      urlContainsPlaceholder: "email-verification",
+      urlContainsHint:
+        "只取包含该片段的链接（不区分大小写）。留空则取邮件里的第一个链接——通常是页头的图片或官网，所以基本都要填。写路径或域名的一小段即可，例如 email-verification",
       labelFromContains: "发件人包含",
       fromContainsPlaceholder: "no-reply@example.com",
       labelSubjectContains: "主题包含",
@@ -3700,6 +3718,7 @@ const en: typeof zh = {
         web_read: "Read text off the page (into a name)",
         web_eval: "Run a script on the page (into a name)",
         web_email_code: "Get a verification code from email (into a name)",
+        web_email_link: "Get a verification link from email (into a name)",
         web_email_lease: "Take an email address from the pool (into a name)",
         web_job_handover: "Hand this job over to another template",
         web_otp_secret: "Capture the two-factor secret (into a name)",
@@ -3711,6 +3730,8 @@ const en: typeof zh = {
       web_ms_oauth2: "Confirm the mailbox is connected (msOauth2api)",
         web_ms_passkey: "Register a passkey and save it (msOauth2api)",
         web_ms_passkey_login: "Load a saved passkey for sign-in",
+        web_passkey_arm: "Arm a virtual security key (loading a saved one)",
+        web_passkey_save: "Save the passkey the site just made",
         web_set: "Set variables (values of your own)",
         web_data_read: "Read from Data (into a variable)",
         web_data_pick: "Take a record by position (Data)",
@@ -3787,6 +3808,21 @@ const en: typeof zh = {
       appPasswordPlaceholder: "{gmailAppPassword}",
       appPasswordHint:
         "The name of a secret, not the password itself. Add it under Settings → Secrets (e.g. gmailAppPassword holding your Gmail app password); the value stays on the backend, and the job config and any export carry the name alone",
+      labelRpContains: "Only for site (RP id contains)",
+      rpContainsPlaceholder: "cloudflare.com",
+      labelPasskeyWait: "Wait for the key (ms)",
+      passkeyArmHint:
+        "Arms a virtual security key in the browser over CDP, so a site's \"add a passkey / security key\" flow completes with no hardware -- a job's browser refuses those registrations by default, since a real one opens a native dialog nothing can answer and hangs the run until it times out. Put this before the press that starts the registration. Where a data location is named and holds a passkey already, it is loaded in as well, so a sign-in challenge answers itself; a record with none is passed over rather than failed",
+      passkeySaveHint:
+        "Put this after the press that registers one: the virtual key answers the site's request on its own, so there is no button to press -- this waits for the new credential and writes it to the data store, private key included, which is what lets a later sign-in be signed here. \"Only for site\" keeps a credential loaded earlier in the same run out of the way. A record that already holds one is passed over unless the box below is ticked",
+      labelLinkVarName: "Name",
+      linkVarNamePlaceholder: "verifyLink",
+      emailLinkHint:
+        "For a signup that confirms by link rather than by code -- Cloudflare's own is one: it reads the mail for this address through msOauth2api (inbox and junk both), takes the link out of the message body and holds it under a name, which a later Go to address opens as {name}. The address is usually the {name} a Take an email address step just leased. msOauth2api only: the link lives in the message body, and Get a verification code never sees that -- it asks the service for the code it extracted",
+      labelUrlContains: "Link contains",
+      urlContainsPlaceholder: "email-verification",
+      urlContainsHint:
+        "Only take a link carrying this, case ignored. Blank takes the first link in the message, which is usually a header image or the marketing site -- so this is worth filling in nearly always. A fragment of the path or host is enough, e.g. email-verification",
       labelFromContains: "Sender contains",
       fromContainsPlaceholder: "no-reply@example.com",
       labelSubjectContains: "Subject contains",

@@ -63,6 +63,10 @@ export type WebStepForm = {
   fromContains: string;
   /** web_email_code: only consider mail whose subject contains this. */
   subjectContains: string;
+  /** web_email_link: only take a link carrying this, e.g. `email-verification`. */
+  urlContains: string;
+  /** web_passkey_save: only take a credential whose site carries this. */
+  rpContains: string;
   /** web_read / web_eval: keep what was read out of the log. */
   secret: boolean;
   /** web_eval: the JavaScript to run on the page. */
@@ -156,6 +160,7 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "web_read",
   "web_eval",
   "web_email_code",
+  "web_email_link",
   "web_email_lease",
   "web_otp_secret",
   "web_totp",
@@ -167,6 +172,8 @@ export const WEB_STEP_TYPES: WebStepType[] = [
   "web_ms_oauth2",
   "web_ms_passkey",
   "web_ms_passkey_login",
+  "web_passkey_arm",
+  "web_passkey_save",
   "web_set",
   "web_data_read",
   "web_data_pick",
@@ -274,6 +281,8 @@ export function defaultWebStep(): WebStepForm {
     appPassword: "{gmailAppPassword}",
     fromContains: "",
     subjectContains: "",
+    urlContains: "",
+    rpContains: "",
     secret: false,
     script: "",
     secretRef: "",
@@ -442,6 +451,17 @@ function webStepBody(s: WebStepForm): WebStep {
         ...(s.pattern.trim() ? { pattern: s.pattern.trim() } : {}),
         ...(s.waitMs > 0 ? { waitMs: s.waitMs } : {}),
       };
+    case "web_email_link":
+      return {
+        type: "web_email_link",
+        email: s.email.trim(),
+        varName: s.varName.trim(),
+        ...(s.poolType.trim() ? { poolType: s.poolType.trim() } : {}),
+        ...(s.fromContains.trim() ? { fromContains: s.fromContains.trim() } : {}),
+        ...(s.subjectContains.trim() ? { subjectContains: s.subjectContains.trim() } : {}),
+        ...(s.urlContains.trim() ? { urlContains: s.urlContains.trim() } : {}),
+        ...(s.waitMs > 0 ? { waitMs: s.waitMs } : {}),
+      };
     case "web_email_lease":
       return {
         type: "web_email_lease",
@@ -528,6 +548,24 @@ function webStepBody(s: WebStepForm): WebStep {
         ...(s.folder.trim() ? { folder: s.folder.trim() } : {}),
         ...(s.recordKey.trim() ? { key: s.recordKey.trim() } : {}),
         ...(s.path.trim() ? { path: s.path.trim() } : {}),
+      };
+    case "web_passkey_arm":
+      return {
+        type: "web_passkey_arm",
+        ...(s.folder.trim() ? { folder: s.folder.trim() } : {}),
+        ...(s.recordKey.trim() ? { key: s.recordKey.trim() } : {}),
+        ...(s.path.trim() ? { path: s.path.trim() } : {}),
+      };
+    case "web_passkey_save":
+      return {
+        type: "web_passkey_save",
+        ...(s.folder.trim() ? { folder: s.folder.trim() } : {}),
+        ...(s.recordKey.trim() ? { key: s.recordKey.trim() } : {}),
+        ...(s.path.trim() ? { path: s.path.trim() } : {}),
+        ...(s.rpContains.trim() ? { rpContains: s.rpContains.trim() } : {}),
+        ...(s.varName.trim() ? { varName: s.varName.trim() } : {}),
+        ...(s.waitMs > 0 ? { waitMs: s.waitMs } : {}),
+        ...(s.optional ? { force: true } : {}),
       };
     case "web_notify":
       return {
@@ -769,6 +807,18 @@ function webStepFormBody(s: WebStep): WebStepForm {
         pattern: s.pattern ?? "",
         waitMs: s.waitMs ?? 120000,
       };
+    case "web_email_link":
+      return {
+        ...base,
+        type: s.type,
+        email: s.email,
+        poolType: s.poolType ?? "",
+        varName: s.varName,
+        fromContains: s.fromContains ?? "",
+        subjectContains: s.subjectContains ?? "",
+        urlContains: s.urlContains ?? "",
+        waitMs: s.waitMs ?? 120000,
+      };
     case "web_email_lease":
       return {
         ...base,
@@ -863,6 +913,26 @@ function webStepFormBody(s: WebStep): WebStepForm {
         folder: s.folder ?? "",
         recordKey: s.key ?? "",
         path: s.path ?? "",
+      };
+    case "web_passkey_arm":
+      return {
+        ...base,
+        type: s.type,
+        folder: s.folder ?? "",
+        recordKey: s.key ?? "",
+        path: s.path ?? "",
+      };
+    case "web_passkey_save":
+      return {
+        ...base,
+        type: s.type,
+        folder: s.folder ?? "",
+        recordKey: s.key ?? "",
+        path: s.path ?? "",
+        rpContains: s.rpContains ?? "",
+        varName: s.varName ?? "",
+        waitMs: s.waitMs ?? 30000,
+        optional: s.force ?? false,
       };
     case "web_notify":
       return { ...base, type: s.type, text: s.text, target: s.target ?? "" };

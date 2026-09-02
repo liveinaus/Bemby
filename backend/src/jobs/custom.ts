@@ -74,6 +74,7 @@ import {
   msApiConfigured,
   msApiOffReason,
   pollForCode,
+  pollForLink,
   startOauthFlow,
 } from "./msOauth2api";
 import { msOauthStepsIn } from "./msOauth2";
@@ -1501,6 +1502,28 @@ export async function runCustom(
           // Look a little before now, so a code sent by an earlier step counts
           sinceMs: Date.now() - EMAIL_CODE_LOOKBACK_MS,
         });
+      },
+      // And for a `web_email_link` step, which reads the mail itself rather than
+      // asking the service for a code: a signup that confirms by link has nothing
+      // to type, and the URL is in the message body
+      emailLink: async (q) => {
+        const found = await pollForLink({
+          email: q.email,
+          type: q.poolType,
+          fromContains: q.fromContains,
+          subjectContains: q.subjectContains,
+          urlContains: q.urlContains,
+          waitMs: q.waitMs,
+          signal,
+        });
+        return found
+          ? {
+              url: found.url,
+              subject: found.subject ?? "",
+              from: found.from ?? "",
+              mailbox: found.mailbox,
+            }
+          : null;
       },
       // And for a `web_email_lease` step: which pool to draw from, and the key to
       // draw with, are settings this side reads
