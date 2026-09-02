@@ -9,17 +9,28 @@
 // Rewriting is allowed, since the editor writes one canonical form per step: `delay(10s)`
 // comes back as `delay(10000)`, `scroll(y=800)` as `scroll(0, 800)`. What is compared is
 // therefore what the runner makes of each step, not the text of it.
-import { describe, it, expect } from "vitest";
-import {
-  miniAppStepsFromConfig,
-  miniAppStepsToConfig,
-} from "../../../frontend/src/composables/miniAppSteps";
+import { beforeAll, describe, it, expect } from "vitest";
 import {
   parseDelayStep,
   parseInAppSteps,
   parseScrollStep,
   type InAppStep,
 } from "../jobs/cloudflare";
+
+// Loaded at run time rather than imported: the panel's module lives outside this package's
+// rootDir, and a static import of it would fail `tsc` (which compiles the tests too). The
+// specifier is a variable so the compiler leaves it alone and vitest resolves it.
+const EDITOR_MODULE = "../../../frontend/src/composables/miniAppSteps";
+
+type StepForm = { text: string; continueAfterFail: boolean };
+let miniAppStepsFromConfig: (rows: string[] | undefined) => StepForm[];
+let miniAppStepsToConfig: (steps: StepForm[]) => string[];
+
+beforeAll(async () => {
+  const mod = await import(EDITOR_MODULE);
+  miniAppStepsFromConfig = mod.miniAppStepsFromConfig;
+  miniAppStepsToConfig = mod.miniAppStepsToConfig;
+});
 
 function meaning(steps: InAppStep[]): unknown {
   return steps.map((s) => {
@@ -65,12 +76,29 @@ describe("in-app steps through the editor", () => {
   // still refuses them and says why.
   it.each([
     ["an if with no endif", ["if(css:#a)", "css:#a"]],
-    ["a stray else", ["else"]],
-    ["a stray endif", ["endif"]],
     ["an unreadable condition", ["if(#a)", "endif"]],
+    ["a stray else beside a real branch", ["if(css:#a)", "css:#a", "endif", "else"]],
   ])("hands back rows that do not line up, untouched: %s", (_what, rows) => {
     expect(throughEditor(rows)).toEqual(rows);
     expect(parseInAppSteps(throughEditor(rows)).error).toBeTruthy();
+  });
+
+  // Upgrade safety. A sequence written before branches existed may hold a control labelled
+  // `else`; pressing it is what that step has always done, and reading it as a block marker
+  // would fail an action that has worked for months. The markers wake up only for a list
+  // that opens a branch somewhere, so both sides leave these alone.
+  it.each([
+    ["a control labelled else", ["else"]],
+    ["a control labelled endif", ["endif"]],
+    ["one among ordinary steps", ["签到", "else", "delay(2000)"]],
+  ])("leaves a marker word alone where nothing branches: %s", (_what, rows) => {
+    expect(throughEditor(rows)).toEqual(rows);
+    const plan = parseInAppSteps(rows);
+    expect(plan.error).toBeUndefined();
+    // Every row is a step of its own, with the marker word among them read as a label
+    expect(plan.steps).toEqual(
+      rows.map((r) => ({ kind: "do", text: r, optional: false })),
+    );
   });
 
   it("drops a step whose only field was left empty, rather than writing a blank row", () => {

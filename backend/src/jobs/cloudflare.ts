@@ -2048,6 +2048,12 @@ const IN_APP_ENDIF = /^end\s*if$/i;
  * can be fixed in the panel, and no steps are run.
  */
 export function parseInAppSteps(steps: string[]): { steps: InAppStep[]; error?: string } {
+  // Block markers only mean anything to a list that opens a branch somewhere. A sequence
+  // written before branches existed may hold a control labelled `else`, and pressing it is
+  // exactly what it has always done -- reading it as a marker would fail the whole action on
+  // a config that has worked for months. One `if(` row is what turns the markers on.
+  const branching = steps.some((raw) => IN_APP_IF.test((raw ?? "").trim()));
+
   type Frame = {
     cond: InAppCondition;
     then: InAppStep[];
@@ -2080,7 +2086,7 @@ export function parseInAppSteps(steps: string[]): { steps: InAppStep[]; error?: 
       continue;
     }
 
-    if (IN_APP_ELSE.test(text)) {
+    if (branching && IN_APP_ELSE.test(text)) {
       const frame = open[open.length - 1];
       if (!frame) return fault("`else` has no `if(...)` above it");
       if (frame.inElse) return fault("one `if(...)` cannot have two `else` steps");
@@ -2088,7 +2094,7 @@ export function parseInAppSteps(steps: string[]): { steps: InAppStep[]; error?: 
       continue;
     }
 
-    if (IN_APP_ENDIF.test(text)) {
+    if (branching && IN_APP_ENDIF.test(text)) {
       const frame = open.pop();
       if (!frame) return fault("`endif` has no `if(...)` above it");
       holding().push({

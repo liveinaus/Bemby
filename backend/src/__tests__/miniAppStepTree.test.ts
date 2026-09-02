@@ -123,13 +123,28 @@ describe("parseInAppSteps", () => {
   // guessing at it would report a checkin that never happened
   it("refuses blocks that do not line up, naming what is wrong", () => {
     expect(parseInAppSteps(["if(css:#a)", "css:#a"]).error).toMatch(/no `endif`/);
-    expect(parseInAppSteps(["else", "css:#a"]).error).toMatch(/`else` has no `if/);
-    expect(parseInAppSteps(["endif"]).error).toMatch(/`endif` has no `if/);
+    expect(parseInAppSteps(["if(css:#a)", "endif", "else"]).error).toMatch(
+      /`else` has no `if/,
+    );
+    expect(parseInAppSteps(["if(css:#a)", "endif", "endif"]).error).toMatch(
+      /`endif` has no `if/,
+    );
     expect(
       parseInAppSteps(["if(css:#a)", "else", "else", "endif"]).error,
     ).toMatch(/two `else`/);
     expect(parseInAppSteps(["if(#a)", "endif"]).error).toMatch(/not a condition/);
     expect(parseInAppSteps(["?"]).error).toMatch(/on its own/);
+  });
+
+  // A sequence written before branches existed may hold a control labelled `else`. Pressing
+  // it is what that step has always done, so the markers mean nothing until a list opens a
+  // branch -- otherwise an upgrade would fail an action that has worked for months.
+  it("reads a marker word as a label where the list opens no branch", () => {
+    expect(parseInAppSteps(["else"]).steps).toEqual([
+      { kind: "do", text: "else", optional: false },
+    ]);
+    expect(parseInAppSteps(["签到", "endif"]).error).toBeUndefined();
+    expect(textsOf(parseInAppSteps(["签到", "endif"]).steps)).toEqual(["签到", "endif"]);
   });
 
   it("runs nothing when the blocks are wrong", () => {

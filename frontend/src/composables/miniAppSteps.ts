@@ -179,8 +179,10 @@ function rowToStep(row: string): MiniAppStepForm | null {
     return step;
   }
 
-  // Anything else is the label of a control to press, which is what most steps are
-  if (/^\{|^end\s*if$|^else$/i.test(row)) return null;
+  // Anything else is the label of a control to press, which is what most steps are. A
+  // placeholder this build does not know is not one of them; `else`/`endif` reach here only
+  // from a list that opens no branch, where they always were labels
+  if (/^\{/.test(row)) return null;
   const step = blankMiniAppStep("label");
   step.text = row;
   return step;
@@ -201,6 +203,11 @@ export function miniAppStepsFromConfig(rows: string[] | undefined): MiniAppStepF
       return step;
     });
 
+  // The same rule the runner applies: `else` and `endif` are markers only in a list that
+  // opens a branch somewhere, so a step written before branches existed and labelled `else`
+  // is still a control to press rather than a config the editor refuses to read
+  const branching = source.some((row) => IF_ROW.test(row));
+
   type Frame = { step: MiniAppStepForm; inElse: boolean };
   const top: MiniAppStepForm[] = [];
   const open: Frame[] = [];
@@ -220,13 +227,13 @@ export function miniAppStepsFromConfig(rows: string[] | undefined): MiniAppStepF
       open.push({ step, inElse: false });
       continue;
     }
-    if (ELSE_ROW.test(row)) {
+    if (branching && ELSE_ROW.test(row)) {
       const frame = open[open.length - 1];
       if (!frame || frame.inElse) return unreadable();
       frame.inElse = true;
       continue;
     }
-    if (ENDIF_ROW.test(row)) {
+    if (branching && ENDIF_ROW.test(row)) {
       const frame = open.pop();
       if (!frame) return unreadable();
       holding().push(frame.step);
