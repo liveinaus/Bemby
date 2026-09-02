@@ -685,28 +685,43 @@ async function isVisible(page: Page, selector: string): Promise<boolean> {
 async function measureCentre(
   page: Page,
   resolved: string,
-  scroll: boolean,
+  bring: "into-view" | "keep-in-view",
 ): Promise<{ x: number; y: number } | null> {
-  return page
-    .evaluate(
-      ({ sel, scroll }: { sel: string; scroll: boolean }) => {
-        const el = document.querySelector(sel) as HTMLElement | null;
-        if (!el) return null;
-        // `instant` rather than the default: a page whose CSS asks for smooth scrolling
-        // would otherwise still be animating when this measures, and the figures returned
-        // would be of the position the element is leaving
-        if (scroll) el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
-        const r = el.getBoundingClientRect();
-        if (r.width < 1 || r.height < 1) return null;
-        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-      },
-      { sel: resolved, scroll },
-    )
-    .catch(() => null);
+  // Two functions rather than one taking a flag, because the argument stays the selector
+  // alone: everything on this side hands `evaluate` a string, and the page steps' tests
+  // stand in for it on that basis.
+  //
+  // `instant` rather than the default in both: a page whose CSS asks for smooth scrolling
+  // would still be animating when this measures, and the figures would be of the position
+  // the element is leaving. `nearest` on the later passes leaves an element that is already
+  // visible exactly where it is -- scrolling again is what would keep a centred layout
+  // moving, and the point of those passes is to watch it come to rest.
+  const measure =
+    bring === "into-view"
+      ? (sel: string) => {
+          const el = document.querySelector(sel) as HTMLElement | null;
+          if (!el) return null;
+          el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+          const r = el.getBoundingClientRect();
+          if (r.width < 1 || r.height < 1) return null;
+          return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+        }
+      : (sel: string) => {
+          const el = document.querySelector(sel) as HTMLElement | null;
+          if (!el) return null;
+          el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+          const r = el.getBoundingClientRect();
+          if (r.width < 1 || r.height < 1) return null;
+          return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+        };
+  return page.evaluate(measure, resolved).catch(() => null);
 }
 
 /** How many times a moving target is measured again before it is pressed where it is. */
 const STABLE_TRIES = 6;
+
+/** Between those measurements: long enough for a frame to be laid out, short enough to add up to little. */
+const STABLE_GAP_MS = 120;
 
 /**
  * Where an element is, once it has stopped moving.
@@ -726,14 +741,13 @@ async function elementCentre(
   selector: string,
 ): Promise<{ x: number; y: number } | null> {
   const resolved = await resolveSelector(page, selector);
-  let last = await measureCentre(page, resolved, true);
+  let last = await measureCentre(page, resolved, "into-view");
   if (!last) return null;
 
   for (let i = 0; i < STABLE_TRIES; i++) {
-    await new Promise((r) => setTimeout(r, 120));
-    // Scrolled only on the first pass: scrolling again is what would keep a centred
-    // layout moving, and by now the element is in view
-    const next = await measureCentre(page, resolved, false);
+    await new Promise((r) => setTimeout(r, STABLE_GAP_MS));
+    const next = await measureCentre(page, resolved, "keep-in-view");
+    // Gone, or no longer laid out: the last figures are the best there are
     if (!next) return last;
     if (Math.abs(next.x - last.x) < 2 && Math.abs(next.y - last.y) < 2) return next;
     last = next;

@@ -57,9 +57,13 @@ import { bulkMgmtGuard } from "../middleware/bulkMgmt";
 import {
   assertUsableImage,
   avatarPoolStatus,
+  isPoolImageName,
+  poolImageExtensions,
+  saveToAvatarPool,
   MAX_AVATAR_BYTES,
 } from "../tg/avatarSource";
 import { normaliseUsername, usernameError } from "../tg/usernames";
+import { looksLikeZip, readZip } from "../system/zipRead";
 import {
   startBulkProfile,
   getBulkProfileStatus,
@@ -1041,6 +1045,82 @@ router.get("/:id/check-username", async (req, res) => {
 router.get("/avatar-pool", (_req, res) => {
   res.json(avatarPoolStatus());
 });
+
+/**
+ * The whole upload, compressed. Wide enough for a few hundred photos and narrow enough that
+ * one request cannot fill the disk; the pool is images for profile photos, not a file store.
+ */
+const MAX_POOL_UPLOAD_BYTES = 64 * 1024 * 1024;
+
+/** Most images taken from one archive, so a stray backup zip does not unpack for minutes. */
+const MAX_POOL_UPLOAD_FILES = 500;
+
+// POST /avatar-pool -- add images to the local pool: a .zip of them, or one image on its own.
+//
+// The body is the file itself (application/octet-stream), as the avatar and messenger uploads
+// are: base64 in JSON would inflate it by a third for no gain. A zip is recognised by its
+// magic bytes rather than by what the browser called it, and unpacked here -- flattened, since
+// what the pool wants is images, not the folders they were filed under.
+router.post(
+  "/avatar-pool",
+  raw({ type: () => true, limit: MAX_POOL_UPLOAD_BYTES }),
+  (req, res) => {
+    const body = req.body as Buffer;
+    if (!Buffer.isBuffer(body) || !body.length) {
+      res.status(400).json({ error: "File body is required" });
+      return;
+    }
+    const filename = String(req.query.filename ?? "").slice(0, 200);
+    const added: string[] = [];
+    const skipped: Array<{ name: string; why: string }> = [];
+
+    if (looksLikeZip(body)) {
+      let archive;
+      try {
+        archive = readZip(body, {
+          // One image may be as large as one Telegram will take; the archive as a whole is
+          // bounded by what the request itself was allowed to be
+          maxEntryBytes: MAX_AVATAR_BYTES,
+          maxTotalBytes: MAX_POOL_UPLOAD_BYTES,
+          maxEntries: MAX_POOL_UPLOAD_FILES,
+        });
+      } catch (err: any) {
+        res.status(400).json({ error: err?.message ?? "The archive could not be read" });
+        return;
+      }
+      skipped.push(...archive.skipped);
+      for (const entry of archive.files) {
+        // Checked by name first: an archive of a photo folder carries thumbnails, resource
+        // forks and a .DS_Store, and none of them is worth reading as an image
+        if (!isPoolImageName(entry.name)) {
+          skipped.push({
+            name: entry.name,
+            why: `not one of ${poolImageExtensions().join(", ")}`,
+          });
+          continue;
+        }
+        try {
+          added.push(saveToAvatarPool(entry.name, entry.data));
+        } catch (err: any) {
+          skipped.push({ name: entry.name, why: err?.message ?? "could not be saved" });
+        }
+      }
+    } else {
+      // Not an archive: take it as the single image it looks like, and say so plainly when
+      // it is neither -- "add a zip or an image" is the only useful answer here
+      try {
+        added.push(saveToAvatarPool(filename || "avatar.jpg", body));
+      } catch (err: any) {
+        res.status(400).json({
+          error: err?.message ?? "Not a ZIP archive or a usable image",
+        });
+        return;
+      }
+    }
+
+    res.json({ added, skipped, ...avatarPoolStatus() });
+  },
+);
 
 // GET /:id/avatar -- the account's current Telegram profile photo.
 // Returned as a data URL rather than raw bytes so an <img> can show it: this router sits

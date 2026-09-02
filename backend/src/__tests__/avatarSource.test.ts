@@ -15,8 +15,11 @@ import {
   assertUsableImage,
   avatarPoolDir,
   avatarPoolStatus,
+  isPoolImageName,
   listAvatarPool,
   pickFromPool,
+  poolImageExtensions,
+  saveToAvatarPool,
 } from "../tg/avatarSource";
 
 const root = mkdtempSync(path.join(os.tmpdir(), "avatars-"));
@@ -115,5 +118,90 @@ describe("avatarPoolStatus", () => {
     const status = avatarPoolStatus();
     expect(status).toMatchObject({ dir: pool, count: 1, online: true });
     expect(status.styles).toBeGreaterThan(5);
+  });
+});
+
+// Uploading into the pool. The names come out of a ZIP somebody made on their own machine,
+// so none of them can be trusted as a path.
+describe("saveToAvatarPool", () => {
+  it("writes the image into the pool under its own name", () => {
+    const name = saveToAvatarPool("face.png", PNG);
+    expect(name).toBe("face.png");
+    expect(listAvatarPool()).toEqual([path.join(pool, "face.png")]);
+  });
+
+  it("creates the pool directory when it is the first upload", () => {
+    rmSync(pool, { recursive: true, force: true });
+    saveToAvatarPool("first.png", PNG);
+    expect(listAvatarPool()).toHaveLength(1);
+  });
+
+  it("flattens a path in the archive rather than following it", () => {
+    const name = saveToAvatarPool("holiday/2019/img.png", PNG);
+    expect(name).toBe("holiday-2019-img.png");
+    expect(listAvatarPool()).toEqual([path.join(pool, "holiday-2019-img.png")]);
+  });
+
+  it("cannot be talked into writing outside the pool", () => {
+    const name = saveToAvatarPool("../../etc/cron.d/evil.png", PNG);
+    expect(name).not.toContain("..");
+    expect(name).not.toContain("/");
+    expect(listAvatarPool()).toEqual([path.join(pool, name)]);
+  });
+
+  it("takes a Windows archiver's backslashes as separators too", () => {
+    expect(saveToAvatarPool("photos\\2020\\a.png", PNG)).toBe("photos-2020-a.png");
+  });
+
+  it("keeps both files when two archives hold the same name", () => {
+    expect(saveToAvatarPool("IMG_0001.jpg", JPEG)).toBe("IMG_0001.jpg");
+    expect(saveToAvatarPool("IMG_0001.jpg", JPEG)).toBe("IMG_0001-2.jpg");
+    expect(saveToAvatarPool("IMG_0001.jpg", JPEG)).toBe("IMG_0001-3.jpg");
+    expect(listAvatarPool()).toHaveLength(3);
+  });
+
+  it("replaces the characters a filename should not carry", () => {
+    const name = saveToAvatarPool("我的 photo (1)!.png", PNG);
+    expect(name).toMatch(/^[a-zA-Z0-9._-]+\.png$/);
+  });
+
+  it("falls back to a name of its own when nothing usable is left", () => {
+    expect(saveToAvatarPool("...", PNG)).toBe("avatar.jpg");
+  });
+
+  it("refuses something that is not an image, before it is written", () => {
+    expect(() => saveToAvatarPool("notes.png", Buffer.from("<html>nope</html>"))).toThrow(
+      /Not a JPEG, PNG or WebP/,
+    );
+    expect(listAvatarPool()).toEqual([]);
+  });
+
+  it("shows up in the count the panel reads", () => {
+    saveToAvatarPool("a.png", PNG);
+    saveToAvatarPool("b.jpg", JPEG);
+    expect(avatarPoolStatus().count).toBe(2);
+    expect(avatarPoolStatus().dir).toBe(avatarPoolDir());
+  });
+});
+
+describe("isPoolImageName", () => {
+  it("takes the extensions the pool reads", () => {
+    for (const extension of poolImageExtensions()) {
+      expect(isPoolImageName(`photo${extension}`)).toBe(true);
+    }
+    expect(isPoolImageName("PHOTO.JPG")).toBe(true);
+  });
+
+  it("leaves everything else in the archive alone", () => {
+    expect(isPoolImageName("notes.txt")).toBe(false);
+    expect(isPoolImageName("photos/")).toBe(false);
+    expect(isPoolImageName(".DS_Store")).toBe(false);
+    expect(isPoolImageName("photos/.hidden.png")).toBe(false);
+    expect(isPoolImageName("__MACOSX/._face.png")).toBe(false);
+  });
+
+  it("looks at the last segment, not the folders above it", () => {
+    expect(isPoolImageName("holiday/2019/img.png")).toBe(true);
+    expect(isPoolImageName("img.png/notes.txt")).toBe(false);
   });
 });

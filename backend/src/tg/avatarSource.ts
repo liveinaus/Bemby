@@ -171,6 +171,55 @@ export async function pickRandomAvatar(
   }
 }
 
+/**
+ * Adds an image to the pool under a name of its own.
+ *
+ * The archive's own name is a *suggestion*, never a path: only its last segment is kept and
+ * anything but plain characters is replaced, so an entry called `../../etc/cron.d/x.png`
+ * lands as `etc-cron.d-x.png` in the pool and nowhere else. A name already taken gets a
+ * counter, since two archives of holiday photos both holding `IMG_0001.jpg` is the normal
+ * case rather than the odd one.
+ */
+export function saveToAvatarPool(suggestedName: string, buf: Buffer): string {
+  assertUsableImage(buf);
+
+  const dir = avatarPoolDir();
+  fs.mkdirSync(dir, { recursive: true });
+
+  // Windows archivers write backslashes, so both separators count as one
+  const flat = suggestedName.replace(/\\/g, "/");
+  const base = flat.split("/").filter(Boolean).join("-");
+  const extension = IMAGE_EXTENSIONS.has(path.extname(base).toLowerCase())
+    ? path.extname(base).toLowerCase()
+    : ".jpg";
+  const stem =
+    path
+      .basename(base, path.extname(base))
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/^[-.]+/, "")
+      .slice(0, 80) || "avatar";
+
+  let name = `${stem}${extension}`;
+  for (let n = 2; fs.existsSync(path.join(dir, name)); n++) {
+    name = `${stem}-${n}${extension}`;
+  }
+  fs.writeFileSync(path.join(dir, name), buf);
+  return name;
+}
+
+/** Whether a name in an archive is worth unpacking at all. */
+export function isPoolImageName(name: string): boolean {
+  const base = name.replace(/\\/g, "/").split("/").pop() ?? "";
+  // Resource forks and the folder macOS puts them in, plus editor and OS leftovers
+  if (!base || base.startsWith(".") || name.includes("__MACOSX")) return false;
+  return IMAGE_EXTENSIONS.has(path.extname(base).toLowerCase());
+}
+
+/** The extensions the pool reads, for telling someone what to put in the archive. */
+export function poolImageExtensions(): string[] {
+  return [...IMAGE_EXTENSIONS].sort();
+}
+
 export type AvatarPoolStatus = {
   dir: string;
   count: number;

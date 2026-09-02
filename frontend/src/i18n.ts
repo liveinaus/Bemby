@@ -292,7 +292,15 @@ const zh = {
       avatarPoolCount: "本地图库图片数",
       avatarStyles: "在线风格数",
       avatarPoolEmpty:
-        "本地图库为空。把 .jpg / .png / .webp 图片放进上面的目录，或改用在线头像。",
+        "本地图库为空。用下面的上传按钮添加图片，或改用在线头像。",
+      avatarUploadHint:
+        "可上传一个 zip 压缩包（服务端解压，只取其中的 .jpg / .png / .webp，子目录会被拉平），也可以直接上传单张图片。单张图片上限 10 MB，单次上传上限 64 MB、500 张。同名文件会自动加序号，不会覆盖已有图片。",
+      avatarUploading: "上传中……",
+      avatarUploadAdded: "已添加 {n} 张",
+      avatarUploadSkipped: "跳过 {n} 项：",
+      avatarUploadMore: "……另有 {n} 项",
+      avatarUploadFailed: "上传失败",
+      avatarUploadTooBig: "文件超过 64 MB，请分成多个压缩包上传",
       usernameLabel: "同时设置用户名（@handle）",
       usernameFormat: "用户名格式",
       usernameHint:
@@ -2847,7 +2855,15 @@ const en: typeof zh = {
       avatarPoolCount: "Images in the local pool",
       avatarStyles: "Online styles",
       avatarPoolEmpty:
-        "The local pool is empty. Drop .jpg, .png or .webp files into the directory above, or switch to the online source.",
+        "The local pool is empty. Add images with the upload below, or switch to the online source.",
+      avatarUploadHint:
+        "Upload a zip and the server unpacks it, taking the .jpg, .png and .webp files out of it and flattening any folders -- or upload a single image as it is. Up to 10 MB an image, and 64 MB or 500 images an upload. A name already in the pool gets a counter rather than overwriting what is there.",
+      avatarUploading: "Uploading...",
+      avatarUploadAdded: "Added {n}",
+      avatarUploadSkipped: "Skipped {n}:",
+      avatarUploadMore: "... and {n} more",
+      avatarUploadFailed: "The upload failed",
+      avatarUploadTooBig: "The file is over 64 MB -- split it into several archives",
       usernameLabel: "Also set a username (@handle)",
       usernameFormat: "Username pattern",
       usernameHint:

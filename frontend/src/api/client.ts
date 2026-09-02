@@ -253,6 +253,12 @@ export type AvatarPoolStatus = {
   styles: number;
 };
 
+/** What came of an upload: the pool's new state, and what was left out of it and why. */
+export type AvatarPoolUpload = AvatarPoolStatus & {
+  added: string[];
+  skipped: Array<{ name: string; why: string }>;
+};
+
 export type BulkProfileBatch = {
   id: string;
   createdAt: string;
@@ -1605,6 +1611,16 @@ export const accountsApi = {
       .then((r) => r.data),
   avatarPool: () =>
     api.get<AvatarPoolStatus>("/accounts/avatar-pool").then((r) => r.data),
+  // A .zip of images, or one image on its own -- the backend tells them apart by their bytes.
+  // Sent as the file itself, as setAvatar is: base64 in JSON would inflate it by a third.
+  uploadAvatarPool: (file: File) =>
+    api
+      .post<AvatarPoolUpload>(
+        `/accounts/avatar-pool?filename=${encodeURIComponent(file.name)}`,
+        file,
+        { headers: { "Content-Type": "application/octet-stream" } },
+      )
+      .then((r) => r.data),
   export: (ids?: number[], secret?: string) =>
     api
       .post<AccountExportPayload>("/accounts/export", {
