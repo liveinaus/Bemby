@@ -35,6 +35,19 @@
           </select>
         </div>
         <div class="tgc-header-right">
+          <span
+            class="tgc-sync-pill"
+            :class="'is-' + syncState"
+            :title="
+              syncState === 'live'
+                ? 'Receiving updates from Telegram'
+                : syncState === 'catchingUp'
+                  ? 'Replaying what this account missed'
+                  : 'Not connected -- retrying'
+            "
+          >
+            <span class="tgc-sync-dot"></span>{{ syncStateLabel }}
+          </span>
           <button
             class="tgc-icon-btn"
             :title="t('tgc.clearAccountCache')"
@@ -484,8 +497,9 @@
                       <i class="fa-solid fa-check"></i>
                     </div>
 
-                    <!-- Hover action bar -->
-                    <div v-if="!selectMode" class="tgc-msg-actions">
+                    <!-- Hover action bar. Hidden while a message is unsent: its id is a
+                         local placeholder, so replying to or deleting it means nothing. -->
+                    <div v-if="!selectMode && !msg.sendState" class="tgc-msg-actions">
                       <button
                         class="tgc-msg-action"
                         title="Reply"
@@ -608,10 +622,11 @@
                         rel="noopener"
                       >
                         <i
-                          class="fa-solid fa-file-arrow-down tgc-msg-doc-icon"
+                          class="fa-solid tgc-msg-doc-icon"
+                          :class="mediaIcon(msg.media)"
                         ></i>
                         <span class="tgc-msg-doc-name">{{
-                          msg.fileName || "File"
+                          msg.fileName || mediaLabel(msg.media)
                         }}</span>
                       </a>
                       <div
@@ -647,7 +662,21 @@
                           fmtMsgTime(msg.date)
                         }}</span>
                         <i
-                          v-if="msg.fromMe"
+                          v-if="msg.fromMe && msg.sendState === 'sending'"
+                          class="fa-regular fa-clock tgc-msg-tick"
+                          title="Sending"
+                        ></i>
+                        <button
+                          v-else-if="msg.fromMe && msg.sendState === 'failed'"
+                          class="tgc-msg-retry"
+                          title="Not sent -- click to try again"
+                          @click.stop="retrySend(msg)"
+                        >
+                          <i class="fa-solid fa-triangle-exclamation"></i>
+                          Retry
+                        </button>
+                        <i
+                          v-else-if="msg.fromMe"
                           :class="['fa-solid', msg.isRead ? 'fa-check-double' : 'fa-check', 'tgc-msg-tick']"
                         ></i>
                       </div>
@@ -1957,6 +1986,8 @@ import {
   type TgMember,
   type TgNameMention,
   type TgMediaKind,
+  type TgReaction,
+  type TgSyncStateName,
   type TgInvitePreview,
   type TgReportReason,
 } from "../api/client";
@@ -2075,8 +2106,18 @@ let markReadTimer: ReturnType<typeof setTimeout> | null = null;
 let markReadPending: { chatId: string; maxId: number } | null = null;
 
 // Watcher that keeps re-fetching the last bot message while the bot is still editing it
+// Placeholder ids for messages not yet acknowledged by Telegram. Negative so they can
+// never collide with a real message id.
+let localMsgIdSeq = 0;
+const nextLocalMsgId = () => --localMsgIdSeq;
+// Files whose upload failed, keyed by the placeholder bubble's id, so Retry can resend them
+const failedUploads = new Map<number, { file: File; asDocument: boolean }>();
+
 let botMsgWatchTimer: ReturnType<typeof setTimeout> | null = null;
 let botMsgWatchGen = 0;
+const BOT_WATCH_INTERVAL_MS = 3_000;
+const BOT_WATCH_STALE_LIMIT = 2; // unchanged polls before giving up
+const BOT_WATCH_TICK_LIMIT = 6; // hard cap, so a chatty bot cannot poll forever
 let botMsgWatchText = '';
 let botMsgWatchStaleTicks = 0;
 let botMsgWatchTotalTicks = 0;
@@ -2362,6 +2403,16 @@ let wsBackoff = 1_000; // ms, doubles on each failure, caps at 30s
 let wsAccountId: number | null = null; // account the socket is open for
 let wsEverOpen = false; // distinguishes first-open from reconnect
 let scrolledToBottom = true;
+
+// What the account's connection is doing. Shown in the header so a stalled socket or a
+// catch-up in progress is visible, rather than something the user has to infer from the
+// messages not moving.
+const syncState = ref<TgSyncStateName>("reconnecting");
+const syncStateLabel = computed(() => {
+  if (syncState.value === "catchingUp") return "Catching up";
+  if (syncState.value === "reconnecting") return "Reconnecting";
+  return "Live";
+});
 
 // Floating jump-to-latest button (shown when scrolled away from the bottom)
 const jumpBtnVisible = ref(false);
@@ -3871,7 +3922,9 @@ function stopBotMsgWatch() {
   }
 }
 
-// Start polling the active bot chat's last message every 2s until it stops changing.
+// A safety net, not the mechanism. Bots rewrite their own messages constantly, and this
+// used to be the only way to notice; edits now arrive as updates and patch the bubble
+// directly, so the watch is short, and a live edit for the watched message cancels it.
 // Safe to call multiple times -- no-ops if a watch is already scheduled.
 function scheduleBotMsgWatch() {
   const lastMsg = messages.value[messages.value.length - 1];
@@ -3902,13 +3955,15 @@ function scheduleBotMsgWatch() {
       botMsgWatchStaleTicks = 0;
     }
 
-    // Stop after 3 unchanged polls or 20 total polls (~40s safety cap)
-    if (botMsgWatchStaleTicks < 3 && botMsgWatchTotalTicks < 20) {
-      botMsgWatchTimer = setTimeout(tick, 2000);
+    if (
+      botMsgWatchStaleTicks < BOT_WATCH_STALE_LIMIT &&
+      botMsgWatchTotalTicks < BOT_WATCH_TICK_LIMIT
+    ) {
+      botMsgWatchTimer = setTimeout(tick, BOT_WATCH_INTERVAL_MS);
     }
   };
 
-  botMsgWatchTimer = setTimeout(tick, 2000);
+  botMsgWatchTimer = setTimeout(tick, BOT_WATCH_INTERVAL_MS);
 }
 
 async function checkMembershipStatus(): Promise<void> {
@@ -4511,17 +4566,41 @@ function quoteText(
   return media ? t(`tgc.reply.${media}`) : t("tgc.reply.message");
 }
 
-/** Same wording for a message we hold in full, from its own media flags. */
+/**
+ * What kind of media a message carries. The backend now sends this outright; the flags are
+ * the fallback for payloads cached before it did, which can only tell photo from document.
+ */
+function msgMedia(msg: TgMessage): TgMediaKind | null {
+  if (msg.media) return msg.media;
+  if (msg.hasSticker) return "sticker";
+  if (msg.hasPhoto) return "photo";
+  if (msg.hasDocument) return "document";
+  return null;
+}
+
+/** Same wording for a message we hold in full, from its own media. */
 function msgPreview(msg: TgMessage): string {
   if (msg.text) return msg.text;
-  const media: TgMediaKind | null = msg.hasSticker
-    ? "sticker"
-    : msg.hasPhoto
-      ? "photo"
-      : msg.hasDocument
-        ? "document"
-        : null;
-  return quoteText(null, media, msg.fileName);
+  return quoteText(null, msgMedia(msg), msg.fileName);
+}
+
+const MEDIA_ICONS: Record<string, string> = {
+  video: "fa-film",
+  voice: "fa-microphone",
+  audio: "fa-music",
+  contact: "fa-address-card",
+};
+
+/** Icon for an attachment bubble, so a video does not read as a nondescript file. */
+function mediaIcon(media: TgMediaKind | null | undefined): string {
+  return MEDIA_ICONS[media ?? ""] ?? "fa-file-arrow-down";
+}
+
+/** Name for an attachment the sender gave no filename. */
+function mediaLabel(media: TgMediaKind | null | undefined): string {
+  return media && media !== "document"
+    ? t(`tgc.reply.${media}`)
+    : t("tgc.reply.document");
 }
 
 /** Reply fields for a message we append before the server echoes it back. */
@@ -4538,13 +4617,7 @@ function replyFieldsFor(replyMsg: TgMessage | null | undefined) {
     replyToId: replyMsg.id,
     replyToText: replyMsg.text,
     replyToName: replyMsg.fromName,
-    replyToMedia: (replyMsg.hasSticker
-      ? "sticker"
-      : replyMsg.hasPhoto
-        ? "photo"
-        : replyMsg.hasDocument
-          ? "document"
-          : null) as TgMediaKind | null,
+    replyToMedia: msgMedia(replyMsg),
     replyToFileName: replyMsg.fileName,
   };
 }
@@ -4815,6 +4888,8 @@ function onSearchInput() {
 async function openChat(dialog: TgDialog, addToHistory = false) {
   // Cancel the background dialog load so this request gets the connection first
   cancelBgDialogLoad();
+  // Leaving a chat abandons its unsent bubbles, so stop holding their files
+  failedUploads.clear();
   // Prefer fresh dialog data from the loaded list (has accurate unreadCount)
   const fresh = dialogs.value.find((d) => d.chatId === dialog.chatId);
   let dlg = fresh ?? dialog;
@@ -5250,18 +5325,22 @@ function triggerFilePick() {
   fileInput.value?.click();
 }
 
+/** Stages a file on the composer, with a preview when it is an image. */
+function setPendingFile(file: File) {
+  if (pendingPreviewUrl.value) URL.revokeObjectURL(pendingPreviewUrl.value);
+  const isImage = file.type.startsWith("image/");
+  pendingFile.value = file;
+  pendingPreviewUrl.value = isImage ? URL.createObjectURL(file) : null;
+  // Non-image files default to being sent as a document
+  sendAsDocument.value = !isImage;
+}
+
 function onFileSelected(e: Event) {
   const input = e.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = ""; // allow re-selecting the same file later
   if (!file) return;
-  if (pendingPreviewUrl.value) URL.revokeObjectURL(pendingPreviewUrl.value);
-  pendingFile.value = file;
-  pendingPreviewUrl.value = file.type.startsWith("image/")
-    ? URL.createObjectURL(file)
-    : null;
-  // Non-image files default to being sent as a document.
-  sendAsDocument.value = !file.type.startsWith("image/");
+  setPendingFile(file);
   nextTick(() => inputEl.value?.focus());
 }
 
@@ -5283,11 +5362,7 @@ function onPaste(e: ClipboardEvent) {
     if (!blob) continue;
     e.preventDefault();
     const ext = item.type.split("/")[1] || "png";
-    const file = new File([blob], `pasted-image.${ext}`, { type: item.type });
-    if (pendingPreviewUrl.value) URL.revokeObjectURL(pendingPreviewUrl.value);
-    pendingFile.value = file;
-    pendingPreviewUrl.value = URL.createObjectURL(file);
-    sendAsDocument.value = false;
+    setPendingFile(new File([blob], `pasted-image.${ext}`, { type: item.type }));
     return;
   }
 }
@@ -5300,37 +5375,52 @@ async function sendFileMessage() {
   const caption = inputText.value.trim();
   const replyMsg = replyingTo.value;
   const asDocument = sendAsDocument.value;
+  const chatId = activeChatId.value;
   inputText.value = "";
   replyingTo.value = null;
   clearPendingFile();
   if (inputEl.value) inputEl.value.style.height = "auto";
+
+  // An upload takes long enough that waiting for it to finish before showing anything
+  // reads as the app having ignored the send.
+  const asPhoto = !asDocument && file.type.startsWith("image/");
+  const optimistic: TgMessage = {
+    id: nextLocalMsgId(),
+    text: caption,
+    html: null,
+    date: Math.floor(Date.now() / 1000),
+    fromMe: true,
+    isRead: false,
+    fromId: null,
+    fromName: null,
+    hasPhoto: asPhoto,
+    hasDocument: !asPhoto,
+    hasSticker: false,
+    fileName: asPhoto ? null : file.name,
+    buttons: null,
+    reactions: null,
+    ...replyFieldsFor(replyMsg),
+    replyCount: null,
+    sendState: "sending",
+  };
+  messages.value.push(optimistic);
+  await scrollBottom(true);
+
   try {
     const result = await tgClientApi.sendFile(
       selectedAccountId.value,
-      activeChatId.value,
+      chatId,
       file,
       { caption: caption || undefined, asDocument, replyToMsgId: replyMsg?.id },
     );
-    messages.value.push({
-      id: result.id,
-      text: caption,
-      html: null,
-      date: result.date,
-      fromMe: true,
-      isRead: false,
-      fromId: null,
-      fromName: null,
-      hasPhoto: result.hasPhoto,
-      hasDocument: result.hasDocument,
-      hasSticker: false,
-      fileName: result.hasDocument ? file.name : null,
-      buttons: null,
-      reactions: null,
-      ...replyFieldsFor(replyMsg),
-      replyCount: null,
-    });
-    await scrollBottom(true);
-    const idx = dialogs.value.findIndex((d) => d.chatId === activeChatId.value);
+    const pending = messages.value.find((m) => m.id === optimistic.id);
+    if (pending) {
+      pending.hasPhoto = result.hasPhoto;
+      pending.hasDocument = result.hasDocument;
+      pending.fileName = result.hasDocument ? file.name : null;
+    }
+    settleOptimistic(optimistic.id, result.id, result.date);
+    const idx = dialogs.value.findIndex((d) => d.chatId === chatId);
     if (idx !== -1) {
       dialogs.value[idx] = {
         ...dialogs.value[idx],
@@ -5344,7 +5434,11 @@ async function sendFileMessage() {
       dialogs.value.unshift(moved);
     }
   } catch (e: any) {
-    console.error("Send file failed:", e);
+    const pending = messages.value.find((m) => m.id === optimistic.id);
+    if (pending) pending.sendState = "failed";
+    // Held so Retry can put the same file back on the composer
+    failedUploads.set(optimistic.id, { file, asDocument });
+    showToast(e?.response?.data?.error ?? e?.message ?? "File not sent");
   } finally {
     sending.value = false;
     await nextTick();
@@ -5367,6 +5461,7 @@ async function sendMessage() {
   sending.value = true;
   const replyMsg = replyingTo.value;
   const mentions = nameMentionEntities(text);
+  const chatId = activeChatId.value;
   inputText.value = "";
   replyingTo.value = null;
   pickedNameMentions.value = [];
@@ -5374,36 +5469,43 @@ async function sendMessage() {
   if (inputEl.value) {
     inputEl.value.style.height = "auto";
   }
+
+  // The bubble goes up before the round trip, so the chat responds immediately and a
+  // failure has somewhere to show itself. Waiting for the server meant a failed send
+  // discarded the typed text with nothing on screen to say so.
+  const optimistic: TgMessage = {
+    id: nextLocalMsgId(),
+    text,
+    html: null,
+    date: Math.floor(Date.now() / 1000),
+    fromMe: true,
+    isRead: false,
+    fromId: null,
+    fromName: null,
+    hasPhoto: false,
+    hasDocument: false,
+    hasSticker: false,
+    fileName: null,
+    buttons: null,
+    reactions: null,
+    ...replyFieldsFor(replyMsg),
+    replyCount: null,
+    sendState: "sending",
+  };
+  messages.value.push(optimistic);
+  await scrollBottom(true);
+
   try {
     const result = await tgClientApi.send(
       selectedAccountId.value,
-      activeChatId.value,
+      chatId,
       text,
       replyMsg?.id,
       mentions,
     );
-    // Optimistically append
-    messages.value.push({
-      id: result.id,
-      text,
-      html: null,
-      date: result.date,
-      fromMe: true,
-      isRead: false,
-      fromId: null,
-      fromName: null,
-      hasPhoto: false,
-      hasDocument: false,
-      hasSticker: false,
-      fileName: null,
-      buttons: null,
-      reactions: null,
-      ...replyFieldsFor(replyMsg),
-      replyCount: null,
-    });
-    await scrollBottom(true);
-    // Update dialog preview
-    const idx = dialogs.value.findIndex((d) => d.chatId === activeChatId.value);
+    settleOptimistic(optimistic.id, result.id, result.date);
+
+    const idx = dialogs.value.findIndex((d) => d.chatId === chatId);
     if (idx !== -1) {
       dialogs.value[idx] = {
         ...dialogs.value[idx],
@@ -5414,7 +5516,9 @@ async function sendMessage() {
       dialogs.value.unshift(moved);
     }
   } catch (e: any) {
-    console.error("Send failed:", e);
+    const pending = messages.value.find((m) => m.id === optimistic.id);
+    if (pending) pending.sendState = "failed";
+    showToast(e?.response?.data?.error ?? e?.message ?? "Message not sent");
   } finally {
     sending.value = false;
     await nextTick();
@@ -5422,9 +5526,47 @@ async function sendMessage() {
   }
 }
 
+/**
+ * Swaps a pending bubble for the id Telegram gave it. The socket sometimes delivers the
+ * real message first, in which case the placeholder is simply dropped rather than
+ * duplicating it.
+ */
+function settleOptimistic(localId: number, realId: number, date: number) {
+  const idx = messages.value.findIndex((m) => m.id === localId);
+  if (idx === -1) return;
+  if (messages.value.some((m) => m.id === realId)) {
+    messages.value.splice(idx, 1);
+    return;
+  }
+  messages.value[idx] = {
+    ...messages.value[idx],
+    id: realId,
+    date,
+    sendState: undefined,
+  };
+}
+
+/** Puts a failed message back through the composer -- reply, caption and file included. */
+async function retrySend(msg: TgMessage) {
+  if (msg.sendState !== "failed" || sending.value) return;
+  const upload = failedUploads.get(msg.id);
+  failedUploads.delete(msg.id);
+  messages.value = messages.value.filter((m) => m.id !== msg.id);
+  inputText.value = msg.text;
+  replyingTo.value = msg.replyToId
+    ? (messages.value.find((m) => m.id === msg.replyToId) ?? null)
+    : null;
+  if (upload) {
+    setPendingFile(upload.file);
+    sendAsDocument.value = upload.asDocument;
+  }
+  await sendMessage();
+}
+
 // ── WebSocket live connection ─────────────────────────────────────────────────
 
 function closeLiveSocket() {
+  syncState.value = "reconnecting";
   if (wsReconnectTimer) {
     clearTimeout(wsReconnectTimer);
     wsReconnectTimer = null;
@@ -5464,7 +5606,9 @@ function startLiveSocket() {
     try {
       const data = JSON.parse(e.data as string);
       if (data.type === "authenticated") {
-        // Auth handshake complete -- resume normal operation
+        // Auth handshake complete. The backend replays the account's real sync state as
+        // soon as it subscribes, so this is only the value shown in between.
+        syncState.value = "live";
         if (wsEverOpen) {
           catchUpActiveChatMessages();
         }
@@ -5475,7 +5619,27 @@ function startLiveSocket() {
       } else if (data.type === "message") {
         onIncomingMessage(data.chatId as string, data.message as TgMessage);
       } else if (data.type === "dialogs" && Array.isArray(data.dialogs)) {
-        dialogs.value = data.dialogs as TgDialog[];
+        mergeDialogs(data.dialogs as TgDialog[]);
+      } else if (data.type === "edited") {
+        onMessageEdited(data.chatId as string, data.message as TgMessage);
+      } else if (data.type === "deleted") {
+        onMessagesDeleted(data.chatId as string, data.ids as number[]);
+      } else if (data.type === "reactions") {
+        onReactionsChanged(
+          data.chatId as string,
+          data.msgId as number,
+          (data.reactions as TgReaction[] | null) ?? null,
+        );
+      } else if (data.type === "readInbox") {
+        onReadInbox(data.chatId as string, data.unreadCount as number);
+      } else if (data.type === "pinned") {
+        onPinnedChanged(
+          data.chatId as string,
+          data.ids as number[],
+          Boolean(data.pinned),
+        );
+      } else if (data.type === "syncState") {
+        syncState.value = data.state as TgSyncStateName;
       } else if (data.type === "readOutbox") {
         onReadOutbox(data.chatId as string, data.maxId as number);
       } else if (data.type === "typing") {
@@ -5492,6 +5656,7 @@ function startLiveSocket() {
 
   ws.onclose = () => {
     if (wsAccountId !== accountId) return; // account changed -- don't reconnect
+    syncState.value = "reconnecting";
     // Exponential backoff reconnect, capped at 30 s
     wsReconnectTimer = setTimeout(() => {
       wsBackoff = Math.min(wsBackoff * 2, 30_000);
@@ -5533,7 +5698,7 @@ function onIncomingMessage(chatId: string, msg: TgMessage) {
   if (idx !== -1) {
     const updated = {
       ...dialogs.value[idx],
-      lastMessage: { text: msg.text, date: msg.date, fromMe: false },
+      lastMessage: { text: msg.text, date: msg.date, fromMe: msg.fromMe },
     };
     if (!msg.fromMe && chatId !== activeChatId.value)
       updated.unreadCount = (updated.unreadCount ?? 0) + 1;
@@ -5556,6 +5721,94 @@ function onIncomingMessage(chatId: string, msg: TgMessage) {
     // If a bot sent this message it may keep editing it -- start the watcher
     if (!msg.fromMe) scheduleBotMsgWatch();
   }
+}
+
+/**
+ * A message was rewritten -- most often a bot editing its own. Patched in place by id so
+ * the bubble updates without the list jumping, which is what the manual refresh used to do.
+ */
+function onMessageEdited(chatId: string, msg: TgMessage) {
+  if (chatId === activeChatId.value) {
+    const idx = messages.value.findIndex((m) => m.id === msg.id);
+    if (idx !== -1) {
+      messages.value[idx] = msg;
+      // The live edit beat the poll to it, so the poll has nothing left to find
+      if (idx === messages.value.length - 1) stopBotMsgWatch();
+    }
+    else if (msg.id > (messages.value[messages.value.length - 1]?.id ?? 0)) {
+      // Edited a message we never had: treat it as an arrival rather than dropping it
+      messages.value.push(msg);
+      scrollBottom();
+    }
+  }
+  syncDialogPreview(chatId, msg);
+}
+
+function onMessagesDeleted(chatId: string, ids: number[]) {
+  if (chatId !== activeChatId.value) return;
+  const gone = new Set(ids);
+  messages.value = messages.value.filter((m) => !gone.has(m.id));
+}
+
+function onReactionsChanged(
+  chatId: string,
+  msgId: number,
+  reactions: TgReaction[] | null,
+) {
+  if (chatId !== activeChatId.value) return;
+  const msg = messages.value.find((m) => m.id === msgId);
+  if (msg) msg.reactions = reactions;
+}
+
+function onPinnedChanged(chatId: string, ids: number[], pinned: boolean) {
+  if (chatId !== activeChatId.value) return;
+  const affected = new Set(ids);
+  for (const msg of messages.value) {
+    if (affected.has(msg.id)) msg.pinned = pinned;
+  }
+  void loadPinnedMessage();
+}
+
+// The chat was read somewhere else -- another device, or the phone -- so the badge here is
+// stale. Telegram reports what is still unread, which is what the badge should show.
+function onReadInbox(chatId: string, unreadCount: number) {
+  const idx = dialogs.value.findIndex((d) => d.chatId === chatId);
+  if (idx !== -1) dialogs.value[idx].unreadCount = unreadCount;
+}
+
+/** Keeps the sidebar preview in step with a message that changed under it. */
+function syncDialogPreview(chatId: string, msg: TgMessage) {
+  const idx = dialogs.value.findIndex((d) => d.chatId === chatId);
+  if (idx === -1) return;
+  const current = dialogs.value[idx].lastMessage;
+  if (current && current.date > msg.date) return; // A newer message already previews
+  dialogs.value[idx] = {
+    ...dialogs.value[idx],
+    lastMessage: { text: msg.text, date: msg.date, fromMe: msg.fromMe },
+  };
+}
+
+/**
+ * Folds a server dialog list into the local one instead of replacing it. A straight
+ * assignment threw away unread counts and the optimistic reordering done when a message
+ * arrives, so the sidebar visibly jumped backwards a moment after every new message.
+ */
+function mergeDialogs(incoming: TgDialog[]) {
+  const local = new Map(dialogs.value.map((d) => [d.chatId, d]));
+  dialogs.value = incoming.map((next) => {
+    const prev = local.get(next.chatId);
+    if (!prev) return next;
+    // Keep whichever preview is actually newer
+    const keepLocal =
+      prev.lastMessage &&
+      (!next.lastMessage || prev.lastMessage.date > next.lastMessage.date);
+    return {
+      ...next,
+      ...(keepLocal
+        ? { lastMessage: prev.lastMessage, unreadCount: prev.unreadCount }
+        : {}),
+    };
+  });
 }
 
 // Mark outgoing messages as read when the backend reports the recipient read them
@@ -5721,6 +5974,84 @@ async function saveContactEdit() {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+}
+
+.tgc-msg-retry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  color: var(--danger, #b4544f);
+}
+
+.tgc-msg-retry:hover {
+  text-decoration: underline;
+}
+
+.tgc-sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 6px;
+  margin-right: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  background: var(--bg-inset);
+}
+
+.tgc-sync-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.tgc-sync-pill.is-live {
+  color: var(--success, #3f9e6a);
+}
+
+.tgc-sync-pill.is-catchingUp {
+  color: var(--warning, #b98218);
+}
+
+.tgc-sync-pill.is-catchingUp .tgc-sync-dot,
+.tgc-sync-pill.is-reconnecting .tgc-sync-dot {
+  animation: tgc-sync-blink 1.1s ease-in-out infinite;
+}
+
+.tgc-sync-pill.is-reconnecting {
+  color: var(--danger, #b4544f);
+}
+
+@keyframes tgc-sync-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tgc-sync-pill .tgc-sync-dot {
+    animation: none;
+  }
+}
+
+/* The label is the first thing to go when the header runs out of room */
+@media (max-width: 560px) {
+  .tgc-sync-pill {
+    padding: 4px;
+    gap: 0;
+    font-size: 0;
+  }
 }
 
 .tgc-logo {

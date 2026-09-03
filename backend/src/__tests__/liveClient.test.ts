@@ -1135,7 +1135,9 @@ describe('subscribeToMessages', () => {
     const peerId  = new MockPeerUser({ userId: 402n });
     const fromPeer = new MockPeerUser({ userId: 401n });
 
-    eventCb({
+    // The handler resolves the sender's display name before emitting, so delivery lands a
+    // few microtasks later rather than inline with the event.
+    await eventCb({
       message: {
         id:          10,
         message:     'Incoming!',
@@ -1156,7 +1158,7 @@ describe('subscribeToMessages', () => {
 
     // After unsub, further events must not reach the subscriber
     unsub();
-    eventCb({
+    await eventCb({
       message: {
         id: 11, message: 'After unsub', date: 1700000021,
         out: false, peerId, fromId: null, media: null, replyMarkup: null,

@@ -551,6 +551,44 @@ try {
   `);
 } catch {}
 
+// Telegram's common update state per account (updates.getState). Persisted so a client
+// that reconnects, restarts or comes back from idle eviction can ask updates.getDifference
+// for everything it missed instead of silently dropping it.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tg_sync_state (
+      account_id INTEGER PRIMARY KEY,
+      pts        INTEGER NOT NULL,
+      qts        INTEGER NOT NULL,
+      date       INTEGER NOT NULL,
+      seq        INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+} catch {}
+
+// Which slice of a chat's history tg_message_cache actually holds. Without it the cache
+// cannot tell a full page from a fragment, so a chat with three cached rows would answer
+// a fifty-message request with three. min_id/max_id bound one contiguous run of messages;
+// has_start marks that the run reaches the beginning of the chat.
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tg_chat_sync (
+      account_id     INTEGER NOT NULL,
+      chat_id        TEXT    NOT NULL,
+      min_id         INTEGER NOT NULL,
+      max_id         INTEGER NOT NULL,
+      has_start      INTEGER NOT NULL DEFAULT 0,
+      reconciled_at  INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (account_id, chat_id)
+    )
+  `);
+} catch {}
+
+// Rows cached before tg_chat_sync existed have no range, so nothing is backfilled here on
+// purpose: no range means "cannot serve this from cache", the page is refetched, and the
+// range is recorded then. An upgrade costs one refetch per chat and loses no data.
+
 // Make api_id and api_hash nullable so accounts can fall back to global defaults
 try {
   const cols = db.prepare("PRAGMA table_info(tg_accounts)").all() as Array<{

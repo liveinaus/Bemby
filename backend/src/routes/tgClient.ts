@@ -50,7 +50,10 @@ import {
   editMessage,
   forwardMessages,
   sendTyping,
-  syncMessagesInBackground,
+  reconcileChat,
+  cacheCoversRequest,
+  getChatRange,
+  recordChatRange,
   joinChannel,
   leaveChat,
   getCachedDialogs,
@@ -206,25 +209,36 @@ router.get("/:accountId/messages/:chatId", async (req, res) => {
       return msgs.map((m) => m.fromMe ? { ...m, isRead: m.id <= readMaxId } : m);
     };
 
-    if (offsetId === 0 && !fresh) {
-      // Initial load: serve from cache instantly, sync new messages in the background
-      const cached = getCachedMessages(accountId, chatId, limit);
+    // Cache is served only when the recorded range proves it holds the whole window.
+    // Serving a short page instead would read to the frontend as the end of history.
+    const wantsCache = !fresh || offsetId !== 0;
+    if (wantsCache && cacheCoversRequest(accountId, chatId, limit, offsetId || undefined)) {
+      const range = getChatRange(accountId, chatId);
+      const cached = getCachedMessages(
+        accountId,
+        chatId,
+        limit,
+        offsetId || undefined,
+        range?.minId,
+      );
       if (cached.length > 0) {
         res.json(applyReadStatus(cached));
-        syncMessagesInBackground(accountId, chatId).catch(() => {});
-        return;
-      }
-    } else if (offsetId !== 0) {
-      // Pagination: serve from cache if it covers a full page
-      const cached = getCachedMessages(accountId, chatId, limit, offsetId);
-      if (cached.length >= limit) {
-        res.json(applyReadStatus(cached));
+        // Only the newest page can have gone stale behind us
+        if (offsetId === 0) reconcileChat(accountId, chatId).catch(() => {});
         return;
       }
     }
 
     const msgs = await getMessages(entry, chatId, limit, offsetId);
     cacheMessages(accountId, chatId, msgs);
+    if (msgs.length) {
+      recordChatRange(accountId, chatId, {
+        minId: msgs[msgs.length - 1].id,
+        maxId: offsetId ? Math.max(msgs[0].id, offsetId - 1) : msgs[0].id,
+        // A page shorter than asked for means the chat has no more history below it
+        hasStart: msgs.length < limit,
+      });
+    }
     res.json(msgs);
   } catch (err: any) {
     tgError(err, accountId, res);
@@ -341,7 +355,7 @@ router.post("/:accountId/messages/:chatId", async (req, res) => {
     // GramJS NewMessage fires for incoming messages; this is the fallback for any it misses.
     for (const delay of [1500, 4000, 9000]) {
       setTimeout(() => {
-        syncMessagesInBackground(accountId, chatId).catch(() => {});
+        reconcileChat(accountId, chatId).catch(() => {});
       }, delay);
     }
   } catch (err: any) {
@@ -396,7 +410,7 @@ router.post("/:accountId/messages/:chatId/share-phone", async (req, res) => {
     // Same reply-polling fallback as a plain send: the bot usually answers straight away.
     for (const delay of [1500, 4000, 9000]) {
       setTimeout(() => {
-        syncMessagesInBackground(accountId, chatId).catch(() => {});
+        reconcileChat(accountId, chatId).catch(() => {});
       }, delay);
     }
   } catch (err: any) {
@@ -461,7 +475,7 @@ router.post(
       res.json(result);
       for (const delay of [1500, 4000, 9000]) {
         setTimeout(() => {
-          syncMessagesInBackground(accountId, chatId).catch(() => {});
+          reconcileChat(accountId, chatId).catch(() => {});
         }, delay);
       }
     } catch (err: any) {
@@ -734,7 +748,7 @@ router.post("/:accountId/messages/:chatId/forward", async (req, res) => {
     const entry = await getLiveClient(accountId);
     await forwardMessages(entry, chatId, String(toChatId), msgIds);
     // Sync the target chat so the forwarded messages appear promptly
-    syncMessagesInBackground(accountId, String(toChatId)).catch(() => {});
+    reconcileChat(accountId, String(toChatId)).catch(() => {});
     res.json({ ok: true });
   } catch (err: any) {
     tgError(err, accountId, res);

@@ -7,11 +7,15 @@ import {
   subscribeToDialogs,
   subscribeToReadOutbox,
   subscribeToTyping,
-  syncMessagesInBackground,
+  subscribeToEvents,
+  reconcileChat,
 } from "./liveClient";
 
-// How often (ms) to poll for new messages in the active chat as a GramJS event fallback
-const SYNC_INTERVAL_MS = 4_000;
+// A watchdog, not the delivery mechanism. Edits, deletions and reactions now arrive as
+// updates, and a gap is replayed by the catch-up on connect, so this only has to cover the
+// case where the socket is up but Telegram has quietly stopped sending. The old four-second
+// poll refetched a hundred messages a tick and still could not see an edit.
+const RECONCILE_INTERVAL_MS = 30_000;
 
 /**
  * The panel's own socket. Built with `noServer` and handed to the router in server.ts:
@@ -100,15 +104,23 @@ async function setupConnection(ws: WebSocket, accountId: number): Promise<void> 
       }
     });
 
+    // Edits, deletions, reactions, incoming read marks, pins and connection state. Each
+    // event already carries its own `type`, so it goes out as-is; a client that predates
+    // one of them ignores the frame rather than breaking on it.
+    const unsubscribeEvents = subscribeToEvents(accountId, (event) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(event));
+      }
+    });
+
     // Track which chat the frontend currently has open
     let activeChatId: string | null = null;
 
-    // Periodic sync -- fallback for when GramJS NewMessage events don't fire
     const syncInterval = setInterval(() => {
       if (activeChatId && ws.readyState === WebSocket.OPEN) {
-        syncMessagesInBackground(accountId, activeChatId).catch(() => {});
+        reconcileChat(accountId, activeChatId).catch(() => {});
       }
-    }, SYNC_INTERVAL_MS);
+    }, RECONCILE_INTERVAL_MS);
 
     ws.on("message", (rawData: Buffer) => {
       try {
@@ -118,6 +130,9 @@ async function setupConnection(ws: WebSocket, accountId: number): Promise<void> 
         };
         if (data.type === "activateChat" && typeof data.chatId === "string") {
           activeChatId = data.chatId;
+          // Opening a chat is the moment its staleness shows, so check it there and then
+          // rather than waiting up to a full watchdog interval.
+          reconcileChat(accountId, data.chatId, { force: true }).catch(() => {});
         }
       } catch {
         /* ignore malformed messages */
@@ -146,6 +161,7 @@ async function setupConnection(ws: WebSocket, accountId: number): Promise<void> 
       unsubscribeDialogs();
       unsubscribeReadOutbox();
       unsubscribeTyping();
+      unsubscribeEvents();
     };
 
     ws.on("close", cleanup);

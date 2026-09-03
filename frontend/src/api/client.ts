@@ -2871,7 +2871,22 @@ export type TgMessage = {
   replyToFileName?: string | null;
   /** Set on service messages; absent on payloads cached before they were supported. */
   service?: TgServiceInfo | null;
+  /** When the sender last edited this message. */
+  editDate?: number | null;
+  /** This message's own media, so video, voice and GIF are not all "document". */
+  media?: TgMediaKind | null;
+  /** Shared by every message of an album. */
+  groupedId?: string | null;
+  pinned?: boolean;
+  /**
+   * Client-only. Set while a message is on its way to Telegram, or once that failed;
+   * absent on anything the server sent us.
+   */
+  sendState?: "sending" | "failed";
 };
+
+/** A change to a message the client already has. Mirrors TgLiveEvent on the backend. */
+export type TgSyncStateName = "live" | "catchingUp" | "reconnecting";
 
 export type TgContact = {
   chatId: string;

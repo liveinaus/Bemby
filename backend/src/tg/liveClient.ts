@@ -96,7 +96,36 @@ export type TgMsgPayload = {
   replyToFileName?: string | null;
   /** Set on service messages (someone joined, left, renamed the group...); null otherwise. */
   service?: TgServiceInfo | null;
+  /** When the sender last edited this message, so a sync can tell a change from a repeat. */
+  editDate?: number | null;
+  /** This message's own media, so video, voice and GIF stop rendering as a plain document. */
+  media?: TgMediaKind | null;
+  /** Shared by every message of an album, so the UI can group them into one block. */
+  groupedId?: string | null;
+  /** True while the message is pinned in its chat. */
+  pinned?: boolean;
 };
+
+/**
+ * A change to something already on screen. New messages keep their own channel
+ * (`TgLiveMessage`); everything here patches a message, or a chat, that the client has
+ * already been told about.
+ */
+export type TgLiveEvent =
+  | { type: "edited"; chatId: string; message: TgMsgPayload }
+  | { type: "deleted"; chatId: string; ids: number[] }
+  | {
+      type: "reactions";
+      chatId: string;
+      msgId: number;
+      reactions: TgReaction[] | null;
+    }
+  | { type: "readInbox"; chatId: string; maxId: number; unreadCount: number }
+  | { type: "pinned"; chatId: string; ids: number[]; pinned: boolean }
+  | { type: "syncState"; state: TgSyncState };
+
+/** What the account's connection is doing, so the UI can say so instead of guessing. */
+export type TgSyncState = "live" | "catchingUp" | "reconnecting";
 
 export type TgDialogItem = {
   chatId: string;
@@ -137,6 +166,11 @@ type LiveEntry = {
   channelDmCache: Map<string, ChannelDmTarget | null>;
   readSubscribers: Set<(chatId: string, maxId: number) => void>;
   typingSubscribers: Set<(event: TgTypingEvent) => void>;
+  eventSubscribers: Set<(event: TgLiveEvent) => void>;
+  // What this account's connection is doing, replayed to each new subscriber
+  syncState: TgSyncState;
+  // Keeps the stored update state fresh; cleared with the client in disposeEntry
+  syncStateTimer?: ReturnType<typeof setInterval>;
   // Full dialog list cached briefly so per-keystroke searches don't refetch
   dialogSearchCache?: { ts: number; items: TgDialogItem[] };
   // Last time this entry was requested or had subscribers -- drives idle eviction
@@ -182,7 +216,8 @@ function hasSubscribers(entry: LiveEntry): boolean {
     entry.subscribers.size > 0 ||
     entry.dialogSubscribers.size > 0 ||
     entry.readSubscribers.size > 0 ||
-    entry.typingSubscribers.size > 0
+    entry.typingSubscribers.size > 0 ||
+    entry.eventSubscribers.size > 0
   );
 }
 
@@ -200,6 +235,20 @@ function trimCache(cache: Map<string, unknown>, max: number): void {
  * just handed out) are never evicted, so the cap can be exceeded when more accounts
  * than that are genuinely being watched at once.
  */
+/**
+ * The one way a live client goes away. destroy() tears down the update loop and senders;
+ * disconnect() alone would keep the client reusable and holding its internal caches. The
+ * state timer has to go with it or an evicted account keeps polling forever.
+ */
+function disposeEntry(accountId: number, entry: LiveEntry): void {
+  liveClients.delete(accountId);
+  if (entry.syncStateTimer) {
+    clearInterval(entry.syncStateTimer);
+    entry.syncStateTimer = undefined;
+  }
+  entry.client.destroy().catch(() => {});
+}
+
 function evictSurplusClients(keepId?: number): void {
   if (liveClients.size <= LIVE_CLIENT_MAX) return;
   const candidates = [...liveClients.entries()]
@@ -208,8 +257,7 @@ function evictSurplusClients(keepId?: number): void {
 
   for (const [accountId, entry] of candidates) {
     if (liveClients.size <= LIVE_CLIENT_MAX) return;
-    liveClients.delete(accountId);
-    entry.client.destroy().catch(() => {});
+    disposeEntry(accountId, entry);
     console.log(
       `[tg] Evicted idle live client for account ${accountId} (over LIVE_CLIENT_MAX)`,
     );
@@ -221,10 +269,7 @@ export function sweepLiveClients(now = Date.now()): void {
     if (hasSubscribers(entry)) entry.lastActiveAt = now;
 
     if (now - entry.lastActiveAt >= IDLE_DISCONNECT_MS) {
-      liveClients.delete(accountId);
-      // destroy() tears down the update loop and senders; disconnect() alone
-      // keeps the client reusable and holding its internal caches
-      entry.client.destroy().catch(() => {});
+      disposeEntry(accountId, entry);
       continue;
     }
 
@@ -411,10 +456,13 @@ function extractButtons(msg: Api.Message): TgButton[][] | null {
   return null;
 }
 
-function extractReactions(msg: Api.Message): TgReaction[] | null {
-  const r = (msg as any).reactions;
-  if (!r?.results?.length) return null;
-  const out = (r.results as any[])
+/** Reaction counts off a MessageReactions block, whether it came on a message or an update. */
+function reactionsFromApi(
+  reactions: Api.TypeMessageReactions | null | undefined,
+): TgReaction[] | null {
+  const results = (reactions as any)?.results as any[] | undefined;
+  if (!results?.length) return null;
+  const out = results
     .filter((rc: any) => rc.reaction?.emoticon)
     .map((rc: any) => ({
       emoji: rc.reaction.emoticon as string,
@@ -422,6 +470,10 @@ function extractReactions(msg: Api.Message): TgReaction[] | null {
       mine: rc.chosenOrder !== undefined && rc.chosenOrder !== null,
     }));
   return out.length ? out : null;
+}
+
+function extractReactions(msg: Api.Message): TgReaction[] | null {
+  return reactionsFromApi((msg as any).reactions);
 }
 
 function isStickerDoc(media: Api.TypeMessageMedia | null | undefined): boolean {
@@ -480,6 +532,66 @@ function mediaKind(
   return null;
 }
 
+/** Quote details for the message a reply points at. */
+type TgQuoteInfo = {
+  text: string;
+  name: string | null;
+  media: TgMediaKind | null;
+  fileName: string | null;
+};
+
+/**
+ * The one place a message becomes a payload. Live updates, history pages and edits all go
+ * through it, so an edited message reads exactly like the same message loaded fresh --
+ * which is the whole point of the sync work: no field can drift between the two paths.
+ */
+function buildMsgPayload(
+  msg: Api.Message,
+  opts: {
+    fromName: string | null;
+    readMaxId: number;
+    replyToId: number | null;
+    quote: TgQuoteInfo | null | undefined;
+  },
+): TgMsgPayload {
+  const media = mediaKind(msg.media);
+  return {
+    id: msg.id,
+    text: displayText(msg),
+    html: entitiesToHtml(msg.message ?? "", msg.entities),
+    date: msg.date,
+    fromMe: Boolean(msg.out),
+    isRead: Boolean(msg.out) && msg.id <= opts.readMaxId,
+    fromId: msg.fromId ? peerToChatId(msg.fromId as Api.TypePeer) : null,
+    fromName: opts.fromName,
+    hasPhoto: msg.media instanceof Api.MessageMediaPhoto,
+    hasDocument:
+      msg.media instanceof Api.MessageMediaDocument && !isStickerDoc(msg.media),
+    hasSticker: isStickerDoc(msg.media),
+    fileName: docFileName(msg.media),
+    buttons: extractButtons(msg),
+    reactions: extractReactions(msg),
+    replyToId: opts.replyToId,
+    replyToText: opts.quote?.text ?? null,
+    replyToName: opts.quote?.name ?? null,
+    replyToMedia: opts.quote?.media ?? null,
+    replyToFileName: opts.quote?.fileName ?? null,
+    replyCount: (msg as any).replies?.replies ?? null,
+    service: null,
+    editDate: msg.editDate ?? null,
+    media,
+    groupedId: msg.groupedId ? msg.groupedId.toString() : null,
+    pinned: Boolean(msg.pinned),
+  };
+}
+
+/** The message id a reply points at, or null when the message is not a reply. */
+function replyTargetId(msg: Api.Message | Api.MessageService): number | null {
+  const rt = (msg as any).replyTo;
+  if (rt?.className !== "MessageReplyHeader") return null;
+  return (rt.replyToMsgId as number | undefined) ?? null;
+}
+
 // Filename of a document attachment, if the sender provided one.
 function docFileName(
   media: Api.TypeMessageMedia | null | undefined,
@@ -535,15 +647,8 @@ function resolveProxy(proxyId: string | null) {
 
 export async function reconnectClient(accountId: number): Promise<void> {
   const entry = liveClients.get(accountId);
-  if (entry) {
-    try {
-      // destroy, not disconnect -- the old client is discarded for good
-      await entry.client.destroy();
-    } catch {
-      /* ignore */
-    }
-    liveClients.delete(accountId);
-  }
+  // The old client is discarded for good, so its state timer goes with it
+  if (entry) disposeEntry(accountId, entry);
   await getLiveClient(accountId);
 }
 
@@ -565,10 +670,7 @@ export function markSessionExpired(accountId: number): void {
     "UPDATE tg_accounts SET auth_status = 'session_expired' WHERE id = ?",
   ).run(accountId);
   const entry = liveClients.get(accountId);
-  if (entry) {
-    entry.client.destroy().catch(() => {});
-    liveClients.delete(accountId);
-  }
+  if (entry) disposeEntry(accountId, entry);
 }
 
 /**
@@ -673,9 +775,9 @@ async function connectLiveClient(accountId: number): Promise<LiveEntry> {
     throw err;
   }
 
-  // Invoke GetState so Telegram knows this session is active and starts pushing updates.
-  // Fire-and-forget -- we don't want to block the first HTTP request.
-  client.invoke(new Api.updates.GetState()).catch(() => {});
+  // GetState also tells Telegram this session is active, which is what starts the update
+  // stream. Both it and the catch-up below run fire-and-forget: neither should hold up the
+  // first HTTP request, and the catch-up reports itself through the syncState event.
 
   entry = {
     accountId,
@@ -688,106 +790,44 @@ async function connectLiveClient(accountId: number): Promise<LiveEntry> {
     channelDmCache: new Map(),
     readSubscribers: new Set(),
     typingSubscribers: new Set(),
+    eventSubscribers: new Set(),
+    syncState: "live",
     lastActiveAt: Date.now(),
   };
   liveClients.set(accountId, entry);
   evictSurplusClients(accountId);
 
   client.addEventHandler(async (event: NewMessageEvent) => {
-    const msg = event.message as Api.Message;
-    if (!msg?.peerId) return;
-
-    const chatId = peerToChatId(msg.peerId);
-    if (!chatId) return;
-
-    let fromName: string | null = null;
-    if (msg.fromId) {
-      const fid = peerToChatId(msg.fromId as Api.TypePeer);
-      const sender = entry!.entityCache.get(fid);
-      if (sender) fromName = entityName(sender);
-    }
-
-    // Quote details for a reply, so the message reads the same live as on reload
-    const replyToId = (msg.replyTo as any)?.replyToMsgId ?? null;
-    const quote = replyToId
-      ? await replyQuote(entry!, chatId, replyToId)
-      : null;
-
-    const liveMsg: TgLiveMessage = {
-      chatId,
-      message: {
-        id: msg.id,
-        text: displayText(msg),
-        html: entitiesToHtml(msg.message ?? "", msg.entities),
-        date: msg.date,
-        fromMe: Boolean(msg.out),
-        isRead: false, // freshly received -- recipient hasn't read it yet
-        fromId: msg.fromId ? peerToChatId(msg.fromId as Api.TypePeer) : null,
-        fromName,
-        hasPhoto: msg.media instanceof Api.MessageMediaPhoto,
-        hasDocument:
-          msg.media instanceof Api.MessageMediaDocument &&
-          !isStickerDoc(msg.media),
-        hasSticker: isStickerDoc(msg.media),
-        fileName: docFileName(msg.media),
-        buttons: extractButtons(msg),
-        reactions: extractReactions(msg),
-        replyToId,
-        replyToText: quote?.text ?? null,
-        replyToName: quote?.name ?? null,
-        replyToMedia: quote?.media ?? null,
-        replyToFileName: quote?.fileName ?? null,
-        replyCount: (msg as any).replies?.replies ?? null,
-      },
-    };
-
-    cacheMessages(accountId, chatId, [liveMsg.message]);
-    entry!.subscribers.forEach((sub) => sub(liveMsg));
+    await applyNewMessage(entry!, event.message as Api.Message);
   }, new NewMessage({}));
 
-  // Membership and housekeeping notices (joins, leaves, renames). The NewMessage builder
-  // only passes real messages through, so these have to come in raw.
+  // Everything below arrives as a raw update because GramJS's NewMessage builder passes
+  // only real new messages through. Each one delegates to the same function the catch-up
+  // path uses, so a change replayed after a gap lands exactly as if it had arrived live.
   client.addEventHandler(
-    async (update: Api.UpdateNewMessage | Api.UpdateNewChannelMessage) => {
-      try {
-        const msg = update.message;
-        if (!(msg instanceof Api.MessageService)) return;
-        const chatId = peerToChatId(msg.peerId);
-        if (!chatId) return;
-        const service = (await serviceInfoForPage(entry!, [msg])).get(msg.id);
-        if (!service) return;
-        const liveMsg: TgLiveMessage = {
-          chatId,
-          message: serviceMsgPayload(msg, service),
-        };
-        cacheMessages(accountId, chatId, [liveMsg.message]);
-        entry!.subscribers.forEach((sub) => sub(liveMsg));
-      } catch {
-        // A missed grey line is not worth surfacing
-      }
-    },
-    new Raw({ types: [Api.UpdateNewMessage, Api.UpdateNewChannelMessage] }),
-  );
-
-  // Update read status when the recipient reads our outgoing messages (1-to-1 / group chats)
-  client.addEventHandler(
-    (update: Api.UpdateReadHistoryOutbox) => {
-      const chatId = peerToChatId(update.peer);
-      if (!chatId) return;
-      entry!.readOutboxCache.set(chatId, update.maxId);
-      entry!.readSubscribers.forEach((sub) => sub(chatId, update.maxId));
-    },
-    new Raw({ types: [Api.UpdateReadHistoryOutbox] }),
-  );
-
-  // Update read status for channel outbox reads
-  client.addEventHandler(
-    (update: Api.UpdateReadChannelOutbox) => {
-      const chatId = `c${update.channelId.toString()}`;
-      entry!.readOutboxCache.set(chatId, update.maxId);
-      entry!.readSubscribers.forEach((sub) => sub(chatId, update.maxId));
-    },
-    new Raw({ types: [Api.UpdateReadChannelOutbox] }),
+    // Returned, not fired and forgotten: GramJS awaits each handler, so returning the
+    // promise keeps an edit from overtaking the message it edits.
+    (update: Api.TypeUpdate) => applyUpdate(entry!, update),
+    new Raw({
+      types: [
+        Api.UpdateEditMessage,
+        Api.UpdateEditChannelMessage,
+        Api.UpdateDeleteMessages,
+        Api.UpdateDeleteChannelMessages,
+        Api.UpdateMessageReactions,
+        Api.UpdateReadHistoryInbox,
+        Api.UpdateReadChannelInbox,
+        Api.UpdatePinnedMessages,
+        Api.UpdatePinnedChannelMessages,
+        Api.UpdateChannelTooLong,
+        // Membership and housekeeping notices (joins, leaves, renames) ride on the
+        // new-message updates as MessageService, which the NewMessage builder filters out
+        Api.UpdateNewMessage,
+        Api.UpdateNewChannelMessage,
+        Api.UpdateReadHistoryOutbox,
+        Api.UpdateReadChannelOutbox,
+      ],
+    }),
   );
 
   // Typing notifications for private chats, basic groups and supergroups
@@ -841,7 +881,401 @@ async function connectLiveClient(accountId: number): Promise<LiveEntry> {
     new Raw({ types: [Api.UpdateChannelUserTyping] }),
   );
 
+  // Replay whatever this account missed since it was last connected, then keep the stored
+  // state fresh. Handlers are registered first so anything arriving mid-catch-up is applied
+  // rather than dropped; duplicates are absorbed by the signature check in applyNewMessage.
+  catchUpAccount(entry).catch(() => {});
+  entry.syncStateTimer = setInterval(() => {
+    const current = liveClients.get(accountId);
+    if (current !== entry) return;
+    storeCurrentState(entry!).catch(() => {});
+  }, SYNC_STATE_INTERVAL_MS);
+  entry.syncStateTimer.unref?.();
+
   return entry;
+}
+
+// --- Update dispatch -------------------------------------------------------------------
+//
+// One set of functions applies a change, whether it arrived live on the socket or was
+// replayed by updates.getDifference after a gap. Keeping the two paths on the same code is
+// the point: a message edited while the panel was disconnected has to land identically to
+// one edited while it was watching, or the cache and the screen disagree again.
+
+/** Fields whose change makes a message worth re-rendering. */
+function messageSignature(p: TgMsgPayload): string {
+  return JSON.stringify([
+    p.text,
+    p.html,
+    p.editDate ?? null,
+    p.pinned ?? false,
+    p.reactions,
+    p.buttons,
+    p.media ?? null,
+    p.fileName,
+  ]);
+}
+
+async function applyNewMessage(
+  entry: LiveEntry,
+  msg: Api.Message,
+): Promise<void> {
+  if (!msg?.peerId) return;
+  const chatId = peerToChatId(msg.peerId);
+  if (!chatId) return;
+
+  const payload = await livePayload(entry, chatId, msg);
+  // Freshly received -- the recipient cannot have read it yet
+  if (!payload.fromMe) payload.isRead = false;
+
+  const prev = getCachedMessage(entry.accountId, chatId, msg.id);
+  cacheMessages(entry.accountId, chatId, [payload]);
+  extendChatRange(entry.accountId, chatId, msg.id);
+
+  // Already known: either the catch-up replayed it, or the send route cached a stub for
+  // our own message and this is the server's fuller copy. Only the difference is news.
+  if (!prev) {
+    entry.subscribers.forEach((sub) => sub({ chatId, message: payload }));
+  } else if (messageSignature(prev) !== messageSignature(payload)) {
+    emitEvent(entry, { type: "edited", chatId, message: payload });
+  }
+}
+
+async function applyServiceMessage(
+  entry: LiveEntry,
+  msg: Api.MessageService,
+): Promise<void> {
+  const chatId = peerToChatId(msg.peerId);
+  if (!chatId) return;
+  if (getCachedMessage(entry.accountId, chatId, msg.id)) return;
+  const service = (await serviceInfoForPage(entry, [msg])).get(msg.id);
+  if (!service) return;
+  const payload = serviceMsgPayload(msg, service);
+  cacheMessages(entry.accountId, chatId, [payload]);
+  extendChatRange(entry.accountId, chatId, msg.id);
+  entry.subscribers.forEach((sub) => sub({ chatId, message: payload }));
+}
+
+async function applyEdit(entry: LiveEntry, msg: Api.TypeMessage): Promise<void> {
+  if (!(msg instanceof Api.Message) || !msg.peerId) return;
+  const chatId = peerToChatId(msg.peerId);
+  if (!chatId) return;
+  const payload = await livePayload(entry, chatId, msg);
+  const prev = getCachedMessage(entry.accountId, chatId, msg.id);
+  if (prev && messageSignature(prev) === messageSignature(payload)) return;
+  cacheMessages(entry.accountId, chatId, [payload]);
+  emitEvent(entry, { type: "edited", chatId, message: payload });
+}
+
+function applyDeletes(
+  entry: LiveEntry,
+  chatId: string | null,
+  rawIds: number[],
+): void {
+  const ids = rawIds.map(Number).filter(Number.isInteger);
+  if (!ids.length) return;
+
+  // A deletion in a private chat or basic group names no peer -- only message ids, which
+  // are unique per account there -- so the chat is recovered from what was cached.
+  const byChat = chatId
+    ? new Map([[chatId, ids]])
+    : cachedChatsForMessages(entry.accountId, ids);
+
+  for (const [id, chatIds] of byChat) {
+    removeCachedMessages(entry.accountId, id, chatIds);
+    emitEvent(entry, { type: "deleted", chatId: id, ids: chatIds });
+  }
+}
+
+function applyPinned(
+  entry: LiveEntry,
+  chatId: string,
+  rawIds: number[],
+  pinned: boolean,
+): void {
+  const ids = rawIds.map(Number).filter(Number.isInteger);
+  if (!ids.length) return;
+  for (const id of ids) {
+    patchCachedMessage(entry.accountId, chatId, id, (p) => {
+      p.pinned = pinned;
+    });
+  }
+  emitEvent(entry, { type: "pinned", chatId, ids, pinned });
+}
+
+function applyReadOutbox(entry: LiveEntry, chatId: string, maxId: number): void {
+  entry.readOutboxCache.set(chatId, maxId);
+  entry.readSubscribers.forEach((sub) => sub(chatId, maxId));
+}
+
+/** Routes one raw update to whichever applier owns it. Unknown types are ignored. */
+async function applyUpdate(
+  entry: LiveEntry,
+  update: Api.TypeUpdate,
+): Promise<void> {
+  try {
+    if (
+      update instanceof Api.UpdateNewMessage ||
+      update instanceof Api.UpdateNewChannelMessage
+    ) {
+      // Real messages come through the NewMessage builder; only the grey service lines
+      // it filters out are this handler's business.
+      if (update.message instanceof Api.MessageService)
+        await applyServiceMessage(entry, update.message);
+      return;
+    }
+    if (
+      update instanceof Api.UpdateEditMessage ||
+      update instanceof Api.UpdateEditChannelMessage
+    ) {
+      await applyEdit(entry, update.message);
+      return;
+    }
+    if (update instanceof Api.UpdateDeleteMessages) {
+      applyDeletes(entry, null, update.messages);
+      return;
+    }
+    if (update instanceof Api.UpdateDeleteChannelMessages) {
+      applyDeletes(entry, `c${update.channelId.toString()}`, update.messages);
+      return;
+    }
+    if (update instanceof Api.UpdateMessageReactions) {
+      const chatId = peerToChatId(update.peer);
+      if (!chatId) return;
+      const reactions = reactionsFromApi(update.reactions);
+      patchCachedMessage(entry.accountId, chatId, update.msgId, (p) => {
+        p.reactions = reactions;
+      });
+      emitEvent(entry, {
+        type: "reactions",
+        chatId,
+        msgId: update.msgId,
+        reactions,
+      });
+      return;
+    }
+    if (update instanceof Api.UpdateReadHistoryInbox) {
+      const chatId = peerToChatId(update.peer);
+      if (chatId)
+        emitEvent(entry, {
+          type: "readInbox",
+          chatId,
+          maxId: update.maxId,
+          unreadCount: update.stillUnreadCount,
+        });
+      return;
+    }
+    if (update instanceof Api.UpdateReadChannelInbox) {
+      emitEvent(entry, {
+        type: "readInbox",
+        chatId: `c${update.channelId.toString()}`,
+        maxId: update.maxId,
+        unreadCount: update.stillUnreadCount,
+      });
+      return;
+    }
+    if (update instanceof Api.UpdateReadHistoryOutbox) {
+      const chatId = peerToChatId(update.peer);
+      if (chatId) applyReadOutbox(entry, chatId, update.maxId);
+      return;
+    }
+    if (update instanceof Api.UpdateReadChannelOutbox) {
+      applyReadOutbox(
+        entry,
+        `c${update.channelId.toString()}`,
+        update.maxId,
+      );
+      return;
+    }
+    if (update instanceof Api.UpdatePinnedMessages) {
+      const chatId = peerToChatId(update.peer);
+      if (chatId)
+        applyPinned(entry, chatId, update.messages, Boolean(update.pinned));
+      return;
+    }
+    if (update instanceof Api.UpdatePinnedChannelMessages) {
+      applyPinned(
+        entry,
+        `c${update.channelId.toString()}`,
+        update.messages,
+        Boolean(update.pinned),
+      );
+      return;
+    }
+    if (update instanceof Api.UpdateChannelTooLong) {
+      // Telegram is saying "you missed too much of this channel to replay it". Per-channel
+      // pts is not tracked, so the answer is to reconcile that one chat against the server.
+      await reconcileChat(entry.accountId, `c${update.channelId.toString()}`);
+      return;
+    }
+  } catch {
+    // A dropped update is repaired by the next reconcile of that chat
+  }
+}
+
+// --- Catch-up after a gap --------------------------------------------------------------
+//
+// GramJS ships catchUp() as an empty stub and tracks no update state of its own, so the
+// common pts/qts/date is kept here. Gaps are routine rather than exceptional: idle clients
+// are destroyed after IDLE_DISCONNECT_MS, surplus ones are evicted over LIVE_CLIENT_MAX,
+// and the process restarts on every deploy. Without this, every update inside a gap was
+// simply lost and the local cache kept the hole.
+
+type SyncStateRow = { pts: number; qts: number; date: number; seq: number };
+
+// How often the stored state is refreshed while connected. Storing it late can only cause
+// a replay on the next connect, never a gap, and replays are idempotent.
+const SYNC_STATE_INTERVAL_MS = 60_000;
+// Difference pages to walk before giving up, so a very stale account cannot spin forever
+const MAX_DIFFERENCE_ROUNDS = 20;
+
+function loadSyncState(accountId: number): SyncStateRow | null {
+  try {
+    const row = db
+      .prepare(
+        "SELECT pts, qts, date, seq FROM tg_sync_state WHERE account_id = ?",
+      )
+      .get(accountId) as SyncStateRow | undefined;
+    return row ?? null;
+  } catch {
+    return null; // No stored state reads as a first connect: record, do not replay
+  }
+}
+
+function saveSyncState(accountId: number, state: SyncStateRow): void {
+  try {
+    db.prepare(
+      `INSERT INTO tg_sync_state (account_id, pts, qts, date, seq, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (account_id) DO UPDATE SET
+         pts = excluded.pts, qts = excluded.qts, date = excluded.date,
+         seq = excluded.seq, updated_at = excluded.updated_at`,
+    ).run(
+      accountId,
+      state.pts,
+      state.qts,
+      state.date,
+      state.seq,
+      Math.floor(Date.now() / 1000),
+    );
+  } catch {}
+}
+
+export function clearSyncState(accountId: number): void {
+  try {
+    db.prepare("DELETE FROM tg_sync_state WHERE account_id = ?").run(accountId);
+  } catch {}
+}
+
+async function storeCurrentState(entry: LiveEntry): Promise<void> {
+  try {
+    const state = await entry.client.invoke(new Api.updates.GetState());
+    saveSyncState(entry.accountId, {
+      pts: state.pts,
+      qts: state.qts,
+      date: state.date,
+      seq: state.seq,
+    });
+  } catch {
+    // Leaving the old state in place just means a longer replay next time
+  }
+}
+
+/** Feeds one difference page through the same appliers the live socket uses. */
+async function applyDifference(
+  entry: LiveEntry,
+  diff: Api.updates.Difference | Api.updates.DifferenceSlice,
+): Promise<void> {
+  for (const e of [...diff.users, ...diff.chats]) {
+    if (
+      e instanceof Api.User ||
+      e instanceof Api.Chat ||
+      e instanceof Api.Channel
+    ) {
+      entry.entityCache.set(entityToChatId(e), e);
+    }
+  }
+  for (const msg of diff.newMessages) {
+    if (msg instanceof Api.Message) await applyNewMessage(entry, msg);
+    else if (msg instanceof Api.MessageService)
+      await applyServiceMessage(entry, msg);
+  }
+  for (const update of diff.otherUpdates) {
+    await applyUpdate(entry, update);
+  }
+}
+
+/**
+ * Replays everything the account missed since its stored state. A first-time account has no
+ * stored state, so it just records where it is now -- there is no history to replay into an
+ * empty cache.
+ */
+export async function catchUpAccount(entry: LiveEntry): Promise<void> {
+  const stored = loadSyncState(entry.accountId);
+  if (!stored) {
+    await storeCurrentState(entry);
+    return;
+  }
+
+  setSyncState(entry, "catchingUp");
+  try {
+    let { pts, qts, date } = stored;
+    for (let round = 0; round < MAX_DIFFERENCE_ROUNDS; round++) {
+      const diff = await entry.client.invoke(
+        new Api.updates.GetDifference({ pts, qts, date }),
+      );
+
+      if (diff instanceof Api.updates.DifferenceEmpty) {
+        saveSyncState(entry.accountId, {
+          pts,
+          qts,
+          date: diff.date,
+          seq: diff.seq,
+        });
+        break;
+      }
+
+      if (diff instanceof Api.updates.DifferenceTooLong) {
+        // Too much missed to replay message by message. Drop the caches so the next open
+        // refetches rather than showing a history with a hole in it.
+        resetAccountSync(entry.accountId);
+        await storeCurrentState(entry);
+        break;
+      }
+
+      await applyDifference(entry, diff);
+      const state =
+        diff instanceof Api.updates.DifferenceSlice
+          ? diff.intermediateState
+          : diff.state;
+      pts = state.pts;
+      qts = state.qts;
+      date = state.date;
+      saveSyncState(entry.accountId, {
+        pts,
+        qts,
+        date,
+        seq: state.seq,
+      });
+      if (!(diff instanceof Api.updates.DifferenceSlice)) break;
+    }
+  } catch (err: any) {
+    // A failed catch-up is recoverable: the per-chat reconcile still repairs what is open
+    console.warn(
+      `[tg] Catch-up failed for account ${entry.accountId}: ${err?.message ?? err}`,
+    );
+  } finally {
+    setSyncState(entry, "live");
+  }
+}
+
+/** Forgets everything cached about an account's history so it is refetched from scratch. */
+function resetAccountSync(accountId: number): void {
+  db.prepare("DELETE FROM tg_message_cache WHERE account_id = ?").run(accountId);
+  try {
+    db.prepare("DELETE FROM tg_chat_sync WHERE account_id = ?").run(accountId);
+  } catch {}
+  syncDialogsInBackground(accountId).catch(() => {});
 }
 
 // Load all dialogs into the entity cache
@@ -923,6 +1357,45 @@ export async function ensureEntityCached(
   } catch {
     /* not resolvable -- fetchAvatar will cache null and won't retry */
   }
+}
+
+/**
+ * Payload for a message arriving live. History pages batch their name and quote lookups;
+ * a single message resolves them one at a time, but it must resolve them: naming the sender
+ * only when the entity happens to be cached is what made live group messages show a blank
+ * name and "fix themselves" on refresh.
+ */
+async function livePayload(
+  entry: LiveEntry,
+  chatId: string,
+  msg: Api.Message,
+): Promise<TgMsgPayload> {
+  const fromChatId = msg.fromId
+    ? peerToChatId(msg.fromId as Api.TypePeer)
+    : null;
+  let fromName: string | null = null;
+  if (fromChatId) {
+    const names = await resolveEntityNames(entry, [fromChatId]);
+    fromName = names.get(fromChatId) ?? null;
+  }
+  const replyToId = replyTargetId(msg);
+  const quote = replyToId ? await replyQuote(entry, chatId, replyToId) : null;
+  return buildMsgPayload(msg, {
+    fromName,
+    readMaxId: entry.readOutboxCache.get(chatId) ?? 0,
+    replyToId,
+    quote,
+  });
+}
+
+function emitEvent(entry: LiveEntry, event: TgLiveEvent): void {
+  entry.eventSubscribers.forEach((sub) => sub(event));
+}
+
+function setSyncState(entry: LiveEntry, state: TgSyncState): void {
+  if (entry.syncState === state) return;
+  entry.syncState = state;
+  emitEvent(entry, { type: "syncState", state });
 }
 
 /**
@@ -1146,10 +1619,8 @@ export async function getMessages(
   // Batch-fetch reply-to message texts for quote display
   const replyIdSet = new Set<number>();
   for (const msg of msgs) {
-    const rt = (msg as any).replyTo;
-    if (rt?.className === "MessageReplyHeader" && rt.replyToMsgId) {
-      replyIdSet.add(rt.replyToMsgId as number);
-    }
+    const target = replyTargetId(msg);
+    if (target) replyIdSet.add(target);
   }
   const replyMap = new Map<
     number,
@@ -1189,6 +1660,7 @@ export async function getMessages(
     }
   }
 
+  const readMaxId = entry.readOutboxCache.get(chatId) ?? 0;
   const payloads = msgs.map((msg): TgMsgPayload | null => {
     if (msg instanceof Api.MessageService) {
       const service = serviceInfo.get(msg.id);
@@ -1201,36 +1673,13 @@ export async function getMessages(
       const sender = entry.entityCache.get(fid);
       if (sender) fromName = entityName(sender);
     }
-    const rt = (msg as any).replyTo;
-    const replyToId =
-      rt?.className === "MessageReplyHeader" ? (rt.replyToMsgId ?? null) : null;
-    const replyInfo = replyToId ? replyMap.get(replyToId) : undefined;
-    const readMaxId = entry.readOutboxCache.get(chatId) ?? 0;
-    return {
-      id: msg.id,
-      text: displayText(msg),
-      html: entitiesToHtml(msg.message ?? "", (msg as Api.Message).entities),
-      date: msg.date,
-      fromMe: Boolean(msg.out),
-      isRead: Boolean(msg.out) && msg.id <= readMaxId,
-      fromId: msg.fromId ? peerToChatId(msg.fromId as Api.TypePeer) : null,
+    const replyToId = replyTargetId(msg);
+    return buildMsgPayload(msg, {
       fromName,
-      hasPhoto: msg.media instanceof Api.MessageMediaPhoto,
-      hasDocument:
-        msg.media instanceof Api.MessageMediaDocument &&
-        !isStickerDoc(msg.media),
-      hasSticker: isStickerDoc(msg.media),
-      fileName: docFileName(msg.media),
-      buttons: extractButtons(msg as Api.Message),
-      reactions: extractReactions(msg as Api.Message),
+      readMaxId,
       replyToId,
-      replyToText: replyInfo?.text ?? null,
-      replyToName: replyInfo?.name ?? null,
-      replyToMedia: replyInfo?.media ?? null,
-      replyToFileName: replyInfo?.fileName ?? null,
-      replyCount: (msg as any).replies?.replies ?? null,
-      service: null,
-    };
+      quote: replyToId ? replyMap.get(replyToId) : null,
+    });
   });
 
   return payloads.filter((p): p is TgMsgPayload => p !== null);
@@ -3115,15 +3564,43 @@ export function subscribeToTyping(
   return () => entry.typingSubscribers.delete(handler);
 }
 
+/**
+ * Changes to messages the client already has: edits, deletions, reactions, read marks and
+ * pins. New messages keep their own channel; this is everything that patches what is
+ * already on screen.
+ */
+export function subscribeToEvents(
+  accountId: number,
+  handler: (event: TgLiveEvent) => void,
+): () => void {
+  const entry = liveClients.get(accountId);
+  if (!entry) return () => {};
+  entry.eventSubscribers.add(handler);
+  // Replay the current connection state so a fresh subscriber starts out knowing it
+  handler({ type: "syncState", state: entry.syncState });
+  return () => entry.eventSubscribers.delete(handler);
+}
+
+export function getSyncState(accountId: number): TgSyncState {
+  return liveClients.get(accountId)?.syncState ?? "reconnecting";
+}
+
 // --- Message cache helpers ---
 
 const MSG_CACHE_MAX = 500;
 
+/**
+ * Cached messages, newest first. `fromId` is an inclusive floor: callers serving a page
+ * pass the known-complete range's bottom edge, so rows left below a gap -- by an older
+ * build, or by a range that was replaced -- can never be mixed into a page as if they
+ * were contiguous with it.
+ */
 export function getCachedMessages(
   accountId: number,
   chatId: string,
   limit: number,
   beforeId?: number,
+  fromId?: number,
 ): TgMsgPayload[] {
   const params: (number | string)[] = [accountId, chatId];
   let sql =
@@ -3132,10 +3609,68 @@ export function getCachedMessages(
     sql += " AND msg_id < ?";
     params.push(beforeId);
   }
+  if (fromId !== undefined) {
+    sql += " AND msg_id >= ?";
+    params.push(fromId);
+  }
   sql += " ORDER BY msg_id DESC LIMIT ?";
   params.push(limit);
   const rows = db.prepare(sql).all(...params) as { payload: string }[];
   return rows.map((r) => JSON.parse(r.payload) as TgMsgPayload);
+}
+
+export function getCachedMessage(
+  accountId: number,
+  chatId: string,
+  msgId: number,
+): TgMsgPayload | null {
+  const row = db
+    .prepare(
+      "SELECT payload FROM tg_message_cache WHERE account_id = ? AND chat_id = ? AND msg_id = ?",
+    )
+    .get(accountId, chatId, msgId) as { payload: string } | undefined;
+  return row ? (JSON.parse(row.payload) as TgMsgPayload) : null;
+}
+
+/**
+ * Which chats the given message ids were cached in, so a peerless deletion update can be
+ * turned into per-chat deletions. Ids are unique per account outside channels, so a hit is
+ * unambiguous; ids we never cached simply do not appear.
+ */
+export function cachedChatsForMessages(
+  accountId: number,
+  ids: number[],
+): Map<string, number[]> {
+  const byChat = new Map<string, number[]>();
+  if (!ids.length) return byChat;
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `SELECT chat_id, msg_id FROM tg_message_cache
+       WHERE account_id = ? AND msg_id IN (${placeholders})`,
+    )
+    .all(accountId, ...ids) as { chat_id: string; msg_id: number }[];
+  for (const r of rows) {
+    const list = byChat.get(r.chat_id);
+    if (list) list.push(r.msg_id);
+    else byChat.set(r.chat_id, [r.msg_id]);
+  }
+  return byChat;
+}
+
+/** Rewrites one cached payload in place. No-op when the message was never cached. */
+export function patchCachedMessage(
+  accountId: number,
+  chatId: string,
+  msgId: number,
+  mutate: (payload: TgMsgPayload) => void,
+): void {
+  const payload = getCachedMessage(accountId, chatId, msgId);
+  if (!payload) return;
+  mutate(payload);
+  db.prepare(
+    "UPDATE tg_message_cache SET payload = ? WHERE account_id = ? AND chat_id = ? AND msg_id = ?",
+  ).run(JSON.stringify(payload), accountId, chatId, msgId);
 }
 
 export function cacheMessages(
@@ -3153,11 +3688,180 @@ export function cacheMessages(
     }
   })();
   // Trim to keep only the most recent MSG_CACHE_MAX per chat
-  db.prepare(
-    `DELETE FROM tg_message_cache WHERE account_id = ? AND chat_id = ? AND msg_id NOT IN (
-      SELECT msg_id FROM tg_message_cache WHERE account_id = ? AND chat_id = ? ORDER BY msg_id DESC LIMIT ?
-    )`,
-  ).run(accountId, chatId, accountId, chatId, MSG_CACHE_MAX);
+  const trimmed = db
+    .prepare(
+      `DELETE FROM tg_message_cache WHERE account_id = ? AND chat_id = ? AND msg_id NOT IN (
+        SELECT msg_id FROM tg_message_cache WHERE account_id = ? AND chat_id = ? ORDER BY msg_id DESC LIMIT ?
+      )`,
+    )
+    .run(accountId, chatId, accountId, chatId, MSG_CACHE_MAX);
+  if ((trimmed?.changes ?? 0) > 0) clampChatRange(accountId, chatId);
+}
+
+// --- What the cache actually holds ------------------------------------------------------
+//
+// tg_message_cache alone cannot say whether it holds a whole page or three stray rows, so
+// a chat with three cached messages used to answer a fifty-message request with three.
+// A range says "every message between min_id and max_id that still exists is here", which
+// is what makes serving from cache safe.
+
+export type TgChatRange = {
+  minId: number;
+  maxId: number;
+  hasStart: boolean;
+};
+
+// The range and sync-state tables are created inside a swallowed try, matching the rest of
+// database.ts. If either one is missing on some deployment, reading it must degrade to
+// "nothing known" -- always refetch, never catch up -- rather than throwing through every
+// messenger request. Same reason the writers below never propagate.
+export function getChatRange(
+  accountId: number,
+  chatId: string,
+): TgChatRange | null {
+  try {
+    const row = db
+      .prepare(
+        "SELECT min_id, max_id, has_start FROM tg_chat_sync WHERE account_id = ? AND chat_id = ?",
+      )
+      .get(accountId, chatId) as
+      | { min_id: number; max_id: number; has_start: number }
+      | undefined;
+    if (!row) return null;
+    return {
+      minId: row.min_id,
+      maxId: row.max_id,
+      hasStart: row.has_start === 1,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeChatRange(
+  accountId: number,
+  chatId: string,
+  range: TgChatRange,
+): void {
+  try {
+    db.prepare(
+    `INSERT INTO tg_chat_sync (account_id, chat_id, min_id, max_id, has_start, reconciled_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT (account_id, chat_id) DO UPDATE SET
+       min_id = excluded.min_id, max_id = excluded.max_id,
+       has_start = excluded.has_start, reconciled_at = excluded.reconciled_at`,
+    ).run(
+      accountId,
+      chatId,
+      range.minId,
+      range.maxId,
+      range.hasStart ? 1 : 0,
+      Math.floor(Date.now() / 1000),
+    );
+  } catch {
+    // Range unknown from here on, so pages come from Telegram
+  }
+}
+
+/**
+ * Folds a freshly fetched page into the known range. Pages that touch or overlap merge;
+ * a page separated from the range by a gap replaces it, because claiming completeness
+ * across a gap is exactly the bug this table exists to prevent.
+ */
+export function recordChatRange(
+  accountId: number,
+  chatId: string,
+  page: TgChatRange,
+): void {
+  const existing = getChatRange(accountId, chatId);
+  if (!existing) {
+    writeChatRange(accountId, chatId, page);
+    return;
+  }
+  const touches =
+    page.minId <= existing.maxId + 1 && page.maxId >= existing.minId - 1;
+  writeChatRange(
+    accountId,
+    chatId,
+    touches
+      ? {
+          minId: Math.min(existing.minId, page.minId),
+          maxId: Math.max(existing.maxId, page.maxId),
+          hasStart: existing.hasStart || page.hasStart,
+        }
+      : page,
+  );
+}
+
+export function forgetChatRange(accountId: number, chatId: string): void {
+  try {
+    db.prepare(
+      "DELETE FROM tg_chat_sync WHERE account_id = ? AND chat_id = ?",
+    ).run(accountId, chatId);
+  } catch {}
+}
+
+/** Grows the range's top edge as live messages arrive. */
+function extendChatRange(
+  accountId: number,
+  chatId: string,
+  msgId: number,
+): void {
+  const existing = getChatRange(accountId, chatId);
+  if (!existing) return; // Nothing cached to be contiguous with
+  if (msgId <= existing.maxId) return;
+  writeChatRange(accountId, chatId, { ...existing, maxId: msgId });
+}
+
+/** Pulls the range's bottom edge up after the cache trim drops the oldest rows. */
+function clampChatRange(accountId: number, chatId: string): void {
+  const range = getChatRange(accountId, chatId);
+  if (!range) return;
+  const row = db
+    .prepare(
+      "SELECT MIN(msg_id) AS lo FROM tg_message_cache WHERE account_id = ? AND chat_id = ?",
+    )
+    .get(accountId, chatId) as { lo: number | null };
+  if (row.lo === null) {
+    forgetChatRange(accountId, chatId);
+    return;
+  }
+  if (row.lo > range.minId) {
+    writeChatRange(accountId, chatId, {
+      ...range,
+      minId: row.lo,
+      hasStart: false,
+    });
+  }
+}
+
+/**
+ * Whether the cache can answer this request in full. Anything less falls through to
+ * Telegram rather than returning a short page, which the frontend would read as the end
+ * of history and stop paginating.
+ */
+export function cacheCoversRequest(
+  accountId: number,
+  chatId: string,
+  limit: number,
+  beforeId?: number,
+): boolean {
+  const range = getChatRange(accountId, chatId);
+  if (!range) return false;
+  if (beforeId !== undefined && beforeId <= range.minId) return false;
+  const params: (number | string)[] = [accountId, chatId, range.minId];
+  let sql =
+    "SELECT COUNT(*) AS n FROM tg_message_cache WHERE account_id = ? AND chat_id = ? AND msg_id >= ?";
+  if (beforeId !== undefined) {
+    sql += " AND msg_id < ?";
+    params.push(Math.min(beforeId, range.maxId + 1));
+  } else {
+    sql += " AND msg_id <= ?";
+    params.push(range.maxId);
+  }
+  const { n } = db.prepare(sql).all(...params)[0] as { n: number };
+  // A short run is still complete when the cache reaches the start of the chat
+  return n >= limit || range.hasStart;
 }
 
 // Rewrite the cached payload text after an edit so reloads show the new text
@@ -3197,39 +3901,98 @@ export function clearCachedMessages(accountId: number, chatId: string): void {
   db.prepare(
     "DELETE FROM tg_message_cache WHERE account_id = ? AND chat_id = ?",
   ).run(accountId, chatId);
+  forgetChatRange(accountId, chatId);
 }
 
-// Fetches messages newer than the last cached msg and pushes them to subscribers.
-// Pass afterId to override the cache-based baseline (used by WS periodic sync).
-export async function syncMessagesInBackground(
+// How many recent messages a reconcile compares against the cache. Deep enough to catch a
+// bot editing a message a few turns back, shallow enough to stay one round trip.
+const RECONCILE_LIMIT = 40;
+// Reconciles of the same chat closer together than this are collapsed, so a burst of
+// triggers (chat opened, socket reopened, watchdog tick) costs one fetch, not three.
+const RECONCILE_MIN_GAP_MS = 2_000;
+
+const reconcileInFlight = new Map<string, Promise<void>>();
+const reconciledAt = new Map<string, number>();
+
+/**
+ * Brings one chat back in line with the server: appends what arrived, re-emits what was
+ * edited, and drops what was deleted. This is what the manual refresh button used to do by
+ * hand. It replaces the old blind poll, which only ever looked for ids above the newest
+ * cached one and so could not see an edit or a deletion at all.
+ */
+export async function reconcileChat(
   accountId: number,
   chatId: string,
-  afterId?: number,
+  opts: { force?: boolean } = {},
 ): Promise<void> {
-  const entry = liveClients.get(accountId);
-  if (!entry) return;
-
-  let maxId = afterId ?? 0;
-  if (!maxId) {
-    const row = db
-      .prepare(
-        "SELECT MAX(msg_id) as m FROM tg_message_cache WHERE account_id = ? AND chat_id = ?",
-      )
-      .get(accountId, chatId) as { m: number | null };
-    maxId = row?.m ?? 0;
+  const key = `${accountId}:${chatId}`;
+  const running = reconcileInFlight.get(key);
+  if (running) return running;
+  if (!opts.force) {
+    const last = reconciledAt.get(key) ?? 0;
+    if (Date.now() - last < RECONCILE_MIN_GAP_MS) return;
   }
-  if (!maxId) return;
 
-  const recent = await getMessages(entry, chatId, 100, 0);
-  const newMsgs = recent.filter((m) => m.id > maxId);
-  if (!newMsgs.length) return;
-  cacheMessages(accountId, chatId, newMsgs);
-  // Push oldest-first so the frontend appends in chronological order
-  const ordered = newMsgs.slice().sort((a, b) => a.id - b.id);
-  for (const msg of ordered) {
-    entry.subscribers.forEach((sub) => sub({ chatId, message: msg }));
-  }
+  const run = (async () => {
+    const entry = liveClients.get(accountId);
+    if (!entry) return;
+
+    let fresh: TgMsgPayload[];
+    try {
+      fresh = await getMessages(entry, chatId, RECONCILE_LIMIT, 0);
+    } catch {
+      return; // Offline or not permitted -- the next trigger tries again
+    }
+    if (!fresh.length) return;
+
+    // getMessages returns newest-first, so the last entry bounds the compared window
+    const windowFrom = fresh[fresh.length - 1].id;
+    const cached = getCachedMessages(
+      accountId,
+      chatId,
+      RECONCILE_LIMIT * 2,
+    ).filter((m) => m.id >= windowFrom);
+
+    cacheMessages(accountId, chatId, fresh);
+    recordChatRange(accountId, chatId, {
+      minId: windowFrom,
+      maxId: fresh[0].id,
+      hasStart: fresh.length < RECONCILE_LIMIT,
+    });
+
+    // A cold cache has nothing to diff against: fill it, but do not announce forty
+    // messages as if they had just arrived.
+    if (!cached.length) return;
+
+    const cachedById = new Map(cached.map((m) => [m.id, m]));
+    const freshIds = new Set(fresh.map((m) => m.id));
+
+    // Oldest-first so the frontend appends in chronological order
+    for (const msg of [...fresh].reverse()) {
+      const prev = cachedById.get(msg.id);
+      if (!prev) {
+        entry.subscribers.forEach((sub) => sub({ chatId, message: msg }));
+      } else if (messageSignature(prev) !== messageSignature(msg)) {
+        emitEvent(entry, { type: "edited", chatId, message: msg });
+      }
+    }
+
+    const deleted = cached
+      .filter((m) => !freshIds.has(m.id))
+      .map((m) => m.id);
+    if (deleted.length) {
+      removeCachedMessages(accountId, chatId, deleted);
+      emitEvent(entry, { type: "deleted", chatId, ids: deleted });
+    }
+  })().finally(() => {
+    reconcileInFlight.delete(key);
+    reconciledAt.set(key, Date.now());
+  });
+
+  reconcileInFlight.set(key, run);
+  return run;
 }
+
 
 // --- Dialog cache helpers ---
 
@@ -3264,6 +4027,9 @@ export function clearAccountCache(accountId: number): void {
     accountId,
   );
   db.prepare("DELETE FROM tg_dialog_cache WHERE account_id = ?").run(accountId);
+  try {
+    db.prepare("DELETE FROM tg_chat_sync WHERE account_id = ?").run(accountId);
+  } catch {}
   const entry = liveClients.get(accountId);
   if (entry) {
     entry.entityCache.clear();
