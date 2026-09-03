@@ -8,7 +8,7 @@ vi.mock("../db/database", () => ({
 
 import { describe, it, expect, vi } from "vitest";
 import { messageAddressesUser, messageMasksUserName } from "../jobs/custom";
-import type { Api } from "telegram";
+import { Api } from "telegram";
 
 const me = { id: "778899123", username: "my_account" };
 const noUsername = { id: "778899123" };
@@ -122,5 +122,33 @@ describe("messageMasksUserName", () => {
     expect(messageMasksUserName(msg("欢迎 Bobby 加入群组"), { id: "1", names: ["Timothy"] })).toBe(false);
     expect(messageMasksUserName(msg("欢迎 T*****y 加入群组"), { id: "1" })).toBe(false);
     expect(messageMasksUserName(null, masked)).toBe(false);
+  });
+});
+
+// The same welcome bot sometimes poses its check as a quiz poll rather than a keyboard.
+// The joiner's name is then in the poll question, where the message text is empty, so a
+// prompt-matching filter that only reads m.message never recognises its own prompt.
+describe("a prompt posed as a quiz poll", () => {
+  const pollMsg = (question: string, entities: unknown[] = []) => {
+    const media = Object.create(Api.MessageMediaPoll.prototype);
+    media.poll = { closed: false, question: { text: question, entities } };
+    media.results = {};
+    return { message: "", media } as unknown as Api.Message;
+  };
+
+  it("reads the name out of the question", () => {
+    expect(messageAddressesUser(pollMsg("@my_account 请选择正确的答案 4 + 8?"), me)).toBe(true);
+    expect(messageAddressesUser(pollMsg("@someone_else 请选择正确的答案 4 + 8?"), me)).toBe(false);
+  });
+
+  it("reads a text mention out of the question's own entities", () => {
+    const mention = [{ userId: { toString: () => "778899123" } }];
+    expect(messageAddressesUser(pollMsg("请选择正确的答案 4 + 8?", mention), noUsername)).toBe(true);
+  });
+
+  it("recognises the plain display name these quizzes address people by", () => {
+    const rachel = { id: "1", names: ["Rachel"] };
+    expect(messageMasksUserName(pollMsg("Rachel, 请选择正确的答案 4 + 8?"), rachel)).toBe(true);
+    expect(messageMasksUserName(pollMsg("Jimmy, 请选择正确的答案 4 + 8?"), rachel)).toBe(false);
   });
 });

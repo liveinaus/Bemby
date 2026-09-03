@@ -45,7 +45,31 @@ export type TgButton = {
 
 /** Media a quoted message carries, so the UI can word a quote with no text of its own. */
 export type TgMediaKind =
-  "photo" | "video" | "sticker" | "voice" | "audio" | "document" | "contact";
+  "photo" | "video" | "sticker" | "voice" | "audio" | "document" | "contact" | "poll";
+
+export type TgPollAnswer = {
+  /** base64 of the option bytes -- what a vote sends back. */
+  option: string;
+  text: string;
+  voters: number;
+  /** This account picked it. */
+  chosen: boolean;
+  /** Quiz only, and only once answered: this was the right one. */
+  correct: boolean;
+};
+
+export type TgPoll = {
+  id: string;
+  question: string;
+  quiz: boolean;
+  multiple: boolean;
+  closed: boolean;
+  publicVoters: boolean;
+  totalVoters: number;
+  /** True once this account has voted, which is when Telegram reveals the tallies. */
+  voted: boolean;
+  answers: TgPollAnswer[];
+};
 
 /** Membership and housekeeping events Telegram reports as service messages. */
 export type TgServiceKind =
@@ -104,6 +128,8 @@ export type TgMsgPayload = {
   groupedId?: string | null;
   /** True while the message is pinned in its chat. */
   pinned?: boolean;
+  /** Poll or quiz carried by this message; null on everything else. */
+  poll?: TgPoll | null;
 };
 
 /**
@@ -500,11 +526,63 @@ function contactMediaText(
     .trim();
 }
 
+/** Text of a poll question or answer, which layer 225 carries as TextWithEntities. */
+function pollText(value: unknown): string {
+  if (typeof value === "string") return value;
+  return ((value as any)?.text as string) ?? "";
+}
+
+/**
+ * The poll behind a message, tallies included. Telegram withholds the per-answer counts
+ * until the account has voted (or the poll closed), which is why `voted` is worth carrying:
+ * it tells the UI whether zeroes mean "no votes" or "not shown yet".
+ */
+function extractPoll(
+  media: Api.TypeMessageMedia | null | undefined,
+): TgPoll | null {
+  if (!(media instanceof Api.MessageMediaPoll)) return null;
+  const poll = media.poll as Api.Poll;
+  const results = (media.results as Api.PollResults) ?? null;
+  const byOption = new Map<string, Api.PollAnswerVoters>();
+  for (const r of (results?.results ?? []) as Api.PollAnswerVoters[]) {
+    byOption.set(Buffer.from(r.option as any).toString("base64"), r);
+  }
+  const answers = (poll.answers ?? []).map((a): TgPollAnswer => {
+    const option = Buffer.from((a as Api.PollAnswer).option as any).toString("base64");
+    const voters = byOption.get(option);
+    return {
+      option,
+      text: pollText((a as Api.PollAnswer).text),
+      voters: voters?.voters ?? 0,
+      chosen: Boolean(voters?.chosen),
+      correct: Boolean(voters?.correct),
+    };
+  });
+  return {
+    id: poll.id?.toString() ?? "",
+    question: pollText(poll.question),
+    quiz: Boolean(poll.quiz),
+    multiple: Boolean(poll.multipleChoice),
+    closed: Boolean(poll.closed),
+    publicVoters: Boolean(poll.publicVoters),
+    totalVoters: results?.totalVoters ?? 0,
+    voted: answers.some((a) => a.chosen),
+    answers,
+  };
+}
+
 /** Message text as shown in the UI, with a stand-in for text-less media. */
 function displayText(
   msg: Api.Message | { message?: string; media?: any },
 ): string {
-  return (msg as any).message || contactMediaText((msg as any).media);
+  const media = (msg as any).media;
+  return (
+    (msg as any).message ||
+    contactMediaText(media) ||
+    (media instanceof Api.MessageMediaPoll
+      ? pollText((media.poll as Api.Poll).question)
+      : "")
+  );
 }
 
 /**
@@ -516,6 +594,7 @@ function mediaKind(
 ): TgMediaKind | null {
   if (media instanceof Api.MessageMediaPhoto) return "photo";
   if (media instanceof Api.MessageMediaContact) return "contact";
+  if (media instanceof Api.MessageMediaPoll) return "poll";
   if (media instanceof Api.MessageMediaDocument) {
     const doc = (media as Api.MessageMediaDocument).document;
     if (!(doc instanceof Api.Document)) return "document";
@@ -582,6 +661,7 @@ function buildMsgPayload(
     media,
     groupedId: msg.groupedId ? msg.groupedId.toString() : null,
     pinned: Boolean(msg.pinned),
+    poll: extractPoll(msg.media),
   };
 }
 
@@ -913,6 +993,7 @@ function messageSignature(p: TgMsgPayload): string {
     p.buttons,
     p.media ?? null,
     p.fileName,
+    p.poll ?? null,
   ]);
 }
 
@@ -1734,6 +1815,7 @@ export async function getPinnedMessage(
     replyToText: null,
     replyToName: null,
     replyCount: null,
+    poll: extractPoll(msg.media),
   };
 }
 
@@ -2871,6 +2953,35 @@ export async function clickButton(
   };
 }
 
+/**
+ * Casts this account's vote in a poll and hands back the message as it now stands.
+ * Telegram only reveals the tallies once you have voted, so the fresh payload is the
+ * answer -- the UI has nothing useful to show until it arrives.
+ */
+export async function votePoll(
+  entry: LiveEntry,
+  chatId: string,
+  msgId: number,
+  options: string[],
+): Promise<TgMsgPayload | null> {
+  await ensureEntityCached(entry, chatId);
+  const entity = entry.entityCache.get(chatId);
+  if (!entity) throw new Error("Chat not found");
+  await entry.client.invoke(
+    new Api.messages.SendVote({
+      peer: entity as any,
+      msgId,
+      options: options.map((o) => Buffer.from(o, "base64")),
+    }),
+  );
+  const [fresh] = await entry.client.getMessages(entity, { ids: [msgId] });
+  if (!fresh?.id) return null;
+  const payload = await livePayload(entry, chatId, fresh as Api.Message);
+  cacheMessages(entry.accountId, chatId, [payload]);
+  emitEvent(entry, { type: "edited", chatId, message: payload });
+  return payload;
+}
+
 export async function sendReaction(
   entry: LiveEntry,
   chatId: string,
@@ -2944,6 +3055,7 @@ export async function getThreadMessages(
       replyToText: null,
       replyToName: null,
       replyCount: null,
+      poll: extractPoll(msg.media),
     };
   });
 }

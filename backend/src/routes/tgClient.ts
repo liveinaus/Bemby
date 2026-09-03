@@ -27,6 +27,7 @@ import {
   pinDialog,
   clickButton,
   sendReaction,
+  votePoll,
   getThreadMessages,
   getBotInfo,
   markRead,
@@ -814,6 +815,24 @@ router.post("/:accountId/messages/:chatId/:msgId/button", async (req, res) => {
     const entry = await getLiveClient(accountId);
     const result = await clickButton(entry, chatId, msgId, data);
     res.json(result);
+  } catch (err: any) {
+    tgError(err, accountId, res);
+  }
+});
+
+// POST /:accountId/messages/:chatId/:msgId/vote -- cast a vote in a poll or quiz
+router.post("/:accountId/messages/:chatId/:msgId/vote", async (req, res) => {
+  const accountId = Number(req.params.accountId);
+  const chatId = decodeURIComponent(req.params.chatId);
+  const msgId = Number(req.params.msgId);
+  const { options } = req.body as { options?: string[] };
+  if (!Array.isArray(options) || !options.length) {
+    res.status(400).json({ error: "options is required" });
+    return;
+  }
+  try {
+    const entry = await getLiveClient(accountId);
+    res.json({ message: await votePoll(entry, chatId, msgId, options) });
   } catch (err: any) {
     tgError(err, accountId, res);
   }

@@ -7,6 +7,7 @@ const {
   MockPeerUser, MockPeerChannel, MockPeerChat,
   MockMessage, MockChatInvite, MockChatInviteAlready, MockChatInvitePeek,
   MockMessageMediaPhoto, MockMessageMediaDocument, MockMessageMediaContact,
+  MockMessageMediaPoll,
   MockDocument, MockReplyInlineMarkup, MockChatPhotoEmpty,
   MockDocAttrSticker, MockDocAttrAudio, MockDocAttrVideo, MockDocAttrFilename,
   MockMessageService, MockActionChatAddUser, MockActionChatJoinedByLink,
@@ -33,6 +34,7 @@ const {
   class MockMessageMediaPhoto {}
   class MockMessageMediaDocument { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
   class MockMessageMediaContact { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
+  class MockMessageMediaPoll { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
   class MockDocument { constructor(d: Record<string, any> = {}) { Object.assign(this, d); } }
   class MockReplyInlineMarkup {
     rows: Array<{ buttons: Array<{ text: string }> }>;
@@ -93,6 +95,7 @@ const {
     MockPeerUser, MockPeerChannel, MockPeerChat,
     MockMessage, MockChatInvite, MockChatInviteAlready, MockChatInvitePeek,
     MockMessageMediaPhoto, MockMessageMediaDocument, MockMessageMediaContact,
+    MockMessageMediaPoll,
     MockDocument, MockReplyInlineMarkup, MockChatPhotoEmpty,
     MockDocAttrSticker, MockDocAttrAudio, MockDocAttrVideo, MockDocAttrFilename,
     MockMessageService, MockActionChatAddUser, MockActionChatJoinedByLink,
@@ -131,6 +134,7 @@ vi.mock('telegram', () => ({
     MessageMediaPhoto:   MockMessageMediaPhoto,
     MessageMediaDocument: MockMessageMediaDocument,
     MessageMediaContact: MockMessageMediaContact,
+    MessageMediaPoll:    MockMessageMediaPoll,
     Document:            MockDocument,
     DocumentAttributeSticker:  MockDocAttrSticker,
     DocumentAttributeAudio:    MockDocAttrAudio,
@@ -458,6 +462,44 @@ describe('getMessages', () => {
     const [msg] = await getMessages(entry as any, 'u12', 20, 0);
     expect(msg.hasPhoto).toBe(true);
     expect(msg.hasDocument).toBe(false);
+  });
+
+  // A quiz message carries no text at all, so before the poll was read out of the media it
+  // reached the panel as an empty bubble -- nothing to see and nothing to answer.
+  it('reads out a quiz poll, tallies and all', async () => {
+    const user  = new MockUser({ id: 23n });
+    const entry = makeEntry([['u23', user]]);
+
+    mockGetMessages.mockResolvedValueOnce([
+      new MockMessage({
+        id: 5, message: '', date: 1700000004, out: false, fromId: null, replyMarkup: null,
+        media: new MockMessageMediaPoll({
+          poll: {
+            id: { toString: () => '99' },
+            quiz: true,
+            question: { text: 'Rachel, 4 + 8?' },
+            answers: [
+              { option: Buffer.from([0]), text: { text: '11' } },
+              { option: Buffer.from([1]), text: { text: '12' } },
+            ],
+          },
+          results: {
+            totalVoters: 1,
+            results: [{ option: Buffer.from([1]), voters: 1, chosen: true, correct: true }],
+          },
+        }),
+      }),
+    ]);
+
+    const [msg] = await getMessages(entry as any, 'u23', 20, 0);
+    expect(msg.media).toBe('poll');
+    // The question doubles as the text, so the chat list has something to preview
+    expect(msg.text).toBe('Rachel, 4 + 8?');
+    expect(msg.poll).toMatchObject({ quiz: true, voted: true, totalVoters: 1 });
+    expect(msg.poll?.answers).toEqual([
+      { option: 'AA==', text: '11', voters: 0, chosen: false, correct: false },
+      { option: 'AQ==', text: '12', voters: 1, chosen: true, correct: true },
+    ]);
   });
 
   it('describes a contact card, which carries no message text of its own', async () => {

@@ -2825,7 +2825,30 @@ export type TgMediaKind =
   | "voice"
   | "audio"
   | "document"
-  | "contact";
+  | "contact"
+  | "poll";
+
+export type TgPollAnswer = {
+  /** base64 of the option bytes -- what a vote sends back. */
+  option: string;
+  text: string;
+  voters: number;
+  chosen: boolean;
+  correct: boolean;
+};
+
+export type TgPoll = {
+  id: string;
+  question: string;
+  quiz: boolean;
+  multiple: boolean;
+  closed: boolean;
+  publicVoters: boolean;
+  totalVoters: number;
+  /** True once this account has voted, which is when Telegram reveals the tallies. */
+  voted: boolean;
+  answers: TgPollAnswer[];
+};
 
 /** Membership and housekeeping events Telegram reports as service messages. */
 export type TgServiceKind =
@@ -2878,6 +2901,8 @@ export type TgMessage = {
   /** Shared by every message of an album. */
   groupedId?: string | null;
   pinned?: boolean;
+  /** Poll or quiz carried by this message. */
+  poll?: TgPoll | null;
   /**
    * Client-only. Set while a message is on its way to Telegram, or once that failed;
    * absent on anything the server sent us.
@@ -3188,6 +3213,19 @@ export const tgClientApi = {
         { data },
       )
       .then((r) => r.data),
+
+  votePoll: (
+    accountId: number,
+    chatId: string,
+    msgId: number,
+    options: string[],
+  ) =>
+    api
+      .post<{ message: TgMessage | null }>(
+        `/tg-client/${accountId}/messages/${encodeURIComponent(chatId)}/${msgId}/vote`,
+        { options },
+      )
+      .then((r) => r.data.message),
 
   sendTyping: (accountId: number, chatId: string) =>
     api

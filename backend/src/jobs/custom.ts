@@ -158,6 +158,39 @@ type SendAnchor = { msgId: number; dateSec: number };
 const hasInlineButtons = (m: Api.Message | null | undefined): boolean =>
   !!m && (m as any).replyMarkup instanceof Api.ReplyInlineMarkup;
 
+/** Poll text is TextWithEntities from layer 225 on, and was a bare string before it. */
+const pollTextOf = (v: unknown): string =>
+  typeof v === "string" ? v : (((v as any)?.text as string) ?? "");
+
+const pollEntitiesOf = (v: unknown): any[] =>
+  typeof v === "string" ? [] : (((v as any)?.entities as any[]) ?? []);
+
+/**
+ * The open poll a message carries. Verification bots pose their entry question either as an
+ * inline keyboard or as a quiz whose answers are poll options -- the same question in two
+ * shapes, so everything downstream treats them alike.
+ */
+const openPollOf = (m: Api.Message | null | undefined): Api.Poll | null => {
+  const media = (m as any)?.media;
+  if (!(media instanceof Api.MessageMediaPoll)) return null;
+  const poll = media.poll as Api.Poll;
+  return poll.closed ? null : poll;
+};
+
+/** Text a prompt addresses the joiner in, wherever the bot put it. */
+const promptText = (m: Api.Message | null | undefined): string => {
+  const poll = openPollOf(m);
+  return [m?.message ?? "", poll ? pollTextOf(poll.question) : ""]
+    .filter(Boolean)
+    .join("\n");
+};
+
+/** Entities of that text -- a poll keeps its own, outside the message's. */
+const promptEntities = (m: Api.Message | null | undefined): any[] => [
+  ...(((m?.entities ?? []) as any[]) ?? []),
+  ...pollEntitiesOf(openPollOf(m)?.question),
+];
+
 // Does a message's text/caption carry the wording an action is pinned to? A blank
 // needle matches anything. Whitespace is ignored on both sides, so a keyword typed
 // as "请在 180 秒内" still matches a message rendering it as "请在180秒内".
@@ -200,7 +233,7 @@ export function messageMasksUserName(
   m: Api.Message | null | undefined,
   me: SelfRef,
 ): boolean {
-  const text = m?.message ?? "";
+  const text = promptText(m);
   const names = me.names ?? [];
   if (!text || !names.length) return false;
 
@@ -236,7 +269,8 @@ export function messageAddressesUser(
 ): boolean {
   if (!m) return false;
   if ((m as any).mentioned) return true;
-  const text = m.message ?? "";
+  const text = promptText(m);
+  const entities = promptEntities(m);
   const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // A bare id, not part of a longer number (so "180" never matches an id ending in 180)
   const carriesId = (s: string): boolean =>
@@ -246,12 +280,12 @@ export function messageAddressesUser(
   if (text.includes(`tg://user?id=${me.id}`)) return true;
   if (carriesId(text)) return true;
   // Text mentions carry the user in an entity rather than the text
-  if (((m.entities ?? []) as any[]).some((e) => e?.userId != null && e.userId.toString() === me.id))
+  if (entities.some((e) => e?.userId != null && e.userId.toString() === me.id))
     return true;
   // Some welcome bots name the joiner in a hidden link instead of a mention: a zero-width
   // text link whose URL carries {"userId":<id>}. It is exact, and on a prompt that masks
   // the display name it is the only signal that says which joiner it is for.
-  return ((m.entities ?? []) as any[]).some((e) => {
+  return entities.some((e) => {
     if (typeof e?.url !== "string") return false;
     let url = e.url;
     try {
@@ -333,6 +367,8 @@ async function waitForButtonsInChat(
   signal?: AbortSignal,
   minId = 0,
   filter?: ButtonsFilter,
+  /** What counts as carrying options; a group verification also stops for a quiz poll. */
+  carriesOptions: (m: Api.Message) => boolean = hasInlineButtons,
 ): Promise<Api.Message[]> {
   const chatPeerId = await client.getPeerId(chat);
 
@@ -369,7 +405,7 @@ async function waitForButtonsInChat(
     signal?.addEventListener("abort", onAbort, { once: true });
 
     const wanted = (msg: Api.Message): boolean =>
-      hasInlineButtons(msg) && (!filter || filter.accept(msg));
+      carriesOptions(msg) && (!filter || filter.accept(msg));
 
     const handler = async (event: NewMessageEvent) => {
       const msg = event.message as Api.Message;
@@ -691,8 +727,11 @@ async function clickGroupVerification(
         describe: maskedName && !onlyMine ? "naming this account (masked)" : "addressed to this account",
       }
     : undefined;
+  // A quiz poll is the same verification in another shape, so it counts as a prompt.
+  const carriesOptions = (m: Api.Message | null | undefined): boolean =>
+    hasInlineButtons(m) || !!openPollOf(m);
   const wanted = (m: Api.Message | null | undefined): boolean =>
-    hasInlineButtons(m) && (!filter || filter.accept(m as Api.Message));
+    carriesOptions(m) && (!filter || filter.accept(m as Api.Message));
 
   const findButtonsMsg = (msgs: Api.Message[]): Api.Message | null =>
     [...msgs].reverse().find((m) => wanted(m)) ?? null;
@@ -707,7 +746,15 @@ async function clickGroupVerification(
   const forwardAbort = () => waitAbort.abort();
   signal?.addEventListener("abort", forwardAbort, { once: true });
 
-  const waiterPromise = waitForButtonsInChat(client, chat, maxMs, waitAbort.signal, 0, filter)
+  const waiterPromise = waitForButtonsInChat(
+    client,
+    chat,
+    maxMs,
+    waitAbort.signal,
+    0,
+    filter,
+    (m) => carriesOptions(m),
+  )
     .then(findButtonsMsg)
     .catch(() => null);
 
@@ -741,6 +788,12 @@ async function clickGroupVerification(
 
   if (!buttonsMsg) {
     step.result = `${step.result} (no verification prompt${filter ? ` ${filter.describe}` : ""})`;
+    return;
+  }
+
+  const poll = openPollOf(buttonsMsg);
+  if (poll) {
+    await answerVerifyPoll(client, chat, buttonsMsg, poll, buttonMatch, step, signal);
     return;
   }
 
@@ -794,6 +847,110 @@ async function clickGroupVerification(
   step.result = `${step.result} (verification button "${(target as any).text}" opens ${
     web?.miniApp ? "a Mini App" : web?.url ? "a web page" : "nothing clickable"
   })`;
+}
+
+// The default task for a quiz poll standing in for a keyboard: the same job as
+// VERIFY_AI_TASK, worded for options rather than buttons.
+const VERIFY_AI_POLL_TASK =
+  "answer the group entry verification quiz for the member who has just joined: read the " +
+  "question and pick the option that answers it correctly -- for an arithmetic question, " +
+  "the one carrying the correct result";
+
+/**
+ * Answers a verification posed as a poll: the same choice a keyboard prompt asks for, cast
+ * as a vote instead of a click. The AI reads the question exactly as it does a keyboard's,
+ * so `{aiBtn}` covers both shapes and a template says nothing about which one it faces.
+ */
+async function answerVerifyPoll(
+  client: TelegramClient,
+  chat: Api.Channel,
+  prompt: Api.Message,
+  poll: Api.Poll,
+  buttonMatch: string,
+  step: CustomStepLog,
+  signal?: AbortSignal,
+): Promise<void> {
+  const options = (poll.answers ?? []).map((a) => ({
+    text: pollTextOf((a as Api.PollAnswer).text).trim(),
+    option: (a as Api.PollAnswer).option,
+  }));
+  if (!options.length) {
+    step.result = `${step.result} (verification poll has no options)`;
+    return;
+  }
+  const question = pollTextOf(poll.question).trim();
+
+  let target: (typeof options)[number] | undefined;
+  if (isAiBtn(buttonMatch)) {
+    if (options.length === 1) {
+      target = options[0];
+    } else {
+      // The question lives in the poll rather than in the message text, so it is spelled
+      // out for the model here; a picture riding along still goes through parseMessages.
+      const parsed = await parseMessages([prompt], client, signal);
+      const text = [parsed.html, question].filter(Boolean).join("<br>");
+      step.preClickHtml = text;
+      if (parsed.images.length) step.preClickImage = parsed.images[0];
+      if (parsed.hasMedia) step.preClickHasMedia = parsed.hasMedia;
+      step.preClickButtons = [options.map((o) => o.text)];
+
+      const aiStart = Date.now();
+      try {
+        const picked = await selectButtonWithAI(
+          [options.map((o) => o.text)],
+          text,
+          parsed.images,
+          parseAiBtnHint(buttonMatch) ?? VERIFY_AI_POLL_TASK,
+          VERIFY_AI_RETRIES,
+        );
+        step.aiPrompt = picked.prompt;
+        step.aiResponse = picked.response;
+        if (picked.retries.length) step.aiRetries = picked.retries;
+        target = options.find((o) => o.text === picked.button);
+      } finally {
+        step.aiDurationMs = Date.now() - aiStart;
+      }
+    }
+  } else {
+    const wantedLabels = parseLabelAlternatives(buttonMatch);
+    target = wantedLabels.length
+      ? options.find((o) => wantedLabels.some((w) => o.text.includes(w)))
+      : undefined;
+    if (!target && options.length === 1) target = options[0];
+  }
+
+  if (!target) {
+    step.result = `${step.result} (no verification poll option matched)`;
+    return;
+  }
+  step.clickedButton = target.text;
+
+  await client.invoke(
+    new Api.messages.SendVote({
+      peer: await client.getInputEntity(chat),
+      msgId: prompt.id,
+      options: [target.option],
+    }),
+  );
+
+  // A quiz only reveals which option was right once a vote is in, so the verdict is read
+  // back from the message rather than assumed from the vote going through.
+  const [fresh] = (await client
+    .getMessages(chat, { ids: [prompt.id] })
+    .catch(() => [])) as Api.Message[];
+  const results = (fresh?.media as Api.MessageMediaPoll | undefined)?.results as
+    | Api.PollResults
+    | undefined;
+  const mine = ((results?.results ?? []) as Api.PollAnswerVoters[]).find((r) =>
+    Buffer.from(r.option as any).equals(Buffer.from(target!.option as any)),
+  );
+  const verdict =
+    poll.quiz && mine?.chosen
+      ? mine.correct
+        ? `answered "${target.text}" (correct)`
+        : `answered "${target.text}" (wrong)`
+      : `voted "${target.text}"`;
+  step.result = `${step.result} + ${verdict}`;
 }
 
 /** Presses a callback button and reports what came back, in step.result's voice. */

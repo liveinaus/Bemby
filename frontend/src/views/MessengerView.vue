@@ -630,11 +630,81 @@
                         }}</span>
                       </a>
                       <div
-                        v-if="msg.text || msg.html"
+                        v-if="(msg.text || msg.html) && !msg.poll"
                         class="tgc-msg-text"
                         v-html="msg.html ?? escMsgText(msg.text)"
                         @click="onMsgLinkClick($event)"
                       ></div>
+                      <!-- Poll / quiz -->
+                      <div v-if="msg.poll" class="tgc-poll">
+                        <div class="tgc-poll-q">{{ msg.poll.question }}</div>
+                        <div class="tgc-poll-kind">
+                          {{ pollKindLabel(msg.poll) }}
+                        </div>
+                        <button
+                          v-for="a in msg.poll.answers"
+                          :key="a.option"
+                          class="tgc-poll-opt"
+                          :class="{
+                            'tgc-poll-picked':
+                              a.chosen || pollPicked(msg.id, a.option),
+                            'tgc-poll-correct':
+                              msg.poll.voted && msg.poll.quiz && a.correct,
+                            'tgc-poll-done': pollShowsResults(msg.poll),
+                          }"
+                          :disabled="msg.poll.closed || pollBusyId === msg.id"
+                          @click.stop="onPollOption(msg, a)"
+                        >
+                          <span class="tgc-poll-dot">
+                            <i
+                              v-if="a.chosen || pollPicked(msg.id, a.option)"
+                              class="fa-solid"
+                              :class="
+                                msg.poll.quiz && msg.poll.voted && !a.correct
+                                  ? 'fa-xmark'
+                                  : 'fa-check'
+                              "
+                            ></i>
+                          </span>
+                          <span class="tgc-poll-body">
+                            <span class="tgc-poll-line">
+                              <span class="tgc-poll-text">{{ a.text }}</span>
+                              <span
+                                v-if="pollShowsResults(msg.poll)"
+                                class="tgc-poll-pct"
+                                >{{ pollPct(msg.poll, a) }}%</span
+                              >
+                            </span>
+                            <span
+                              v-if="pollShowsResults(msg.poll)"
+                              class="tgc-poll-bar"
+                            >
+                              <span
+                                class="tgc-poll-fill"
+                                :style="{ width: pollPct(msg.poll, a) + '%' }"
+                              ></span>
+                            </span>
+                          </span>
+                        </button>
+                        <button
+                          v-if="
+                            msg.poll.multiple &&
+                            !msg.poll.voted &&
+                            !msg.poll.closed
+                          "
+                          class="tgc-poll-submit"
+                          :disabled="
+                            !pollSelection[msg.id]?.length ||
+                            pollBusyId === msg.id
+                          "
+                          @click.stop="submitPoll(msg)"
+                        >
+                          {{ t('tgc.poll.submit') }}
+                        </button>
+                        <div class="tgc-poll-total">
+                          {{ pollTotalLabel(msg.poll) }}
+                        </div>
+                      </div>
                       <!-- Reactions -->
                       <div v-if="msg.reactions?.length" class="tgc-reactions">
                         <button
@@ -1986,6 +2056,8 @@ import {
   type TgMember,
   type TgNameMention,
   type TgMediaKind,
+  type TgPoll,
+  type TgPollAnswer,
   type TgReaction,
   type TgSyncStateName,
   type TgInvitePreview,
@@ -4415,6 +4487,88 @@ async function doReact(msgId: number, emoji: string) {
     setTimeout(refreshMessages, 1500);
   } catch (e: any) {
     showToast(e?.response?.data?.error ?? e?.message ?? "Failed to react");
+  }
+}
+
+// ── Polls and quizzes ────────────────────────────────────────────────────────
+//
+// Telegram hides the tallies until the account has voted, so an unvoted poll renders as
+// plain options and only turns into bars once the vote comes back.
+
+/** Options ticked but not yet submitted, for a multiple-choice poll. msgId -> options. */
+const pollSelection = ref<Record<number, string[]>>({});
+const pollBusyId = ref<number | null>(null);
+
+function pollPicked(msgId: number, option: string): boolean {
+  return pollSelection.value[msgId]?.includes(option) ?? false;
+}
+
+function pollShowsResults(poll: TgPoll): boolean {
+  return poll.voted || poll.closed;
+}
+
+function pollPct(poll: TgPoll, answer: TgPollAnswer): number {
+  if (!poll.totalVoters) return 0;
+  return Math.round((answer.voters / poll.totalVoters) * 100);
+}
+
+function pollKindLabel(poll: TgPoll): string {
+  const parts = [t(poll.quiz ? "tgc.poll.quiz" : "tgc.poll.poll")];
+  if (poll.closed) parts.push(t("tgc.poll.closed"));
+  else if (poll.multiple && !poll.voted) parts.push(t("tgc.poll.multiple"));
+  else if (!poll.publicVoters) parts.push(t("tgc.poll.anonymous"));
+  return parts.join(" · ");
+}
+
+function pollTotalLabel(poll: TgPoll): string {
+  if (!poll.totalVoters) return t("tgc.poll.noVotes");
+  return t("tgc.poll.totalVoters").replace("{n}", String(poll.totalVoters));
+}
+
+/** A single-choice option votes on click; a multiple-choice one only ticks. */
+function onPollOption(msg: TgMessage, answer: TgPollAnswer) {
+  const poll = msg.poll;
+  if (!poll || poll.closed || poll.voted || pollBusyId.value === msg.id) return;
+  if (!poll.multiple) {
+    void castVote(msg, [answer.option]);
+    return;
+  }
+  const picked = pollSelection.value[msg.id] ?? [];
+  pollSelection.value = {
+    ...pollSelection.value,
+    [msg.id]: picked.includes(answer.option)
+      ? picked.filter((o) => o !== answer.option)
+      : [...picked, answer.option],
+  };
+}
+
+function submitPoll(msg: TgMessage) {
+  const picked = pollSelection.value[msg.id];
+  if (picked?.length) void castVote(msg, picked);
+}
+
+async function castVote(msg: TgMessage, options: string[]) {
+  if (!selectedAccountId.value || !activeChatId.value) return;
+  pollBusyId.value = msg.id;
+  try {
+    const fresh = await tgClientApi.votePoll(
+      selectedAccountId.value,
+      activeChatId.value,
+      msg.id,
+      options,
+    );
+    if (fresh?.poll) {
+      for (const list of [messages.value, threadMessages.value]) {
+        const target = list.find((m) => m.id === msg.id);
+        if (target) target.poll = fresh.poll;
+      }
+    }
+    const { [msg.id]: _dropped, ...rest } = pollSelection.value;
+    pollSelection.value = rest;
+  } catch (e: any) {
+    showToast(e?.response?.data?.error ?? e?.message ?? t("tgc.poll.failed"));
+  } finally {
+    pollBusyId.value = null;
   }
 }
 
@@ -6857,6 +7011,143 @@ async function saveContactEdit() {
 
 .tgc-msg-in .tgc-btn-chip:hover:not(:disabled) {
   background: var(--primary-soft);
+}
+
+/* ── Poll / quiz ──────────────────────────────────────────────────────────── */
+.tgc-poll {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.tgc-poll-q {
+  font-weight: 600;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tgc-poll-kind {
+  font-size: 11px;
+  opacity: 0.65;
+  margin-bottom: 4px;
+}
+
+.tgc-poll-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 4px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tgc-poll-opt:hover:not(:disabled) {
+  background: rgba(127, 127, 127, 0.12);
+}
+
+.tgc-poll-opt:disabled,
+.tgc-poll-opt.tgc-poll-done {
+  cursor: default;
+}
+
+.tgc-poll-dot {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  opacity: 0.5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+
+.tgc-poll-picked .tgc-poll-dot {
+  opacity: 1;
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+
+.tgc-poll-correct .tgc-poll-dot {
+  border-color: #3aab6a;
+  background: #3aab6a;
+  color: #fff;
+  opacity: 1;
+}
+
+.tgc-poll-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tgc-poll-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tgc-poll-text {
+  word-break: break-word;
+}
+
+.tgc-poll-pct {
+  flex: none;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.tgc-poll-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(127, 127, 127, 0.25);
+  overflow: hidden;
+}
+
+.tgc-poll-fill {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 2px;
+}
+
+.tgc-poll-correct .tgc-poll-fill {
+  background: #3aab6a;
+}
+
+.tgc-poll-submit {
+  margin-top: 4px;
+  padding: 5px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tgc-poll-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tgc-poll-total {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.6;
 }
 
 /* ── Message hover actions ──────────────────────────────────────────────────── */
