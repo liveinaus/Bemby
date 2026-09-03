@@ -1345,6 +1345,10 @@ const zh = {
       scriptPlaceholder: "return document.querySelectorAll('.post').length",
       scriptHint:
         "在页面中执行，效果与在浏览器控制台里敲一遍完全一致。只写一个表达式（如 document.title）时，其结果即为返回值；写多行时按函数体处理，必须自己写 return。返回值必须是浏览器能传出来的东西——字符串、数字、普通对象或数组（按 JSON 保存）——因此请返回需要的属性，而不是元素本身。脚本没有返回值时，会退而取它打印到控制台的内容，所以直接写 console.log(...) 也能存成变量。脚本中的 {变量名} 会在执行前先行替换",
+      labelEvalFrame: "在哪个 iframe 中执行（可留空）",
+      evalFramePlaceholder: "例：iframe#opayifrm",
+      evalFrameHint:
+        "留空则在页面本身执行。填 iframe 选择器即可进入该 iframe 内执行脚本，写法与选择器里的 frame: 前缀一致；多层嵌套用 #outer >> #inner。想知道某个 iframe 里到底有什么，用它把 document.body.innerHTML 或所有元素的 id 打印出来最快",
       labelEvalVarName: "变量名（可留空）",
       evalNamePlaceholder: "postCount",
       labelEvalWait: "脚本超时（毫秒）",
@@ -1489,7 +1493,7 @@ const zh = {
       labelSelector: "CSS 选择器",
       selectorPlaceholder: "#username 或 button.submit",
       selectorHint:
-        '标准 CSS 选择器，取第一个匹配到的元素。CSS 本身无法按文字查找，因此另外支持三种写法：button:has-text("Accept") 匹配显示文字中含「Accept」的元素（不区分大小写）、button:text-is("Accept") 要求整段文字与之完全相同、button:text-matches("Accept|同意") 按正则匹配（第二个参数写 "i" 忽略大小写，用于同一个按钮有多种写法）、:visible 只匹配页面上可见的元素（同一个按钮常另有隐藏的移动端副本）。「二者取其一」用逗号分隔两个选择器，取页面上排在前面的那一个；中间留空格是「后者在前者之内」，匹配不到任何元素。类名是构建哈希、只有按钮文字稳定时用这几种写法，所有填选择器的步骤都适用',
+        '标准 CSS 选择器，取第一个匹配到的元素。CSS 本身无法按文字查找，因此另外支持三种写法：button:has-text("Accept") 匹配显示文字中含「Accept」的元素（不区分大小写）、button:text-is("Accept") 要求整段文字与之完全相同、button:text-matches("Accept|同意") 按正则匹配（第二个参数写 "i" 忽略大小写，用于同一个按钮有多种写法）、:visible 只匹配页面上可见的元素（同一个按钮常另有隐藏的移动端副本）。「二者取其一」用逗号分隔两个选择器，取页面上排在前面的那一个；中间留空格是「后者在前者之内」，匹配不到任何元素。类名是构建哈希、只有按钮文字稳定时用这几种写法，所有填选择器的步骤都适用。iframe 内的元素属于另一个文档，普通选择器找不到，需写成 frame:iframe选择器 >> 元素选择器，例如 frame:iframe#pay >> #card-number；多层嵌套就重复前缀，如 frame:#outer >> frame:#inner >> button。>> 前面那段用于定位 iframe 元素本身，因此其中不能再出现 >>（要取第若干个用 :nth-match(iframe, 2)）',
       labelText: "输入内容",
       textPlaceholder: "要输入的文本",
       textHint:
@@ -3959,6 +3963,10 @@ const en: typeof zh = {
       scriptPlaceholder: "return document.querySelectorAll('.post').length",
       scriptHint:
         "Runs in the page, exactly as typing it into the browser console would. One expression on its own (document.title) hands back what it comes to; anything longer is a function body, so it needs its own return. What comes back must be something the browser can hand over -- text, a number, a plain object or array (kept as its JSON) -- so read the property wanted rather than returning the element itself. A script that returns nothing falls back to what it printed, which is what makes a bare console.log(...) worth a name. Takes {name} placeholders, filled in before the script runs",
+      labelEvalFrame: "iframe to run it inside (optional)",
+      evalFramePlaceholder: "e.g. iframe#opayifrm",
+      evalFrameHint:
+        "Blank runs the script in the page itself. Give an iframe selector to run it inside that frame -- the same wording a selector's frame: prefix takes, with #outer >> #inner for a nested one. This is the quickest way to find out what a frame actually holds when a selector finds nothing in it",
       labelEvalVarName: "Name to hold the result under (optional)",
       evalNamePlaceholder: "postCount",
       labelEvalWait: "Give the script (ms)",
@@ -4110,7 +4118,7 @@ const en: typeof zh = {
       labelSelector: "CSS selector",
       selectorPlaceholder: "#username or button.submit",
       selectorHint:
-        'A standard CSS selector; the first element it matches is used. CSS cannot ask about text, so three more forms are understood: button:has-text("Accept") for a control whose words contain Accept (case ignored), button:text-is("Accept") for one whose whole text reads exactly that, button:text-matches("Accept|Agree") for a pattern (a second argument of "i" ignores case, for a control worded several ways), and :visible for the one match actually on screen (a button often has a hidden mobile twin). For either of two, separate the selectors with a comma and the one the page holds first is taken; a space between them instead means the second inside the first, which matches nothing. Reach for them when the classes are build hashes and the wording is the only stable handle; every step with a selector takes them',
+        'A standard CSS selector; the first element it matches is used. CSS cannot ask about text, so three more forms are understood: button:has-text("Accept") for a control whose words contain Accept (case ignored), button:text-is("Accept") for one whose whole text reads exactly that, button:text-matches("Accept|Agree") for a pattern (a second argument of "i" ignores case, for a control worded several ways), and :visible for the one match actually on screen (a button often has a hidden mobile twin). For either of two, separate the selectors with a comma and the one the page holds first is taken; a space between them instead means the second inside the first, which matches nothing. Reach for them when the classes are build hashes and the wording is the only stable handle; every step with a selector takes them. An element inside an iframe belongs to another document and no ordinary selector reaches it, so name the frame first: frame:iframe#pay >> #card-number, and repeat the prefix for a frame within a frame (frame:#outer >> frame:#inner >> button). The part before each >> names the iframe element itself and so cannot contain >> of its own -- :nth-match(iframe, 2) picks the second of several',
       labelText: "Text to type",
       textPlaceholder: "What to type in",
       textHint:

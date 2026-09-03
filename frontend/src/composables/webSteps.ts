@@ -71,6 +71,8 @@ export type WebStepForm = {
   secret: boolean;
   /** web_eval: the JavaScript to run on the page. */
   script: string;
+  /** web_eval: an iframe to run it inside, worded as a `frame:` prefix is. Blank is the page. */
+  frame: string;
   /** web_totp: where the authenticator secret is, e.g. `{data.example.{jobId}.otp}`. */
   secretRef: string;
   /** web_totp: wait for the next code when this much of the window is not left. */
@@ -287,6 +289,7 @@ export function defaultWebStep(): WebStepForm {
     rpContains: "",
     secret: false,
     script: "",
+    frame: "",
     secretRef: "",
     minValidMs: 10000,
     jobTemplate: "",
@@ -595,6 +598,7 @@ function webStepBody(s: WebStepForm): WebStep {
       return {
         type: "web_eval",
         script: s.script,
+        ...(s.frame.trim() ? { frame: s.frame.trim() } : {}),
         ...(s.varName.trim() ? { varName: s.varName.trim() } : {}),
         ...(s.maxChars > 0 ? { maxChars: s.maxChars } : {}),
         ...(s.waitMs > 0 ? { waitMs: s.waitMs } : {}),
@@ -970,6 +974,7 @@ function webStepFormBody(s: WebStep): WebStepForm {
         ...base,
         type: s.type,
         script: s.script,
+        frame: s.frame ?? "",
         varName: s.varName ?? "",
         maxChars: s.maxChars ?? 0,
         waitMs: s.waitMs ?? 15000,

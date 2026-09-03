@@ -607,12 +607,20 @@ export type WebStep = WebStepCommon & WebStepKind;
  * wording as the only stable handle. Either of two is a comma-separated pair, and the match
  * the page holds first is the one taken.
  *
+ * An iframe holds a document of its own that no selector crosses into, so one for something
+ * inside a frame says which frame it means: `frame:iframe#pay >> #card-number`, the prefix
+ * repeated for a frame within a frame. The part before each `>>` names the iframe element in
+ * the document above it and so cannot itself contain `>>`; `:nth-match(iframe, 2)` picks the
+ * second of several. Works whatever the frame's origin, including one the parent page is
+ * barred from reading.
+ *
  * The `ai_*` variants hand a screenshot to the vision model rather than naming an element.
  * `ai_web_button` and `ai_web_input` number the interactive elements on the shot first, so
  * what comes back is a marker to press rather than a raw pixel guess, and the click lands
- * on a real element. `ai_web_click_xy` asks for a position instead, for what that cannot
- * reach: a control inside a cross-origin iframe or a closed shadow root (a Turnstile
- * checkbox), or one painted on a canvas, none of which any selector can number.
+ * on a real element. Those two read the top document alone, so a control inside a frame is
+ * one for a `frame:` selector rather than for them. `ai_web_click_xy` asks for a position
+ * instead, for what neither can reach: a closed shadow root (a Turnstile checkbox), or
+ * something painted on a canvas, which no selector can name.
  *
  * `web_if` branches on what is on the page, which is what lets a job log in only when it has
  * to. The browser keeps one profile per exit, so the session cookie a login leaves behind is
@@ -1400,6 +1408,13 @@ type WebStepKind =
       type: "web_eval";
       /** The script, e.g. `return document.querySelectorAll('.post').length`. */
       script: string;
+      /**
+       * An iframe to run the script inside, named as a `frame:` selector prefix is
+       * (`iframe#pay`, or `#outer >> #inner` for a nested one). Blank runs it in the page
+       * itself. This is the way to see what a document a selector cannot find anything in
+       * actually holds.
+       */
+      frame?: string;
       /** Name to hold the result under. Blank runs the script for its effect alone. */
       varName?: string;
       /** Cut the result to this many characters. Blank/0 keeps 1000. */

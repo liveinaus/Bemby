@@ -1383,4 +1383,305 @@ describe.skipIf(!exe)("page steps in a real browser", () => {
     },
     60_000,
   );
+  // A selector cannot leave its own document, so an iframe's contents were out of reach of
+  // every step until `frame:` said which one to go into. These run against a frame given its
+  // own opaque origin -- `contentDocument` is barred across that boundary, so nothing here
+  // can quietly be working through the parent's DOM -- and the button sits well away from the
+  // page's origin, since a click measured in the frame and sent to the page without the
+  // frame's offset lands somewhere else entirely.
+  const framed = (body: string) =>
+    `data:text/html;charset=utf-8,${encodeURIComponent(`<body style="margin:0">${body}</body>`)}`;
+
+  // Records where in the button the pointer actually landed, which is what proves the offset
+  const PRESS_REPORT =
+    `onclick="var r=this.getBoundingClientRect();` +
+    `this.textContent=Math.round(event.clientX-r.x)+','+Math.round(event.clientY-r.y)"`;
+
+  it(
+    "presses a control inside an iframe, allowing for where the frame sits on the page",
+    async () => {
+      const inner = framed(
+        `<button id="go" style="position:absolute;left:40px;top:30px;width:120px;height:40px" ` +
+          `${PRESS_REPORT}>go</button>`,
+      );
+      const p = await open(
+        `<iframe id="box" src="${inner}" style="position:absolute;left:150px;top:220px;` +
+          `width:300px;height:200px;border:3px solid #000"></iframe>`,
+      );
+
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: "frame:#box >> #go" }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+
+      const frame = p.frames()[1];
+      const landed = await frame.evaluate(() => document.getElementById("go")!.textContent);
+      // Inside the button, and near enough its middle to be the centre it aimed at
+      const [x, y] = (landed ?? "").split(",").map(Number);
+      expect(x).toBeGreaterThan(50);
+      expect(x).toBeLessThan(70);
+      expect(y).toBeGreaterThan(10);
+      expect(y).toBeLessThan(30);
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "leaves the same selector unfound when it does not say which frame",
+    async () => {
+      const p = await open(
+        `<iframe id="box" src="${framed(`<button id="go">go</button>`)}" ` +
+          `style="position:absolute;left:150px;top:220px;width:300px;height:200px"></iframe>`,
+      );
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: "#go" }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.ok).toBe(false);
+      expect(run.logs[0].error).toContain("is on the page");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "types into a field inside a frame, and reads what the frame shows",
+    async () => {
+      const inner = framed(
+        `<input id="who" style="position:absolute;left:20px;top:40px;width:200px;height:30px">` +
+          `<div id="note" style="position:absolute;left:20px;top:90px">inner note</div>`,
+      );
+      const p = await open(
+        `<div style="height:60px">above</div>` +
+          `<iframe id="box" src="${inner}" style="width:400px;height:200px"></iframe>`,
+      );
+
+      const run = await runWebSteps(
+        p,
+        [
+          { type: "web_wait_element", selector: "frame:#box >> #who", waitMs: 5_000 },
+          { type: "web_input", selector: "frame:#box >> #who", text: "hello" },
+          { type: "web_read", selector: "frame:#box >> #note", varName: "note" },
+        ],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs.map((l) => l.error)).toEqual([undefined, undefined, undefined]);
+      const frame = p.frames()[1];
+      expect(await frame.evaluate(() => (document.getElementById("who") as HTMLInputElement).value)).toBe(
+        "hello",
+      );
+      expect(run.logs[2].outcome).toContain("inner note");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "goes into a frame within a frame, adding up both offsets",
+    async () => {
+      const deepest = framed(
+        `<button id="go" style="position:absolute;left:10px;top:10px;width:100px;height:40px" ` +
+          `${PRESS_REPORT}>go</button>`,
+      );
+      const middle = framed(
+        `<iframe id="in" src="${deepest}" style="position:absolute;left:30px;top:25px;` +
+          `width:200px;height:150px;border:0"></iframe>`,
+      );
+      const p = await open(
+        `<iframe id="out" src="${middle}" style="position:absolute;left:120px;top:90px;` +
+          `width:400px;height:300px;border:0"></iframe>`,
+      );
+
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: "frame:#out >> frame:#in >> #go" }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      const deep = p.frames().at(-1)!;
+      const landed = await deep.evaluate(() => document.getElementById("go")!.textContent);
+      const [x, y] = (landed ?? "").split(",").map(Number);
+      expect(x).toBeGreaterThan(40);
+      expect(x).toBeLessThan(60);
+      expect(y).toBeGreaterThan(10);
+      expect(y).toBeLessThan(30);
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "waits for a frame that is not there yet, then works inside it",
+    async () => {
+      const inner = framed(`<button id="go" style="width:120px;height:40px">go</button>`);
+      const p = await open(`<div id="host"></div>`);
+      await p.evaluate((src: string) => {
+        setTimeout(() => {
+          const f = document.createElement("iframe");
+          f.id = "late";
+          f.src = src;
+          f.style.cssText = "width:300px;height:200px";
+          document.getElementById("host")!.appendChild(f);
+        }, 700);
+      }, inner);
+
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_wait_element", selector: "frame:#late >> #go", waitMs: 8_000 }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "brings the frame itself into view, then the control inside it",
+    async () => {
+      // Two scrolls, one either side of the frame boundary: the page has to come down to
+      // the iframe, and the iframe's own document down to the button. Getting only one of
+      // them right still leaves the pointer pressing whatever the other left under it.
+      const inner = framed(
+        `<div style="height:600px">inner top</div>` +
+          `<button id="go" style="width:140px;height:40px" ${PRESS_REPORT}>go</button>`,
+      );
+      const p = await open(
+        `<div style="height:1200px">page top</div>` +
+          `<iframe id="box" src="${inner}" style="width:400px;height:250px;border:0"></iframe>`,
+      );
+
+      const run = await runWebSteps(
+        p,
+        [
+          { type: "web_scroll_to", selector: "frame:#box >> #go", waitMs: 5_000 },
+          { type: "web_button", selector: "frame:#box >> #go" },
+        ],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs.map((l) => l.error)).toEqual([undefined, undefined]);
+      expect(await p.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+
+      const frame = p.frames()[1];
+      const landed = await frame.evaluate(() => document.getElementById("go")!.textContent);
+      const [x, y] = (landed ?? "").split(",").map(Number);
+      expect(x).toBeGreaterThan(60);
+      expect(x).toBeLessThan(80);
+      expect(y).toBeGreaterThan(10);
+      expect(y).toBeLessThan(30);
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "runs a script inside a named frame, which is how you find out what it holds",
+    async () => {
+      const p = await open(
+        `<iframe id="pay" src="${framed(`<button id="ps-cc-button">Card</button>`)}" ` +
+          `style="width:400px;height:200px"></iframe>`,
+      );
+      const run = await runWebSteps(
+        p,
+        [
+          {
+            type: "web_eval",
+            frame: "iframe#pay",
+            script: "return Array.from(document.querySelectorAll('[id]')).map(e => e.id).join(',')",
+            varName: "ids",
+          },
+        ],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      expect(run.logs[0].outcome).toContain("ps-cc-button");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "runs a script inside a nested frame, each hop of the field a frame of its own",
+    async () => {
+      const deepest = framed(`<button id="deep-button">deep</button>`);
+      const middle = framed(`<iframe id="in" src="${deepest}" style="width:300px;height:150px"></iframe>`);
+      const p = await open(`<iframe id="out" src="${middle}" style="width:400px;height:250px"></iframe>`);
+      const run = await runWebSteps(
+        p,
+        [
+          {
+            type: "web_eval",
+            frame: "#out >> #in",
+            script: "return Array.from(document.querySelectorAll('[id]')).map(e => e.id).join(',')",
+            varName: "ids",
+          },
+        ],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.logs[0].error).toBeUndefined();
+      expect(run.logs[0].outcome).toContain("deep-button");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "says which half of a frame selector failed, and what frames are there",
+    async () => {
+      // The id is on the wrapper, not the iframe -- the mistake the message has to name
+      const p = await open(
+        `<div id="pay"><iframe name="payframe" src="${framed(`<button id="go">go</button>`)}" ` +
+          `style="width:300px;height:150px"></iframe></div>`,
+      );
+
+      const wrong = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: "frame:iframe#pay >> #go" }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(wrong.logs[0].error).toContain("nothing matched the frame");
+      expect(wrong.logs[0].error).toContain('iframe[name="payframe"]');
+
+      // Frame right, element wrong: the other half of the message
+      const missing = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: 'frame:iframe[name="payframe"] >> #nowhere' }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(missing.logs[0].error).toContain("was found, so what is missing is the element");
+      await p.close();
+    },
+    60_000,
+  );
+
+  it(
+    "reports a frame that never appears as the selector not being on the page",
+    async () => {
+      const p = await open(`<button id="go">go</button>`);
+      const run = await runWebSteps(
+        p,
+        [{ type: "web_button", selector: "frame:#missing >> #go" }],
+        Date.now() + 30_000,
+        {},
+      );
+      expect(run.ok).toBe(false);
+      expect(run.logs[0].error).toContain("frame:#missing >> #go");
+      await p.close();
+    },
+    60_000,
+  );
 });

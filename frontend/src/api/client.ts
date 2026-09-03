@@ -816,6 +816,11 @@ type WebStepKind =
        */
       type: "web_eval";
       script: string;
+      /**
+       * An iframe to run it inside, named as a `frame:` selector prefix is (`iframe#pay`,
+       * or `#outer >> #inner` when nested). Blank runs it in the page itself.
+       */
+      frame?: string;
       /** Blank runs the script for its effect alone. */
       varName?: string;
       maxChars?: number;

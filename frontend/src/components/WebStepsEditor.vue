@@ -579,6 +579,17 @@
         <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
           {{ t("jobs.web.scriptHint") }}
         </div>
+        <div class="form-group" style="margin-top: 8px">
+          <label class="form-label">{{ t("jobs.web.labelEvalFrame") }}</label>
+          <input
+            v-model.trim="s.frame"
+            class="form-input"
+            :placeholder="t('jobs.web.evalFramePlaceholder')"
+          />
+          <div style="font-size: 11px; color: var(--text-faint); margin-top: 3px">
+            {{ t("jobs.web.evalFrameHint") }}
+          </div>
+        </div>
         <div class="form-row" style="margin-top: 8px">
           <div class="form-group">
             <label class="form-label">{{ t("jobs.web.labelEvalVarName") }}</label>

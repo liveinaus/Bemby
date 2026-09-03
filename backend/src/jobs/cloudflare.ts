@@ -1,5 +1,11 @@
 import { randomBytes } from "node:crypto";
-import type { BrowserContext, ConsoleMessage, Page } from "playwright-core";
+import type {
+  BrowserContext,
+  ConsoleMessage,
+  ElementHandle,
+  Frame,
+  Page,
+} from "playwright-core";
 import { cfTuning } from "./cfTuning";
 import {
   chromiumExecutable,
@@ -616,6 +622,185 @@ const PLAYWRIGHT_SELECTOR =
 /** Stamped on whatever such a selector matched, so every step after it works in plain CSS. */
 const RESOLVED_ATTR = "data-bemby-sel";
 
+/**
+ * An iframe holds a document of its own, and `document.querySelector` never crosses into
+ * one -- so a selector for something inside a frame has to say which frame it means:
+ *
+ *   `frame:iframe#pay >> #card-number`
+ *
+ * repeated for a frame within a frame (`frame:#outer >> frame:#inner >> button`). The part
+ * before each `>>` names the iframe element in the document above it; everything after the
+ * last one is an ordinary selector, run inside. Without the prefix nothing changes: the
+ * selector is the top document's, and costs not a single extra round trip.
+ *
+ * The frame selector itself must not contain `>>`, since that is what splits the two apart;
+ * `:nth-match(iframe, 2)` picks the second of several.
+ */
+const FRAME_PREFIX = /^\s*frame:/i;
+
+/** How long to wait for a named iframe element before calling it absent. */
+const FRAME_WAIT_MS = 2_000;
+
+/** Anything a selector can be run against: the page's main frame, or one inside it. */
+type SelectorCtx = Page | Frame;
+
+/** A selector, split from the chain of frames it applies inside. */
+type FrameTarget = {
+  /** Where the selector runs. The page itself when no frame was named. */
+  ctx: SelectorCtx;
+  /** The selector with its frame prefix taken off. */
+  selector: string;
+  /** The iframe selectors walked to get there, so the pointer offset can be re-read. */
+  path: string[];
+};
+
+export function splitFrameSelector(selector: string): { path: string[]; selector: string } {
+  const path: string[] = [];
+  let rest = selector.trim();
+  while (FRAME_PREFIX.test(rest)) {
+    const body = rest.replace(FRAME_PREFIX, "");
+    const cut = body.indexOf(">>");
+    // `frame:x` with nothing after it names no element -- left as written, so it is
+    // reported as a selector matching nothing rather than silently doing something else
+    if (cut < 0) break;
+    path.push(body.slice(0, cut).trim());
+    rest = body.slice(cut + 2).trim();
+  }
+  return { path: path.filter(Boolean), selector: rest };
+}
+
+/**
+ * Walks into each frame in turn, adding up where its content sits in the page's own
+ * viewport. That offset is what the pointer needs: a rect measured inside a frame is
+ * relative to the frame, while `page.mouse` works in the page's coordinates.
+ *
+ * The iframe element is brought into view on the way, since an element that is perfectly
+ * visible within its frame is still unreachable while the frame itself is below the fold.
+ */
+async function enterFrames(
+  page: Page,
+  path: string[],
+): Promise<{ ctx: SelectorCtx; offset: { x: number; y: number } } | null> {
+  let ctx: SelectorCtx = page;
+  let x = 0;
+  let y = 0;
+  for (const sel of path) {
+    const handle: ElementHandle<SVGElement | HTMLElement> | null = await ctx
+      .locator(sel)
+      .first()
+      .elementHandle({ timeout: FRAME_WAIT_MS })
+      .catch(() => null);
+    if (!handle) return null;
+    // The content starts inside the element's border and padding, which is where the
+    // frame's own 0,0 lies
+    const inset = await handle
+      .evaluate((el: any) => {
+        el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        return {
+          x: r.x + parseFloat(cs.borderLeftWidth || "0") + parseFloat(cs.paddingLeft || "0"),
+          y: r.y + parseFloat(cs.borderTopWidth || "0") + parseFloat(cs.paddingTop || "0"),
+        };
+      })
+      .catch(() => null);
+    const inner: Frame | null = await handle.contentFrame().catch(() => null);
+    await handle.dispose().catch(() => {});
+    if (!inset || !inner) return null;
+    x += inset.x;
+    y += inset.y;
+    ctx = inner;
+  }
+  return { ctx, offset: { x, y } };
+}
+
+/**
+ * The `web_eval` step names its frame in a field of its own rather than as a prefix, so
+ * every `>>`-separated part of it is a frame hop -- there is no selector on the end to
+ * separate from them.
+ */
+function frameFieldPath(value: string): string[] {
+  return value
+    .split(">>")
+    .map((part) => part.replace(FRAME_PREFIX, "").trim())
+    .filter(Boolean);
+}
+
+/** Where a selector runs, or null when the frame it named is not on the page. */
+async function selectorTarget(page: Page, selector: string): Promise<FrameTarget | null> {
+  const { path, selector: inner } = splitFrameSelector(selector);
+  if (!path.length) return { ctx: page, selector: inner, path };
+  const entered = await enterFrames(page, path);
+  return entered ? { ctx: entered.ctx, selector: inner, path } : null;
+}
+
+/**
+ * The frame chain's current offset, read again rather than remembered: the steps inside a
+ * frame scroll that frame, but the page around it can have moved too, and a stale offset
+ * puts the pointer somewhere else entirely.
+ */
+async function frameOffset(page: Page, path: string[]): Promise<{ x: number; y: number }> {
+  if (!path.length) return { x: 0, y: 0 };
+  return (await enterFrames(page, path))?.offset ?? { x: 0, y: 0 };
+}
+
+/** Frames listed in an error are worth reading; a page carrying dozens of them is not. */
+const FRAMES_LISTED = 6;
+
+/** The frames a document holds, written as selectors that would reach them. */
+async function framesIn(ctx: SelectorCtx): Promise<string[]> {
+  return ctx
+    .evaluate((cap: number) =>
+      Array.from(document.querySelectorAll("iframe, frame"))
+        .slice(0, cap)
+        .map((f) => {
+          const el = f as HTMLIFrameElement;
+          const src = (el.getAttribute("src") ?? "").slice(0, 60);
+          return (
+            el.tagName.toLowerCase() +
+            (el.id ? `#${el.id}` : "") +
+            (el.name ? `[name="${el.name}"]` : "") +
+            (src ? ` src=${src}` : "")
+          );
+        }),
+      FRAMES_LISTED,
+    )
+    .catch(() => [] as string[]);
+}
+
+/**
+ * Which half of a `frame:` selector went wrong, since "did not appear" reads the same
+ * whether the frame was missing or the element inside it was -- and the two want opposite
+ * fixes. A frame that was not matched is answered with the frames that are actually there
+ * (an `id` that turns out to be a `name` is the usual reason); a frame that was matched,
+ * with the frames inside it, since a payment page nesting one provider's form inside
+ * another's looks from outside exactly like one frame.
+ */
+async function frameNote(page: Page, selector: string): Promise<string> {
+  const { path } = splitFrameSelector(selector);
+  if (!path.length) return "";
+
+  let depth = 0;
+  let entered = await enterFrames(page, []);
+  while (depth < path.length) {
+    const next = await enterFrames(page, path.slice(0, depth + 1));
+    if (!next) break;
+    entered = next;
+    depth++;
+  }
+  const inside = entered ? await framesIn(entered.ctx) : [];
+  const list = inside.length ? inside.join(", ") : "none";
+
+  if (depth < path.length) {
+    const where = depth ? ` inside \`${path.slice(0, depth).join(" >> ")}\`` : "";
+    return ` -- nothing matched the frame \`${path[depth]}\`${where}; frames there: ${list}`;
+  }
+  return (
+    ` -- the frame \`${path.join(" >> ")}\` was found, so what is missing is the element` +
+    ` inside it; frames within it: ${list}`
+  );
+}
+
 /** Enough for any list a step works through, and short of stamping a whole page. */
 const MAX_RESOLVED = 200;
 
@@ -636,7 +821,7 @@ let resolveSeq = 0;
  * driver rather than to `querySelector` -- those refuse one naming more than one element.
  */
 async function resolveSelector(
-  page: Page,
+  ctx: SelectorCtx,
   selector: string,
   opts: { firstOnly?: boolean } = {},
 ): Promise<string> {
@@ -644,7 +829,7 @@ async function resolveSelector(
 
   let found: Array<{ dispose: () => Promise<void> }> = [];
   try {
-    found = await page.locator(selector).elementHandles();
+    found = await ctx.locator(selector).elementHandles();
   } catch {
     // A selector the engine cannot parse: left to the caller to report as nothing found,
     // which is what a selector matching nothing amounts to anyway
@@ -652,7 +837,7 @@ async function resolveSelector(
   }
 
   const token = `r${++resolveSeq}`;
-  await page
+  await ctx
     .evaluate(
       (arg: { els: Element[]; attr: string; token: string }) => {
         for (const el of Array.from(document.querySelectorAll(`[${arg.attr}]`)))
@@ -675,8 +860,10 @@ async function resolveSelector(
 
 /** Whether a selector names something on the page with a box on screen. */
 async function isVisible(page: Page, selector: string): Promise<boolean> {
-  const sel = await resolveSelector(page, selector);
-  return page
+  const target = await selectorTarget(page, selector);
+  if (!target) return false;
+  const sel = await resolveSelector(target.ctx, target.selector);
+  return target.ctx
     .evaluate((s: string) => {
       const el = document.querySelector(s) as HTMLElement | null;
       if (!el) return false;
@@ -697,7 +884,7 @@ async function isVisible(page: Page, selector: string): Promise<boolean> {
  * a person does anyway.
  */
 async function measureCentre(
-  page: Page,
+  ctx: SelectorCtx,
   resolved: string,
   bring: "into-view" | "keep-in-view",
 ): Promise<{ x: number; y: number } | null> {
@@ -728,7 +915,7 @@ async function measureCentre(
           if (r.width < 1 || r.height < 1) return null;
           return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
         };
-  return page.evaluate(measure, resolved).catch(() => null);
+  return ctx.evaluate(measure, resolved).catch(() => null);
 }
 
 /** How many times a moving target is measured again before it is pressed where it is. */
@@ -754,19 +941,31 @@ async function elementCentre(
   page: Page,
   selector: string,
 ): Promise<{ x: number; y: number } | null> {
-  const resolved = await resolveSelector(page, selector);
-  let last = await measureCentre(page, resolved, "into-view");
+  const target = await selectorTarget(page, selector);
+  return target ? centreOf(page, target) : null;
+}
+
+/** The same, for a target whose frame and selector are already in hand. */
+async function centreOf(
+  page: Page,
+  target: FrameTarget,
+): Promise<{ x: number; y: number } | null> {
+  const resolved = await resolveSelector(target.ctx, target.selector);
+  let last = await measureCentre(target.ctx, resolved, "into-view");
   if (!last) return null;
 
   for (let i = 0; i < STABLE_TRIES; i++) {
     await new Promise((r) => setTimeout(r, STABLE_GAP_MS));
-    const next = await measureCentre(page, resolved, "keep-in-view");
+    const next = await measureCentre(target.ctx, resolved, "keep-in-view");
     // Gone, or no longer laid out: the last figures are the best there are
-    if (!next) return last;
-    if (Math.abs(next.x - last.x) < 2 && Math.abs(next.y - last.y) < 2) return next;
+    if (!next) break;
+    const settled = Math.abs(next.x - last.x) < 2 && Math.abs(next.y - last.y) < 2;
     last = next;
+    if (settled) break;
   }
-  return last;
+  // Read last, once the scrolling either side of the frame boundary has finished
+  const offset = await frameOffset(page, target.path);
+  return { x: last.x + offset.x, y: last.y + offset.y };
 }
 
 /**
@@ -778,8 +977,10 @@ async function elementBox(
   page: Page,
   selector: string,
 ): Promise<{ x: number; y: number; width: number; height: number } | null> {
-  const resolved = await resolveSelector(page, selector);
-  return page
+  const target = await selectorTarget(page, selector);
+  if (!target) return null;
+  const resolved = await resolveSelector(target.ctx, target.selector);
+  const box = await target.ctx
     .evaluate((sel: string) => {
       const el = document.querySelector(sel) as HTMLElement | null;
       if (!el) return null;
@@ -789,6 +990,9 @@ async function elementBox(
       return { x: r.x, y: r.y, width: r.width, height: r.height };
     }, resolved)
     .catch(() => null);
+  if (!box) return null;
+  const offset = await frameOffset(page, target.path);
+  return { ...box, x: box.x + offset.x, y: box.y + offset.y };
 }
 
 /**
@@ -830,7 +1034,13 @@ async function glideTo(
 }
 
 async function clickElement(page: Page, selector: string): Promise<boolean> {
-  const box = await elementCentre(page, selector);
+  const target = await selectorTarget(page, selector);
+  return target ? clickTarget(page, target) : false;
+}
+
+/** The press itself, for a caller that has already found the element's frame. */
+async function clickTarget(page: Page, target: FrameTarget): Promise<boolean> {
+  const box = await centreOf(page, target);
   if (!box) return false;
   // Approach then press, as a pointer would
   let failure: string | undefined;
@@ -2031,30 +2241,39 @@ async function scrollToSelector(
   const tune = cfTuning();
   const until = Math.min(Date.now() + Math.max(0, waitMs), deadline);
   for (;;) {
-    const resolved = await resolveSelector(page, selector);
-    const moved = await page
-      .evaluate((sel: string) => {
-        const el = document.querySelector(sel) as HTMLElement | null;
-        if (!el) return null;
-        const before = { x: scrollX, y: scrollY };
-        el.scrollIntoView({ block: "center", inline: "nearest" });
-        const box = el.getBoundingClientRect();
-        return {
-          from: before,
-          to: { x: Math.round(scrollX), y: Math.round(scrollY) },
-          // Where it ended up on screen, which is what the next step acts on
-          at: { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) },
-          visible: box.width > 0 && box.height > 0,
-        };
-      }, resolved)
-      .catch(() => null);
+    const target = await selectorTarget(page, selector);
+    const moved = !target
+      ? null
+      : await target.ctx
+          .evaluate((sel: string) => {
+            const el = document.querySelector(sel) as HTMLElement | null;
+            if (!el) return null;
+            const before = { x: scrollX, y: scrollY };
+            el.scrollIntoView({ block: "center", inline: "nearest" });
+            const box = el.getBoundingClientRect();
+            return {
+              from: before,
+              to: { x: Math.round(scrollX), y: Math.round(scrollY) },
+              // Where it ended up on screen, which is what the next step acts on
+              at: { x: box.x + box.width / 2, y: box.y + box.height / 2 },
+              visible: box.width > 0 && box.height > 0,
+            };
+          }, await resolveSelector(target.ctx, target.selector))
+          .catch(() => null);
 
     if (moved) {
       const shifted = moved.from.x !== moved.to.x || moved.from.y !== moved.to.y;
+      // Inside a frame the box is the frame's own; the figure logged is the page's, so it
+      // lines up with a screenshot and with where the pointer will go
+      const offset = await frameOffset(page, target!.path);
+      const at = {
+        x: Math.round(moved.at.x + offset.x),
+        y: Math.round(moved.at.y + offset.y),
+      };
       return (
         `scrolled to \`${selector}\`` +
         (shifted ? `, page now at ${moved.to.x},${moved.to.y}` : " (already in view)") +
-        (moved.visible ? `, centre ${moved.at.x},${moved.at.y}` : " -- but it has no box on screen")
+        (moved.visible ? `, centre ${at.x},${at.y}` : " -- but it has no box on screen")
       );
     }
     if (Date.now() >= until) return null;
@@ -3165,8 +3384,8 @@ async function typeIntoFocused(page: Page, text: string): Promise<boolean> {
 }
 
 /** Whether the element the keystrokes were aimed at is the one that has the focus. */
-async function focusIsOn(page: Page, resolved: string): Promise<boolean> {
-  return page
+async function focusIsOn(ctx: SelectorCtx, resolved: string): Promise<boolean> {
+  return ctx
     .evaluate((sel: string) => {
       const el = document.querySelector(sel);
       return !!el && document.activeElement === el;
@@ -3183,16 +3402,21 @@ async function focusIsOn(page: Page, resolved: string): Promise<boolean> {
  * label focuses that field instead -- which fills the wrong box with no error anywhere.
  */
 async function typeInto(page: Page, selector: string, text: string): Promise<boolean> {
-  const resolved = await resolveSelector(page, selector);
-  if (!(await clickElement(page, resolved))) return false;
-  if (!(await focusIsOn(page, resolved))) {
+  const found = await selectorTarget(page, selector);
+  if (!found) return false;
+  const resolved = await resolveSelector(found.ctx, found.selector);
+  // The resolved token belongs to the frame it was stamped in, so the presses that follow
+  // are aimed through the same target rather than looked up afresh in the top document
+  const target: FrameTarget = { ...found, selector: resolved };
+  if (!(await clickTarget(page, target))) return false;
+  if (!(await focusIsOn(target.ctx, resolved))) {
     // Measured afresh: wherever the first press landed, the page has had a moment to
     // settle since
-    if (!(await clickElement(page, resolved))) return false;
+    if (!(await clickTarget(page, target))) return false;
   }
   // Replace rather than append: a field a previous attempt filled would otherwise
   // end up with both values concatenated
-  await page
+  await target.ctx
     .evaluate((sel: string) => {
       const el = document.querySelector(sel) as HTMLInputElement | null;
       if (!el) return;
@@ -3454,8 +3678,11 @@ const ROUND_INDEX_VAR = "i";
  * how the `otpauth://` inside a QR service's address comes back readable.
  */
 async function pageOtpCandidates(page: Page, selector: string): Promise<string[]> {
-  const resolved = selector ? await resolveSelector(page, selector) : selector;
-  return page
+  const target = selector ? await selectorTarget(page, selector) : null;
+  if (selector && !target) return [];
+  const ctx = target?.ctx ?? page;
+  const resolved = target ? await resolveSelector(ctx, target.selector) : selector;
+  return ctx
     .evaluate((sel: string) => {
       const root = sel ? document.querySelector(sel) : document.body;
       if (!root) return [];
@@ -3607,8 +3834,10 @@ async function readCandidates(
   selector: string,
   attribute: string | undefined,
 ): Promise<Array<{ value: string; text: string }>> {
-  const resolved = await resolveSelector(page, selector);
-  return page
+  const target = await selectorTarget(page, selector);
+  if (!target) return [];
+  const resolved = await resolveSelector(target.ctx, target.selector);
+  return target.ctx
     .evaluate(
       (arg: { sel: string; attr: string; cap: number }) =>
         Array.from(document.querySelectorAll(arg.sel))
@@ -3767,7 +3996,9 @@ async function runStepList(
           const selector = fillVars(step.selector, run.current).trim();
           if (!selector) throw new Error("no CSS selector given");
           if (!(await clickElement(page, selector)))
-            throw new Error(`nothing matching \`${selector}\` is on the page`);
+            throw new Error(
+              `nothing matching \`${selector}\` is on the page${await frameNote(page, selector)}`,
+            );
           log.outcome = `pressed \`${selector}\``;
           break;
         }
@@ -3777,7 +4008,9 @@ async function runStepList(
           if (!selector) throw new Error("no CSS selector given");
           const text = fillContent(step.text, run.current);
           if (!(await typeInto(page, selector, text)))
-            throw new Error(`nothing matching \`${selector}\` could be typed into`);
+            throw new Error(
+              `nothing matching \`${selector}\` could be typed into${await frameNote(page, selector)}`,
+            );
           log.outcome = `typed ${maskForLog(text, selector)} into \`${selector}\``;
           break;
         }
@@ -3816,7 +4049,10 @@ async function runStepList(
           if (!selector) throw new Error("no CSS selector given");
           const waitMs = step.waitMs && step.waitMs > 0 ? step.waitMs : 5_000;
           const outcome = await scrollToSelector(page, selector, waitMs, deadline);
-          if (!outcome) throw new Error(`nothing matching \`${selector}\` appeared to scroll to`);
+          if (!outcome)
+            throw new Error(
+              `nothing matching \`${selector}\` appeared to scroll to${await frameNote(page, selector)}`,
+            );
           log.outcome = outcome;
           break;
         }
@@ -3842,7 +4078,8 @@ async function runStepList(
           }
           if (!seen)
             throw new Error(
-              `\`${selector}\` did not appear within ${Math.round(waitMs / 1000)}s`,
+              `\`${selector}\` did not appear within ${Math.round(waitMs / 1000)}s` +
+                (await frameNote(page, selector)),
             );
           log.outcome = `\`${selector}\` appeared`;
           break;
@@ -4145,12 +4382,16 @@ async function runStepList(
           const name = step.varName.trim();
           if (!name) throw new Error("no name given to hold the text under");
 
-          const text = await page
-            .evaluate(
-              (sel: string) => (document.querySelector(sel) as HTMLElement | null)?.innerText ?? "",
-              await resolveSelector(page, selector),
-            )
-            .catch(() => "");
+          const readFrom = await selectorTarget(page, selector);
+          const text = !readFrom
+            ? ""
+            : await readFrom.ctx
+                .evaluate(
+                  (sel: string) =>
+                    (document.querySelector(sel) as HTMLElement | null)?.innerText ?? "",
+                  await resolveSelector(readFrom.ctx, readFrom.selector),
+                )
+                .catch(() => "");
           const trimmed = text.trim().replace(/\s+\n/g, "\n");
           if (!trimmed)
             throw new Error(`nothing matching \`${selector}\` has any text on the page`);
@@ -4186,7 +4427,22 @@ async function runStepList(
           };
           page.on?.("console", onConsole);
 
-          const running = page.evaluate(webEvalExpression(script)) as Promise<unknown>;
+          // `frame` names an iframe the same way a selector's `frame:` prefix does, so a
+          // script can read the document a step is failing to find anything in
+          const evalFrame = (step.frame ?? "").trim();
+          let evalCtx: SelectorCtx = page;
+          if (evalFrame) {
+            const path = frameFieldPath(evalFrame);
+            const entered = await enterFrames(page, path);
+            if (!entered)
+              throw new Error(
+                `no frame matched \`${evalFrame}\`` +
+                  (await frameNote(page, `${path.map((f) => `frame:${f}`).join(" >> ")} >> *`)),
+              );
+            evalCtx = entered.ctx;
+          }
+
+          const running = evalCtx.evaluate(webEvalExpression(script)) as Promise<unknown>;
           // Handled here as well, so a script still failing after its own step gave up
           // does not come back as an unhandled rejection
           running.catch(() => {});
@@ -5207,8 +5463,12 @@ async function runStepList(
           if (selector) {
             // Only the first match is stamped: `page.press` refuses a selector naming more
             // than one element, and a control picked out by its wording often matches several
-            const resolved = await resolveSelector(page, selector, { firstOnly: true });
-            await page.press(resolved, key, { timeout }).catch((err: any) => {
+            const target = await selectorTarget(page, selector);
+            if (!target) throw new Error(`nothing matching \`${selector}\` is on the page`);
+            const resolved = await resolveSelector(target.ctx, target.selector, {
+              firstOnly: true,
+            });
+            await target.ctx.press(resolved, key, { timeout }).catch((err: any) => {
               pressError = err?.message ?? String(err);
             });
           } else {
@@ -5232,9 +5492,13 @@ async function runStepList(
           const option = fillVars(step.option ?? "", run.current).trim();
           if (!option) throw new Error("no option given to choose");
           const timeout = Math.max(1_000, capped(5_000, deadline));
-          const resolved = await resolveSelector(page, selector, { firstOnly: true });
+          const target = await selectorTarget(page, selector);
+          if (!target) throw new Error(`nothing matching \`${selector}\` is on the page`);
+          const resolved = await resolveSelector(target.ctx, target.selector, {
+            firstOnly: true,
+          });
           const choose = (arg: { label: string } | { value: string }) =>
-            page.selectOption(resolved, arg, { timeout }).catch(() => [] as string[]);
+            target.ctx.selectOption(resolved, arg, { timeout }).catch(() => [] as string[]);
           // A dropdown is written either way round -- the label is what a person reads, the
           // value what the form sends -- so whichever of them matches is taken
           let picked = await choose({ label: option });
