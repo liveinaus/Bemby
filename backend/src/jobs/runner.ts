@@ -176,8 +176,12 @@ export async function runJob(
   };
   signal?.addEventListener("abort", stopBrowsers, { once: true });
 
+  // A custom job retries its own action chain, from the same `retryMax`; retrying the whole
+  // run here as well would multiply the two into far more attempts than the form shows
+  const outerAttempts = job.jobType === "custom" ? 1 : job.retryMax;
+
   try {
-    for (let attempt = 1; attempt <= job.retryMax; attempt++) {
+    for (let attempt = 1; attempt <= outerAttempts; attempt++) {
       if (signal?.aborted) throw new Error("Job cancelled");
       try {
         switch (job.jobType) {
@@ -229,7 +233,7 @@ export async function runJob(
               job.startCommand,
               job.checkinButton,
               attempt,
-              job.retryMax,
+              outerAttempts,
               signal,
               checkinProxy,
               checkinDevice,
@@ -300,6 +304,7 @@ export async function runJob(
                 name: account.name,
                 phoneNumber: account.phoneNumber,
               },
+              job.retryMax,
             );
             detailLogs?.push(customLog);
             break;
@@ -366,14 +371,14 @@ export async function runJob(
         // if the underlying failure surfaced as something else.
         if (signal?.aborted) throw new Error("Job cancelled");
         console.error(
-          `[runner] Job "${job.name}" attempt ${attempt}/${job.retryMax} failed:`,
+          `[runner] Job "${job.name}" attempt ${attempt}/${outerAttempts} failed:`,
           err,
         );
-        if (attempt < job.retryMax && signal) {
+        if (attempt < outerAttempts && signal) {
           await delayAbortable(RETRY_DELAY_MS, signal).catch(() => {
             throw lastError;
           });
-        } else if (attempt < job.retryMax) {
+        } else if (attempt < outerAttempts) {
           await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
         }
       }

@@ -728,12 +728,12 @@ const SHARE_KEYS: (keyof JobTemplate)[] = ['name', 'jobType', 'botUsername', 'ru
 // Every template row carries a timezone, a reply timeout, a retry count, a start command and a
 // button, all defaulted -- but the editor only offers each of them to some job types. Sharing one
 // the recipient's form never shows hands them a value they cannot see or correct: a custom
-// template would arrive claiming "/start" and "签到" it never sends, and a retry count that is
-// not the one it runs (that lives in config.maxRetries). Timezone is on no form at all.
+// template would arrive claiming "/start" and "签到" it never sends. Timezone is on no form at all.
 const SHARE_KEYS_BY_TYPE: Partial<Record<JobTemplate['jobType'], (keyof JobTemplate)[]>> = {
   checkin: ['replyTimeoutMs', 'retryMax', 'startCommand', 'checkinButton'],
   autoreg: ['replyTimeoutMs', 'retryMax', 'startCommand'],
   embywatch: ['retryMax'],
+  custom: ['retryMax'],
 };
 
 function shareShape(tpl: JobTemplate): Record<string, unknown> {

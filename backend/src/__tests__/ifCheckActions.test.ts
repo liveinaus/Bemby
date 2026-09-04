@@ -61,8 +61,26 @@ function botMessage(text: string, id = 11): Api.Message {
   return msg as Api.Message;
 }
 
-const run = (actions: CustomAction[], extra: Partial<CustomConfig> = {}) =>
-  runCustom(1, "hash", "session", "xsDogeBot", { actions, ...extra });
+const run = (
+  actions: CustomAction[],
+  extra: Partial<CustomConfig> = {},
+  maxRetries = 1,
+) =>
+  runCustom(
+    1,
+    "hash",
+    "session",
+    "xsDogeBot",
+    { actions, ...extra },
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    maxRetries,
+  );
 
 const client = () => clients[clients.length - 1];
 
@@ -84,7 +102,7 @@ describe("if_check", () => {
       { type: "send_command", content: "/never" },
     ];
 
-    const started = run(actions, { maxRetries: 3 });
+    const started = run(actions, {}, 3);
     // The chain's first step is refused, and the chat says it did not matter
     client().rejects.add("/checkin");
     client().history = [botMessage("今日已签到，明天再来")];

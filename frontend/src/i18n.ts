@@ -740,7 +740,7 @@ const zh = {
     runEveryDaysHint: "填数字（如 7）或范围（如 7-15）；范围会在每次排程时随机取一个天数",
     labelOneTime: "一次性任务",
     oneTimeHint: "成功执行一次后自动停用该任务",
-    oneTimeTemplateHint: "由模板控制",
+    templateControlledHint: "由模板控制",
     badgeOneTime: "一次性",
     labelPlayDuration: "播放时长（秒）",
     labelUserAgent: "用户代理",
@@ -991,8 +991,7 @@ const zh = {
       failContainsHint:
         "收到含该文字的回复时标记失败，留空则不按文字判断；多个写法用 | 分隔，命中任一即可" +
         ZH_DATE_VAR,
-      labelJobMaxRetries: "任务最大重试次数",
-      jobMaxRetriesHint: "整个动作链失败后的重试次数，1 表示不重试",
+      jobMaxRetriesHint: "动作链失败后总共尝试的次数，1 表示不重试",
       labelContact: "联系人（机器人 / 群组 / 用户）",
       contactPlaceholder: "例：@botname、@groupname 或 -1001234567890",
       contactHint: "查看该联系人最近收到的消息（或等待新消息）中的按钮并点击。没有用户名的私密群组可填 ID（在 Messenger 的资料面板复制）",
@@ -3343,7 +3342,7 @@ const en: typeof zh = {
     runEveryDaysHint: "A number (e.g. 7) or a range (e.g. 7-15); a range picks a random day count each time it schedules",
     labelOneTime: "One time job",
     oneTimeHint: "Disable the job once a run succeeds",
-    oneTimeTemplateHint: "Set by the template",
+    templateControlledHint: "Set by the template",
     badgeOneTime: "One time",
     labelPlayDuration: "Play Duration (s)",
     labelUserAgent: "User Agent",
@@ -3606,9 +3605,8 @@ const en: typeof zh = {
       failContainsHint:
         "Marks the action failed when the reply contains this text; leave empty for no text-based failure. Separate alternative wordings with | and any one of them counts" +
         EN_DATE_VAR,
-      labelJobMaxRetries: "Job max retries",
       jobMaxRetriesHint:
-        "How many times to retry the whole action chain on failure; 1 means no retry",
+        "Total attempts at the action chain, retries included; 1 means no retry",
       labelContact: "Contact (bot / group / user)",
       contactPlaceholder: "e.g. @botname, @groupname or -1001234567890",
       contactHint: "Looks for a button on this contact's latest received message (or waits for a new one) and clicks it. A private group with no username is named by its ID, copied from the Info panel in Messenger",

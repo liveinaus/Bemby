@@ -194,6 +194,18 @@ describe("runJob — custom", () => {
     const job = { ...makeJob("custom"), config: '{"actions":[]}' };
     await expect(runJob(job, null, [])).rejects.toThrow("No account linked");
   });
+
+  // retryMax is the job's only retry count: runCustom retries the action chain itself, so
+  // a second layer here would run the job retryMax x retryMax times
+  it("hands retryMax to runCustom and does not retry the run itself", async () => {
+    vi.mocked(runCustom).mockRejectedValue(
+      new MockCustomJobError("fail", { steps: [] } as any),
+    );
+    const job = { ...makeJob("custom", 3), config: '{"actions":[]}' };
+    await expect(runJob(job, makeAccount(), [])).rejects.toThrow("fail");
+    expect(vi.mocked(runCustom)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(runCustom).mock.calls[0].at(-1)).toBe(3);
+  });
 });
 
 // ---------------------------------------------------------------------------

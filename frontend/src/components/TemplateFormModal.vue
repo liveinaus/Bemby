@@ -184,8 +184,8 @@
           </div>
 
           <div class="form-group">
-            <label class="form-label">{{ t('jobs.custom.labelJobMaxRetries') }}</label>
-            <input v-model.number="customJobMaxRetries" class="form-input" type="number" min="1" max="20" style="max-width:120px" />
+            <label class="form-label">{{ t('jobs.labelMaxRetries') }}</label>
+            <input v-model.number="form.retryMax" class="form-input" type="number" min="1" max="10" style="max-width:120px" />
             <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.jobMaxRetriesHint') }}</div>
           </div>
 
@@ -497,7 +497,6 @@ const cfBrowserMissing = computed(
 );
 
 const customActions = ref<CustomActionForm[]>([]);
-const customJobMaxRetries = ref(1);
 
 const form = reactive({
   name: '',
@@ -644,7 +643,6 @@ function onJobTypeChange() {
   tplProxyId.value = '';
   tplProxyPool.value = [];
   customActions.value = [];
-  customJobMaxRetries.value = 1;
   btnAiHint.value = '';
   tplCheckinSuccessContains.value = '';
   tplCheckinFailContains.value = '';
@@ -715,7 +713,6 @@ function buildConfig(): EmbywatchConfig | CustomConfig | AutoregConfig | null {
     const cfg: CustomConfig = {
       actions: actionsToConfig(customActions.value),
     };
-    if (customJobMaxRetries.value > 1) cfg.maxRetries = customJobMaxRetries.value;
     Object.assign(cfg, proxyFields(tplProxyId.value, tplProxyPool.value));
     return cfg;
   }
@@ -758,7 +755,6 @@ function resetForm() {
   tplProxyId.value = '';
   tplProxyPool.value = [];
   customActions.value = [];
-  customJobMaxRetries.value = 1;
   tplCheckinSuccessContains.value = '';
   tplCheckinFailContains.value = '';
   Object.assign(autoregCfg, defaultAutoregCfg());
@@ -828,12 +824,10 @@ function loadFromTemplate(tpl: JobTemplate) {
         const cfg = JSON.parse(tpl.config) as CustomConfig & { proxyId?: string };
         tplProxyId.value = cfg.proxyId ?? '';
         tplProxyPool.value = [...(cfg.proxyPool ?? [])];
-        customJobMaxRetries.value = cfg.maxRetries ?? 1;
         customActions.value = actionsFromConfig(cfg.actions);
-      } catch { customActions.value = []; customJobMaxRetries.value = 1; }
+      } catch { customActions.value = []; }
     } else {
       customActions.value = [];
-      customJobMaxRetries.value = 1;
     }
   } else if (tpl.jobType === 'autoreg') {
     Object.assign(embyCfg, { username: '', password: '', playDuration: '', userAgent: '', markWatched: true, verifyPlayable: true, realWatch: false, sequencePlay: false, library: '', ignoreSslErrors: false });

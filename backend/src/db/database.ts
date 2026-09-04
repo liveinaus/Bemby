@@ -773,6 +773,40 @@ runOnce("proxy-intervals-hours-to-minutes", () => {
   }
 });
 
+// A custom job used to carry its own retry count in config.maxRetries, on top of the
+// retry_max column every other job type uses -- so a job showing "1" in its form still ran
+// retry_max times. retry_max is now the only retry count, and the custom form shows it, so
+// fold the config value in (it is the one the operator could see) and drop the key.
+runOnce("custom-retries-into-retry-max", () => {
+  const parse = (raw: string | null): any => {
+    if (!raw) return null;
+    try {
+      let c = JSON.parse(raw);
+      if (typeof c === "string") c = JSON.parse(c);
+      return c && typeof c === "object" ? c : null;
+    } catch {
+      return null;
+    }
+  };
+  for (const table of ["jobs", "job_templates"]) {
+    const rows = db
+      .prepare(
+        `SELECT id, config FROM ${table} WHERE job_type = 'custom' AND config LIKE '%maxRetries%'`,
+      )
+      .all() as Array<{ id: number; config: string | null }>;
+    const upd = db.prepare(
+      `UPDATE ${table} SET retry_max = ?, config = ? WHERE id = ?`,
+    );
+    for (const r of rows) {
+      const cfg = parse(r.config);
+      const retries = Number(cfg?.maxRetries);
+      if (!Number.isFinite(retries)) continue;
+      delete cfg.maxRetries;
+      upd.run(Math.max(1, Math.floor(retries)), JSON.stringify(cfg), r.id);
+    }
+  }
+});
+
 // With BEMBY_DATA_KEY configured, bring any credential still sitting in plain text up to
 // date. Not a runOnce migration: the key can be turned on at any point, and rows written
 // while it was off have to be caught the next time the app starts with it on. Rows already

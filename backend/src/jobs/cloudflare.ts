@@ -4283,7 +4283,7 @@ async function runStepList(
             // this same step has just settled
             const value = fillContent(pair.value ?? "", run.current);
             run.current.set(name, value);
-            done.push(`{${name}} = ${oneLine(value).slice(0, 120)}`);
+            done.push(`{${name}} = ${oneLine(value, 120)}`);
           }
           log.outcome = done.join(", ");
           break;
@@ -4300,7 +4300,7 @@ async function runStepList(
             break;
           }
           run.current.set(name, value);
-          log.outcome = `{${name}} = ${oneLine(value).slice(0, 120)} (from ${where.label})`;
+          log.outcome = `{${name}} = ${oneLine(value, 120)} (from ${where.label})`;
           break;
         }
 
@@ -4329,7 +4329,7 @@ async function runStepList(
             break;
           }
           run.current.set(name, record.key);
-          const held = [`{${name}} = ${oneLine(record.key).slice(0, 120)}`];
+          const held = [`{${name}} = ${oneLine(record.key, 120)}`];
           const valueName = step.valueVar?.trim();
           if (valueName) {
             const path = fillVars(step.path ?? "", run.current).trim();
@@ -4341,7 +4341,7 @@ async function runStepList(
             }
             const text = dataValueToText(value);
             run.current.set(valueName, text);
-            held.push(`{${valueName}} = ${oneLine(text).slice(0, 120)}`);
+            held.push(`{${valueName}} = ${oneLine(text, 120)}`);
           }
           log.outcome = `${held.join(", ")} (position ${index} of ${folder})`;
           break;
@@ -4351,7 +4351,7 @@ async function runStepList(
           const where = dataTarget(step, run);
           const text = fillContent(step.value ?? "", run.current);
           writeDataValue(where.folder, where.key, where.path, parseDataValue(text));
-          log.outcome = `saved ${oneLine(text).slice(0, 120)} to ${where.label}`;
+          log.outcome = `saved ${oneLine(text, 120)} to ${where.label}`;
           break;
         }
 
@@ -4372,7 +4372,7 @@ async function runStepList(
           if (!text) throw new Error("no message given to send");
           const target = fillVars(step.target ?? "", run.current).trim();
           await hooks.notify(text, target || undefined);
-          log.outcome = `sent ${oneLine(text).slice(0, 160)}${target ? ` to ${target}` : ""}`;
+          log.outcome = `sent ${oneLine(text, 160)}${target ? ` to ${target}` : ""}`;
           break;
         }
 
@@ -4403,7 +4403,7 @@ async function runStepList(
           // travels with any export of it, and an api_hash there is the login itself
           log.outcome = step.secret
             ? `read ${kept.length} character(s) into {${name}} (kept out of the log)`
-            : `read ${kept.length} character(s) into {${name}}: ${oneLine(kept).slice(0, 120)}`;
+            : `read ${kept.length} character(s) into {${name}}: ${oneLine(kept, 120)}`;
           break;
         }
 
@@ -4463,7 +4463,7 @@ async function runStepList(
             if (timedOut) throw err;
             // The browser's own wording, which names the line the script fell over on
             throw new Error(
-              `the script failed: ${oneLine(err?.message ?? String(err)).slice(0, 300)}`,
+              `the script failed: ${oneLine(err?.message ?? String(err), 300)}`,
             );
           } finally {
             if (timer) clearTimeout(timer);
@@ -4484,7 +4484,7 @@ async function runStepList(
           if (name) run.current.set(name, kept);
           const shown = step.secret
             ? `${kept.length} character(s), kept out of the log`
-            : oneLine(kept).slice(0, 200);
+            : oneLine(kept, 200);
           const where = returned ? "" : " from the console";
           log.outcome = name
             ? `ran the script into {${name}}${where}: ${shown}`
@@ -4794,7 +4794,7 @@ async function runStepList(
           if (status.lastRefreshError)
             throw new Error(
               `msOauth2api holds ${email} but its grant is failing: ` +
-                oneLine(String(status.lastRefreshError)).slice(0, 160),
+                oneLine(String(status.lastRefreshError), 160),
             );
 
           const stamp = new Date().toISOString();
@@ -5538,7 +5538,7 @@ async function runStepList(
           log.outcome =
             `AI wrote ${typed.length} character(s) into \`${selector}\`` +
             (holdAs ? ` and into {${holdAs}}` : "") +
-            `: ${oneLine(typed).slice(0, 120)}`;
+            `: ${oneLine(typed, 120)}`;
           break;
         }
 
@@ -6273,9 +6273,14 @@ function maskForLog(text: string, field: string): string {
   return `"${text.length > 40 ? `${text.slice(0, 40)}…` : text}"`;
 }
 
-function oneLine(text: string | undefined): string {
+/**
+ * One line of log, cut to length. The cut belongs here rather than in a `.slice()` after
+ * the call: a caller doing both got the shorter of the two silently, which is how a probe
+ * asked for 1200 characters came back showing 80.
+ */
+function oneLine(text: string | undefined, max = 80): string {
   const one = (text ?? "").replace(/\s+/g, " ").trim();
-  return one.length > 80 ? `${one.slice(0, 80)}…` : one;
+  return one.length > max ? `${one.slice(0, max)}…` : one;
 }
 
 /**
@@ -6527,7 +6532,7 @@ function browserGoneResult(
       "driven to the end. A licensed build does that when it loses its licence session " +
       "(a free-plan key allows one browser at a time), and any build does when a second " +
       "process opens the same profile -- check nothing else is running against this data " +
-      `dir (${oneLine(detail).slice(0, 200)})`,
+      `dir (${oneLine(detail, 200)})`,
     navError: detail,
     exitRelated: false,
     browserFailed: true,
@@ -6925,7 +6930,7 @@ async function attemptLoad(
         challenged: false,
         text: "",
         finalHost,
-        reason: `${launchFailureReason(msg) ?? "the solver browser could not be started"} (${oneLine(msg).slice(0, 200)})`,
+        reason: `${launchFailureReason(msg) ?? "the solver browser could not be started"} (${oneLine(msg, 200)})`,
         navError: msg,
         exitRelated: false,
         browserFailed: true,

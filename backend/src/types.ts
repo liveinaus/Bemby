@@ -1622,7 +1622,6 @@ export type WebStepLog = {
 
 export type CustomConfig = {
   actions: CustomAction[];
-  maxRetries?: number;
   /** Exit for the browser side: a proxy list id, or "random" for a draw from `proxyPool`. */
   proxyId?: string;
   /** Ids a "random" pick draws from. Empty draws from the whole proxy list. */
@@ -1734,7 +1733,7 @@ export type CustomStepLog = {
   /** For click_button: how many retries were needed (0 = first attempt succeeded) */
   retryCount?: number;
   errorName?: string;
-  /** Which job-level attempt this step belongs to, 1-based (only set when job maxRetries > 1) */
+  /** Which job-level attempt this step belongs to, 1-based (only set when the job retries) */
   jobAttempt?: number;
   /** Which action-level attempt this is, 1-based (only set when action maxRetries > 0) */
   actionAttempt?: number;

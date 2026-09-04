@@ -393,10 +393,10 @@
             </div>
           </div>
 
-          <div v-if="!form.templateId" class="form-group">
-            <label class="form-label">{{ t('jobs.custom.labelJobMaxRetries') }}</label>
-            <input v-model.number="customJobMaxRetries" class="form-input" type="number" min="1" max="20" style="max-width:120px" />
-            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.jobMaxRetriesHint') }}</div>
+          <div class="form-group">
+            <label class="form-label">{{ t('jobs.labelMaxRetries') }}</label>
+            <input v-model.number="form.retryMax" class="form-input" type="number" min="1" max="10" style="max-width:120px" :disabled="!!form.templateId" />
+            <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ form.templateId ? t('jobs.templateControlledHint') : t('jobs.custom.jobMaxRetriesHint') }}</div>
           </div>
 
           <!-- Action chain builder (hidden when template controls it) -->
@@ -662,7 +662,7 @@
             <input v-model="form.oneTime" type="checkbox" :disabled="!!form.templateId" />
             <span>{{ t('jobs.labelOneTime') }}</span>
           </label>
-          <div class="one-time-hint">{{ form.templateId ? t('jobs.oneTimeTemplateHint') : t('jobs.oneTimeHint') }}</div>
+          <div class="one-time-hint">{{ form.templateId ? t('jobs.templateControlledHint') : t('jobs.oneTimeHint') }}</div>
         </div>
 
         </div><!-- end modal-body -->
@@ -1016,7 +1016,6 @@ const pollTimers = new Map<number, ReturnType<typeof setTimeout>>();
 const showForm = ref(false);
 const editTarget = ref<Job | null>(null);
 const customActions = ref<CustomActionForm[]>([]);
-const customJobMaxRetries = ref(1);
 
 const form = reactive({
   name: '',
@@ -1249,7 +1248,6 @@ function onJobTypeChange() {
   runEveryDaysText.value = '1';
   customActions.value = [];
   Object.assign(autoregCfg, defaultAutoregCfg());
-  customJobMaxRetries.value = 1;
   btnAiHint.value = '';
   checkinSuccessContains.value = '';
   checkinFailContains.value = '';
@@ -1383,9 +1381,8 @@ function applyTemplate(tpl: JobTemplate) {
     if (tpl.config) {
       try {
         const cfg = JSON.parse(tpl.config) as CustomConfig;
-        customJobMaxRetries.value = cfg.maxRetries ?? 1;
         customActions.value = actionsFromConfig(cfg.actions);
-      } catch { customActions.value = []; customJobMaxRetries.value = 1; }
+      } catch { customActions.value = []; }
     }
   } else if (tpl.jobType === 'autoreg') {
     Object.assign(embyServer, { protocol: 'https', host: '', port: 443 });
@@ -1637,12 +1634,10 @@ function openEdit(j: Job) {
     if (j.config) {
       try {
         const cfg = JSON.parse(j.config) as CustomConfig;
-        customJobMaxRetries.value = cfg.maxRetries ?? 1;
         customActions.value = actionsFromConfig(cfg.actions);
-      } catch { customActions.value = []; customJobMaxRetries.value = 1; }
+      } catch { customActions.value = []; }
     } else {
       customActions.value = [];
-      customJobMaxRetries.value = 1;
     }
   } else if (j.jobType === 'autoreg') {
     Object.assign(embyCfg, { username: '', password: '', playDuration: '', userAgent: '', markWatched: true, verifyPlayable: true, realWatch: false, sequencePlay: false, library: '', ignoreSslErrors: false });
@@ -1762,7 +1757,6 @@ function buildConfig(): EmbywatchConfig | CustomConfig | AutoregConfig | Checkin
     const cfg: CustomConfig = {
       actions: actionsToConfig(customActions.value),
     };
-    if (customJobMaxRetries.value > 1) cfg.maxRetries = customJobMaxRetries.value;
     Object.assign(cfg, proxyOverride());
     return cfg;
   }

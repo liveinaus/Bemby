@@ -1528,9 +1528,12 @@ export async function runCustom(
   // Which account this run is for. The page steps need it twice over: `{accountPhone}` fills
   // a form in with whoever the run belongs to, and a `web_tg_api_save` writes back to it.
   account?: CustomRunAccount,
+  // Total attempts at the action chain, from the job's `retry_max`. The runner does not
+  // retry a custom job itself, so this is the only retry count a custom job has: 1 = no retry
+  maxRetries = 1,
 ): Promise<CustomJobLog> {
   const log: CustomJobLog = { steps: [] };
-  const jobMaxRetries = config.maxRetries ?? 1;
+  const jobMaxRetries = Math.max(1, Math.floor(maxRetries));
 
   /** The action's own pick when it has one, and the job's when it is left blank. */
   const proxyChoiceFor = (action: {

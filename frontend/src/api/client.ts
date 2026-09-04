@@ -1209,7 +1209,6 @@ export type WebStepLog = {
 
 export type CustomConfig = {
   actions: CustomAction[];
-  maxRetries?: number;
   proxyId?: string;
   /** Ids a "random" pick draws from. Empty draws from the whole proxy list. */
   proxyPool?: string[];
@@ -1288,7 +1287,7 @@ export type CustomStepLog = {
   responseSource?: "edit" | "new_message";
   retryCount?: number;
   errorName?: string;
-  /** 1-based job attempt number (only set when job maxRetries > 1) */
+  /** 1-based job attempt number (only set when the job retries) */
   jobAttempt?: number;
   /** 1-based action attempt number (only set when action maxRetries > 0) */
   actionAttempt?: number;
