@@ -6,7 +6,8 @@ import { SocksClient } from "socks";
 
 import { db } from "../db/database";
 import { parseTgProxy } from "../jobs/runner";
-import { isVlessListener } from "./vlessTunnel";
+import { tunnelNodeFor } from "./nodeTunnel";
+import { isWorkerNode } from "./proxyNodes";
 import {
   CF_PROXY_DIRECT,
   CF_PROXY_RANDOM,
@@ -65,7 +66,7 @@ type TestTarget = { host: string; port: number };
 const PROXY_TEST_TARGET: TestTarget = { host: "1.1.1.1", port: 80 };
 
 /**
- * Where a tunnel exit is tested against instead. A Cloudflare Worker cannot open a
+ * Where a Worker exit is tested against instead. A Cloudflare Worker cannot open a
  * connection to Cloudflare's own addresses, so 1.1.1.1 would report a perfectly good
  * node as broken. Google's resolver answers on TCP 53 and sits nowhere near Cloudflare.
  */
@@ -264,10 +265,14 @@ export async function testProxyUrl(
     }
   }
 
-  const tunnelExit = isVlessListener(url);
+  // Only a Worker exit needs the special treatment below. A subscription node with an
+  // address of its own is an ordinary exit: it reaches 1.1.1.1, and whether it clears a
+  // challenge is exactly what the Cloudflare check is for.
+  const node = tunnelNodeFor(url);
+  const workerExit = !!node && isWorkerNode(node);
   const checks: ProxyCheck[] = [];
   const reach = await runCheck("reach", () =>
-    tunnelThrough(url, tunnelExit ? TUNNEL_TEST_TARGET : PROXY_TEST_TARGET).then((s) =>
+    tunnelThrough(url, workerExit ? TUNNEL_TEST_TARGET : PROXY_TEST_TARGET).then((s) =>
       s.destroy(),
     ),
   );
@@ -276,7 +281,7 @@ export async function testProxyUrl(
   if (!reach.ok) return { ok: false, error: reach.error, ms, checks };
 
   let exitIp: string | undefined;
-  if (options.cloudflare && !tunnelExit) {
+  if (options.cloudflare && !workerExit) {
     const check = await runCheck("cloudflare", async () => {
       const socket = await tunnelThrough(url, { host: CF_CHECK_HOST, port: 443 });
       const { status, body } = await httpsGet(socket, CF_CHECK_HOST, CF_CHECK_PATH);

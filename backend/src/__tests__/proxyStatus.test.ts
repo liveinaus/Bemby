@@ -15,9 +15,9 @@ vi.mock("../db/database", () => ({
   },
 }));
 
-vi.mock("../tg/vlessTunnel", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../tg/vlessTunnel")>();
-  return { ...actual, applyVlessNodes: () => [], pruneVlessProviders: () => {} };
+vi.mock("../tg/nodeTunnel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../tg/nodeTunnel")>();
+  return { ...actual, applyNodes: () => [], pruneTunnelProviders: () => {} };
 });
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

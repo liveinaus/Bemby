@@ -5,7 +5,7 @@ import { decryptAccountRow, encryptSecret } from '../db/secretColumns';
 import { exportData, isValidDataName } from '../db/dataStore';
 import { refreshScheduler } from '../scheduler';
 import { applyGlobalProxy } from '../tg/globalProxy';
-import { reconcileListeners } from '../tg/vlessTunnel';
+import { reconcileTunnels } from '../tg/nodeTunnel';
 import {
   verifyPassword,
   legacyHashPassword,
@@ -692,7 +692,7 @@ router.post('/import', async (req, res) => {
   refreshScheduler();
   // Tunnel exits restored from the backup have to start listening, or every proxy the
   // imported list points at loopback for answers on a port with nothing behind it
-  reconcileListeners();
+  reconcileTunnels();
   // The backup carries the global exit and the list it names, so what everything unrouted
   // goes out by has just changed under the running process
   applyGlobalProxy();

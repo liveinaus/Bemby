@@ -1614,6 +1614,55 @@
               {{ t("settings.providersHint") }}
             </p>
 
+            <!-- The Xray core, which carries the node kinds Bemby has no client for.
+                 Fetched on demand rather than shipped, like the solver browser. -->
+            <div class="form-group" style="margin: 0 0 12px">
+              <label class="form-label">{{ t("settings.xray.label") }}</label>
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
+                <span v-if="xrayInstalled" style="font-size: 12px; color: var(--success)">
+                  <i class="fa-solid fa-check"></i>
+                  {{ xrayVersion || t("settings.xray.present") }}
+                  <span style="color: var(--text-muted)">({{ xraySourceText }})</span>
+                </span>
+                <span v-else-if="xrayUnsupported" style="font-size: 12px; color: var(--warning)">
+                  <i class="fa-solid fa-triangle-exclamation"></i>
+                  {{ t("settings.xray.unsupported").replace("{platform}", xrayUnsupported) }}
+                </span>
+                <span v-else style="font-size: 12px; color: var(--text-muted)">
+                  <i class="fa-solid fa-circle-info"></i>
+                  {{ t("settings.xray.missing") }}
+                </span>
+                <button
+                  v-if="!xrayUnsupported"
+                  class="btn btn-sm btn-primary"
+                  :disabled="xrayInstalling"
+                  @click="installXray"
+                >
+                  <i class="fa-solid fa-download"></i>
+                  {{
+                    xrayInstalling
+                      ? t("settings.xray.installing")
+                      : t(xrayInstalled ? "settings.xray.reinstall" : "settings.xray.install")
+                  }}
+                </button>
+                <button
+                  v-if="xrayFromDataDir"
+                  class="btn btn-sm btn-ghost"
+                  :disabled="xrayInstalling"
+                  @click="removeXray"
+                >
+                  {{ t("common.delete") }}
+                </button>
+              </div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px">
+                {{ t("settings.xray.hint") }}
+              </div>
+              <div v-if="xrayNeedsCore" class="error-msg" style="margin-top: 6px">
+                {{ t("settings.xray.waiting").replace("{count}", String(xrayNeedsCore)) }}
+              </div>
+              <pre v-if="xrayLog" class="vnc-log">{{ xrayLog }}</pre>
+            </div>
+
             <div
               v-for="(prov, i) in providers"
               :key="prov.id"
@@ -3258,6 +3307,72 @@ const vncSourceText = computed(() =>
   t(vncSource.value === "data-dir" ? "settings.cfSolver.vncFromData" : "settings.cfSolver.vncFromImage"),
 );
 
+// The Xray core, which carries the subscription nodes Bemby has no client for
+const xrayInstalled = ref(false);
+const xraySource = ref("");
+const xrayVersion = ref("");
+const xrayUnsupported = ref("");
+const xrayNeedsCore = ref(0);
+const xrayInstalling = ref(false);
+const xrayLog = ref("");
+const xrayFromDataDir = computed(() => xraySource.value === "data-dir");
+const xraySourceText = computed(() =>
+  t(xraySource.value === "data-dir" ? "settings.xray.fromData" : "settings.xray.fromHost"),
+);
+
+async function installXray() {
+  xrayInstalling.value = true;
+  xrayLog.value = "";
+  providersMsg.value = "";
+  providersErrorMsg.value = "";
+  try {
+    const r = await settingsApi.installXray();
+    xrayLog.value = (r.log ?? []).join("\n");
+    if (r.ok) providersMsg.value = t("settings.xray.installed");
+    else providersErrorMsg.value = r.error ?? t("settings.saveFailed");
+  } catch (e: any) {
+    const data = e?.response?.data;
+    xrayLog.value = (data?.log ?? []).join("\n");
+    providersErrorMsg.value = data?.error ?? e?.message ?? t("settings.saveFailed");
+  } finally {
+    xrayInstalling.value = false;
+    await refreshXray();
+  }
+}
+
+async function removeXray() {
+  xrayInstalling.value = true;
+  xrayLog.value = "";
+  try {
+    await settingsApi.removeXray();
+  } finally {
+    xrayInstalling.value = false;
+    await refreshXray();
+  }
+}
+
+/**
+ * The core's state, and the proxy list with it: an install brings the nodes that were
+ * waiting on it up and imports them, which is a change to the list on screen.
+ */
+async function refreshXray() {
+  try {
+    const s = await settingsApi.get();
+    loadXray(s);
+    applyProxies(s.proxies);
+  } catch {
+    /* the panel shows the last known state */
+  }
+}
+
+function loadXray(s: Settings) {
+  xrayInstalled.value = s.xray_installed === "true";
+  xraySource.value = s.xray_source ?? "";
+  xrayVersion.value = s.xray_version ?? "";
+  xrayUnsupported.value = s.xray_unsupported ?? "";
+  xrayNeedsCore.value = Number(s.tunnel_needs_core ?? 0);
+}
+
 async function installVnc() {
   vncInstalling.value = true;
   vncLog.value = "";
@@ -4353,6 +4468,7 @@ onMounted(async () => {
     vncInstalled.value = s.vnc_installed === "true";
     vncSource.value = s.vnc_source ?? "";
     vncVersion.value = s.vnc_version ?? "";
+    loadXray(s);
     cfChromiumPath.value = s.cf_chromium_path ?? "";
     cfKeyedPending.value = s.cf_chromium_keyed_pending === "true";
     cfFontsInstalled.value = s.cf_fonts_installed === "true";

@@ -2171,6 +2171,17 @@ export type Settings = {
   vnc_source?: string;
   vnc_version?: string;
   vnc_bytes?: string;
+  /** The Xray core, which carries the subscription nodes Bemby has no client for. */
+  xray_installed?: string;
+  xray_source?: string;
+  xray_version?: string;
+  xray_latest?: string;
+  xray_bytes?: string;
+  /** Set when XTLS publishes no build for this platform. */
+  xray_unsupported?: string;
+  /** Stored subscription nodes, and how many of them are waiting on the core. */
+  tunnel_nodes?: string;
+  tunnel_needs_core?: string;
   cf_profile_id?: string;
   /** Server-computed: "true" when the CJK/emoji faces are in the data dir. */
   cf_fonts_installed?: string;
@@ -2323,6 +2334,11 @@ export const settingsApi = {
       .post<{ ok: boolean; error?: string; log?: string[] }>("/settings/vnc/install")
       .then((r) => r.data),
   removeVnc: () => api.post("/settings/vnc/remove").then((r) => r.data),
+  installXray: () =>
+    api
+      .post<{ ok: boolean; error?: string; log?: string[] }>("/settings/xray/install")
+      .then((r) => r.data),
+  removeXray: () => api.post("/settings/xray/remove").then((r) => r.data),
   testProxy: (url: string) =>
     api
       .post<{ ok: boolean; error?: string }>("/settings/test-proxy", { url })

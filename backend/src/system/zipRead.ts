@@ -82,12 +82,12 @@ function inflate(entryData: Buffer, method: number): Buffer {
 }
 
 /**
- * Reads every usable file out of an archive.
+ * Reads every usable file out of an archive, or only those `pick` names.
  *
  * Throws only when the whole thing is unreadable -- not a ZIP, or a truncated central
  * directory. A single bad entry is a `skipped` row.
  */
-export function readZip(buf: Buffer, limits: ZipLimits): ZipReadResult {
+export function readZip(buf: Buffer, limits: ZipLimits, pick?: (name: string) => boolean): ZipReadResult {
   if (!looksLikeZip(buf)) throw new Error("Not a ZIP archive");
 
   const eocd = findEocd(buf);
@@ -125,6 +125,9 @@ export function readZip(buf: Buffer, limits: ZipLimits): ZipReadResult {
     at += 46 + nameLen + extraLen + commentLen;
 
     if (isDirectoryName(name) || (uncompressedSize === 0 && compressedSize === 0)) continue;
+    // An archive read for one known file inflates only that one: the rest is not skipped,
+    // it was never asked for
+    if (pick && !pick(name)) continue;
 
     if (files.length >= limits.maxEntries) {
       skipped.push({ name, why: `more than ${limits.maxEntries} files in the archive` });

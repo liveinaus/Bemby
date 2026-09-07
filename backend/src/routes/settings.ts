@@ -52,6 +52,9 @@ import { restartBemby, restartSupervised } from "../system/restart";
 import { updateStatus, UPDATE_CHECK_KEY } from "../system/updateCheck";
 import { exportCfProfiles, importCfProfiles } from "../jobs/cfProfileArchive";
 import { installVnc, removeVnc, vncInstallLog, vncStatus } from "../jobs/vncInstall";
+import { installXray, removeXray, xrayInstallLog, xrayStatus } from "../jobs/xrayInstall";
+import { xrayTunnelLog } from "../tg/xrayTunnel";
+import { reconcileTunnels, tunnelStatus } from "../tg/nodeTunnel";
 import {
   clearCfExitGeo,
   setProxyOff,
@@ -313,6 +316,20 @@ function getClientSettings(): Record<string, string> {
     result.vnc_version = vnc.version ?? "";
     result.vnc_bytes = vnc.bytes ? String(vnc.bytes) : "";
   }
+  // The Xray core, which carries the subscription nodes Bemby cannot speak itself --
+  // REALITY above all. Installed on demand into the data dir, like the browser above.
+  {
+    const xray = xrayStatus();
+    result.xray_installed = xray.available ? "true" : "false";
+    result.xray_source = xray.source;
+    result.xray_version = xray.version ?? "";
+    result.xray_latest = xray.latest;
+    result.xray_bytes = xray.bytes ? String(xray.bytes) : "";
+    result.xray_unsupported = xray.unsupported ?? "";
+    const tunnels = tunnelStatus();
+    result.tunnel_nodes = String(tunnels.total);
+    result.tunnel_needs_core = String(tunnels.needsCore);
+  }
   result.cf_chromium_version = chromiumVersion() ?? "";
   // Which build is on disk, and whether a configured key unlocks one that is not yet
   // downloaded -- downloads are deliberate, so this is what surfaces the outstanding one
@@ -483,6 +500,43 @@ router.get("/vnc/install", (_req, res) => {
 router.post("/vnc/remove", (_req, res) => {
   removeVnc();
   res.json({ ok: true, status: vncStatus() });
+});
+
+// POST /xray/install -- fetch the Xray core into the data dir. It is what carries the node
+// kinds Bemby has no client for: VLESS behind REALITY, VMess, Trojan, Shadowsocks. Nodes a
+// subscription already stored come up as soon as it lands, and the lists are pulled again
+// so the ones that were left out of the proxy list are imported.
+router.post("/xray/install", async (req, res) => {
+  const force = req.body?.force === true;
+  try {
+    const status = await installXray(force);
+    reconcileTunnels();
+    syncAndTestProviders().catch((err) =>
+      console.warn(`[xray] refreshing the providers after the install failed: ${err?.message ?? err}`),
+    );
+    res.json({ ok: true, status, log: xrayInstallLog().log.slice(-40) });
+  } catch (e: any) {
+    res.status(400).json({
+      ok: false,
+      error: e?.message ?? String(e),
+      log: xrayInstallLog().log.slice(-40),
+    });
+  }
+});
+
+/**
+ * Progress for an install still running, so the button can show what it is doing, and the
+ * core's own recent output -- which is where a node that will not connect says why.
+ */
+router.get("/xray/install", (_req, res) => {
+  res.json({ ...xrayInstallLog(), status: xrayStatus(), coreLog: xrayTunnelLog().slice(-20) });
+});
+
+router.post("/xray/remove", (_req, res) => {
+  removeXray();
+  // Back to the built-in bridge, which carries the WebSocket nodes and nothing else
+  reconcileTunnels();
+  res.json({ ok: true, status: xrayStatus() });
 });
 
 let cfInstalling = false;

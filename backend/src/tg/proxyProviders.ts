@@ -1,11 +1,7 @@
 import { db } from "../db/database";
 import { cfTuning } from "../jobs/cfTuning";
-import {
-  applyVlessNodes,
-  nodeKey,
-  parseVlessSubscription,
-  pruneVlessProviders,
-} from "./vlessTunnel";
+import { applyNodes, carrierFor, pruneTunnelProviders } from "./nodeTunnel";
+import { isWorkerNode, nodeKey, nodeKind, parseSubscription } from "./proxyNodes";
 
 // Proxy sellers hand out lists that change over time -- addresses get replaced, plans
 // get resized. Rather than pasting each proxy into Settings by hand, a provider can be
@@ -17,9 +13,9 @@ import {
 //   - `webshare`: the webshare.io API (token auth, paginated JSON)
 //   - `list`: any URL returning a plain-text list, the format nearly every seller's
 //     "download list" link produces (ip:port:user:pass and friends)
-//   - `subscription`: a VLESS-over-WebSocket subscription, as a Cloudflare Workers
-//     deployment such as edgetunnel serves. Each node is carried by a loopback SOCKS5
-//     listener (see vlessTunnel), so it reaches the rest of Bemby as an ordinary proxy.
+//   - `subscription`: a node subscription, whether a Cloudflare Workers deployment such as
+//     edgetunnel serves or a commercial seller's. Each node is carried by a loopback SOCKS5
+//     listener (see nodeTunnel), so it reaches the rest of Bemby as an ordinary proxy.
 
 const TIMEOUT_MS = 20_000;
 const WEBSHARE_API_URL = "https://proxy.webshare.io/api/v2/proxy/list/";
@@ -227,7 +223,7 @@ export function saveProviders(incoming: ProxyProvider[]): ProxyProvider[] {
   });
   writeProviders(merged);
   // A subscription that has been removed should not leave its tunnels listening
-  pruneVlessProviders(merged.map((p) => p.id));
+  pruneTunnelProviders(merged.map((p) => p.id));
   return merged;
 }
 
@@ -393,9 +389,14 @@ async function fetchList(provider: ProxyProvider): Promise<BembyProxy[]> {
 }
 
 /**
- * A VLESS-over-WebSocket subscription, such as a Cloudflare Workers deployment serves.
- * The nodes themselves are handed to vlessTunnel, which gives each one a loopback SOCKS5
- * port; what comes back here is that port dressed as a normal proxy entry.
+ * A node subscription: a Cloudflare Workers deployment such as edgetunnel serves, or a
+ * commercial seller's list of VLESS, VMess, Trojan and Shadowsocks nodes.
+ *
+ * The nodes are handed to nodeTunnel, which gives each one a loopback SOCKS5 port; what
+ * comes back here is that port dressed as a normal proxy entry. Nodes this install cannot
+ * carry yet -- REALITY and the rest, while the Xray core is not installed -- are stored
+ * with a port of their own but left out of the proxy list, so installing the core and
+ * refreshing brings them in without any of the others moving.
  *
  * The subscription is asked for the plain v2ray format rather than Clash or sing-box,
  * which is what a deployment serves when the request does not look like either client.
@@ -413,33 +414,50 @@ async function fetchSubscription(
   });
   if (!res.ok) throw new Error(`Subscription URL returned ${res.status}`);
 
-  const { nodes, skipped } = parseVlessSubscription(
+  const { nodes, skipped } = parseSubscription(
     (await res.text()).slice(0, MAX_LIST_BYTES),
   );
   if (!nodes.length) {
     throw new Error(
       skipped
-        ? `No VLESS-over-WebSocket nodes there (${skipped} node(s) of other kinds were skipped)`
+        ? `No usable nodes there (${skipped} link(s) of protocols Bemby cannot carry were skipped)`
         : "No nodes found at that URL",
     );
   }
   if (skipped) {
     console.log(
-      `[vless] ${provider.name}: ${skipped} node(s) of other kinds were skipped`,
+      `[tunnel] ${provider.name}: ${skipped} link(s) of protocols Bemby cannot carry were skipped`,
     );
   }
 
-  const entries = applyVlessNodes(
+  const entries = applyNodes(
     provider.id,
     nodes.map((node) => ({ proxyId: proxyId(provider, nodeKey(node)), node })),
   );
 
-  return entries.map((entry) => ({
+  const carried = entries.filter((entry) => carrierFor(entry.node));
+  if (!carried.length) {
+    const kinds = [...new Set(entries.map((e) => nodeKind(e.node)))].join(", ");
+    throw new Error(
+      `${entries.length} node(s) here (${kinds}) need the Xray core, which is not installed. ` +
+        "Install it under Proxies in Settings, then refresh.",
+    );
+  }
+  if (carried.length < entries.length) {
+    console.warn(
+      `[tunnel] ${provider.name}: ${entries.length - carried.length} node(s) need the Xray core, which is not installed`,
+    );
+  }
+
+  return carried.map((entry) => ({
     id: entry.proxyId,
     name: `${provider.name} ${entry.node.name}`.trim(),
     url: `socks5://127.0.0.1:${entry.port}`,
     host: "",
-    autoPool: false,
+    // Every node on one Worker leaves from Cloudflare's own address space, so those are
+    // one exit identity and stay out of automatic draws. A seller's nodes each have an
+    // address of their own, which is the pool an unnamed draw is looking for.
+    ...(isWorkerNode(entry.node) ? { autoPool: false } : {}),
   }));
 }
 

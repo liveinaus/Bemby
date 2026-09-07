@@ -1,5 +1,5 @@
-// VLESS-over-WebSocket exits: reading a subscription, keeping a node on the same
-// loopback port, and carrying a connection end to end through a stand-in Worker.
+// Tunnel exits: keeping a node on the same loopback port across a re-sync, and carrying a
+// connection end to end through a stand-in Worker. Link reading is proxyNodes.test.ts.
 
 // Bound away from the range an instance uses, so a Bemby running on this machine with
 // tunnels of its own does not own the ports these tests are about to bind
@@ -19,97 +19,23 @@ vi.mock("../db/database", () => ({
   },
 }));
 
+// No core installed, so the built-in WebSocket bridge is what carries these nodes. A host
+// with an xray on PATH would otherwise hand them to it and bind nothing here.
+vi.mock("../jobs/xrayInstall", () => ({
+  isXrayInstalled: () => false,
+  xrayPath: () => undefined,
+  xrayRoot: () => "/tmp/bemby-test-xray",
+}));
+
 import net from "net";
 import { WebSocketServer } from "ws";
 import { SocksClient } from "socks";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  applyVlessNodes,
-  isVlessListener,
-  nodeKey,
-  parseVlessLink,
-  parseVlessSubscription,
-  stopVlessTunnels,
-  vlessRequest,
-  type VlessNode,
-} from "../tg/vlessTunnel";
+import { applyNodes, stopTunnels, tunnelNodeFor } from "../tg/nodeTunnel";
+import { nodeKey, type ProxyNode } from "../tg/proxyNodes";
+import { vlessRequest } from "../tg/vlessTunnel";
 
 const UUID = "d342d11e-d424-4583-b36e-524ab1f0afa4";
-
-describe("parseVlessLink", () => {
-  it("reads the link a Workers deployment hands out", () => {
-    const node = parseVlessLink(
-      `vless://${UUID}@cf.example.com:443?encryption=none&security=tls&sni=my.worker.dev&fp=randomized&type=ws&host=my.worker.dev&path=%2F%3Fed%3D2048#Sydney`,
-    );
-    expect(node).toEqual({
-      address: "cf.example.com",
-      port: 443,
-      uuid: UUID,
-      tls: true,
-      sni: "my.worker.dev",
-      hostHeader: "my.worker.dev",
-      path: "/?ed=2048",
-      name: "Sydney",
-    });
-  });
-
-  it("falls back to the host header for sni, and to port 443 with tls", () => {
-    const node = parseVlessLink(
-      `vless://${UUID}@1.2.3.4?security=tls&type=ws&host=my.worker.dev&path=%2F`,
-    );
-    expect(node?.port).toBe(443);
-    expect(node?.sni).toBe("my.worker.dev");
-  });
-
-  it("takes a plain ws node on port 80 with a root path", () => {
-    const node = parseVlessLink(`vless://${UUID}@1.2.3.4`);
-    expect(node).toMatchObject({ port: 80, tls: false, path: "/", sni: undefined });
-  });
-
-  it("turns down what it cannot carry", () => {
-    // Transports other than WebSocket, and handshakes we do not speak
-    expect(parseVlessLink(`vless://${UUID}@a.com:443?type=grpc`)).toBeUndefined();
-    expect(parseVlessLink(`vless://${UUID}@a.com:443?type=ws&security=reality`)).toBeUndefined();
-    expect(parseVlessLink(`vless://not-a-uuid@a.com:443?type=ws`)).toBeUndefined();
-    expect(parseVlessLink(`trojan://${UUID}@a.com:443`)).toBeUndefined();
-    expect(parseVlessLink("nonsense")).toBeUndefined();
-  });
-});
-
-describe("parseVlessSubscription", () => {
-  const links = [
-    `vless://${UUID}@a.example.com:443?type=ws&security=tls&host=w.dev&path=%2F#One`,
-    `vless://${UUID}@b.example.com:443?type=ws&security=tls&host=w.dev&path=%2F#Two`,
-  ].join("\n");
-
-  it("reads a plain body", () => {
-    const { nodes } = parseVlessSubscription(links);
-    expect(nodes.map((n) => n.name)).toEqual(["One", "Two"]);
-  });
-
-  it("reads a base64 body, which is what most subscriptions serve", () => {
-    const { nodes } = parseVlessSubscription(Buffer.from(links).toString("base64"));
-    expect(nodes.map((n) => n.address)).toEqual(["a.example.com", "b.example.com"]);
-  });
-
-  it("collapses repeats and counts the nodes it cannot carry", () => {
-    const { nodes, skipped } = parseVlessSubscription(
-      [links, links, `trojan://x@c.example.com:443`, `ss://y@d.example.com:443`].join("\n"),
-    );
-    expect(nodes).toHaveLength(2);
-    expect(skipped).toBe(2);
-  });
-
-  it("names differ but the node is the same, so the first name stands", () => {
-    const { nodes } = parseVlessSubscription(
-      [
-        `vless://${UUID}@a.example.com:443?type=ws&security=tls&host=w.dev&path=%2F#First`,
-        `vless://${UUID}@a.example.com:443?type=ws&security=tls&host=w.dev&path=%2F#Second`,
-      ].join("\n"),
-    );
-    expect(nodes.map((n) => n.name)).toEqual(["First"]);
-  });
-});
 
 describe("vlessRequest", () => {
   it("writes version, uuid, no addons, TCP, port and address", () => {
@@ -208,18 +134,20 @@ describe("tunnel exits", () => {
   });
 
   afterEach(() => {
-    stopVlessTunnels();
+    stopTunnels();
     echo.close();
     worker.close();
   });
 
-  afterAll(() => stopVlessTunnels());
+  afterAll(() => stopTunnels());
 
-  const node = (name: string): VlessNode => ({
+  const node = (name: string): ProxyNode => ({
+    protocol: "vless",
     address: "127.0.0.1",
     port: worker.port,
-    uuid: UUID,
-    tls: false,
+    id: UUID,
+    transport: "ws",
+    security: "none",
     path: "/",
     name,
   });
@@ -249,10 +177,10 @@ describe("tunnel exits", () => {
 
   function exitPort(): number {
     const only = node("Node one");
-    const [entry] = applyVlessNodes("prov", [
+    const [entry] = applyNodes("prov", [
       { proxyId: `pp:prov:${nodeKey(only)}`, node: only },
     ]);
-    expect(isVlessListener(`socks5://127.0.0.1:${entry.port}`)).toBe(true);
+    expect(tunnelNodeFor(`socks5://127.0.0.1:${entry.port}`)?.name).toBe("Node one");
     return entry.port;
   }
 
@@ -271,10 +199,10 @@ describe("tunnel exits", () => {
     const idOne = `pp:prov:${nodeKey(one)}`;
     const idTwo = `pp:prov:${nodeKey(two)}`;
 
-    const first = applyVlessNodes("prov", [{ proxyId: idOne, node: one }]);
+    const first = applyNodes("prov", [{ proxyId: idOne, node: one }]);
     const port = first[0].port;
 
-    const second = applyVlessNodes("prov", [
+    const second = applyNodes("prov", [
       { proxyId: idTwo, node: two },
       { proxyId: idOne, node: one },
     ]);
@@ -285,11 +213,11 @@ describe("tunnel exits", () => {
   it("replaces only its own provider's nodes", () => {
     const mine = node("Mine");
     const theirs = { ...node("Theirs"), path: "/theirs" };
-    applyVlessNodes("a", [{ proxyId: `pp:a:${nodeKey(mine)}`, node: mine }]);
-    applyVlessNodes("b", [{ proxyId: `pp:b:${nodeKey(theirs)}`, node: theirs }]);
+    applyNodes("a", [{ proxyId: `pp:a:${nodeKey(mine)}`, node: mine }]);
+    applyNodes("b", [{ proxyId: `pp:b:${nodeKey(theirs)}`, node: theirs }]);
 
     // Syncing "a" again with nothing must leave "b" alone
-    applyVlessNodes("a", []);
+    applyNodes("a", []);
     const stored = JSON.parse(store.get("vless_nodes") ?? "[]");
     expect(stored.map((e: { providerId: string }) => e.providerId)).toEqual(["b"]);
   });

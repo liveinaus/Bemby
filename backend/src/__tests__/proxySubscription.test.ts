@@ -16,17 +16,20 @@ vi.mock("../db/database", () => ({
 }));
 
 // Real parsing, but no sockets: what is under test is the request, not the listener
-vi.mock("../tg/vlessTunnel", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../tg/vlessTunnel")>();
+vi.mock("../tg/nodeTunnel", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../tg/nodeTunnel")>();
   return {
     ...actual,
-    applyVlessNodes: (
+    applyNodes: (
       providerId: string,
-      nodes: Array<{ proxyId: string; node: import("../tg/vlessTunnel").VlessNode }>,
+      nodes: Array<{ proxyId: string; node: import("../tg/proxyNodes").ProxyNode }>,
     ) => nodes.map((n, i) => ({ ...n, providerId, port: 24080 + i })),
-    pruneVlessProviders: () => {},
+    pruneTunnelProviders: () => {},
   };
 });
+
+// No core installed, so a node that needs one is reported rather than imported
+vi.mock("../jobs/xrayInstall", () => ({ isXrayInstalled: () => false }));
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -125,9 +128,17 @@ describe("fetching a subscription", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("reports a body with nothing it can carry", async () => {
-    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, text: async () => "trojan://x@a:443" });
-    await expect(fetchFromProvider(SUB)).rejects.toThrow(/No VLESS-over-WebSocket nodes/);
+  it("reports a body holding no node link at all", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, text: async () => "hysteria2://x@a:443" });
+    await expect(fetchFromProvider(SUB)).rejects.toThrow(/No usable nodes there/);
+  });
+
+  it("names the core when every node needs one, rather than importing dead exits", async () => {
+    const reality = `vless://${UUID}@a.example.com:443?type=tcp&security=reality&pbk=k&sid=01#HK`;
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, text: async () => reality });
+    await expect(fetchFromProvider(SUB)).rejects.toThrow(
+      /1 node\(s\) here \(VLESS-tcp-reality\) need the Xray core/,
+    );
   });
 });
 
