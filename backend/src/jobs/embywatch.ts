@@ -133,10 +133,14 @@ function parseUaClient(ua: string): { client: string; version: string } {
   return parseUaClient(DEFAULT_UA);
 }
 
+/** DeviceId must stay URL-safe: stream proxies embed it in signed redirect URLs. */
+function deviceIdFor(deviceName: string): string {
+  return deviceName.replace(/\s+/g, '-');
+}
+
 function buildAuthHeader(deviceName: string, ua: string, token?: string): string {
-  // DeviceId must stay URL-safe: some stream proxies embed it in signed
-  // redirect URLs and break on whitespace (the display name can keep spaces)
-  const deviceId = `${deviceName.replace(/\s+/g, '-')}`;
+  // The display name can keep its spaces; the id cannot
+  const deviceId = deviceIdFor(deviceName);
   const { client, version } = parseUaClient(ua);
   const parts = [
     `MediaBrowser Client="${client}"`,
@@ -201,12 +205,16 @@ async function embyRequest<T = any>(
   if (!res.ok) {
     // Try to extract a human-readable message from Emby's JSON error body
     let detail = text;
+    let code: string | undefined;
     try {
       const json = JSON.parse(text) as Record<string, unknown>;
       if (typeof json.Message === 'string' && json.Message) detail = json.Message;
       else if (typeof json.message === 'string' && json.message) detail = json.message;
+      if (typeof json.ErrorCode === 'string' && json.ErrorCode) code = json.ErrorCode;
     } catch { /* leave detail as raw text */ }
-    const err = new Error(`Emby ${method} ${path} → ${res.status} ${res.statusText}: ${detail}`) as EmbyHttpError;
+    const err = new Error(
+      `Emby ${method} ${path} → ${res.status} ${res.statusText}: ${detail}${code ? ` (${code})` : ''}`,
+    ) as EmbyHttpError;
     err.status = res.status;
     throw err;
   }
@@ -258,17 +266,6 @@ export async function testEmbyConnection(
     return { ok: false, error: err?.message ?? 'Connection failed' };
   }
 }
-
-// Everything needed to reach the Emby media endpoints as the logged-in user.
-type MediaOpts = {
-  token: string;
-  ua: string;
-  userId: string;
-  deviceName: string;
-  proxyUrl?: string;
-  insecureTls?: boolean;
-  signal?: AbortSignal;
-};
 
 // What a raw stream fetch needs: identity, route and TLS mode.
 type NetOpts = {
@@ -342,45 +339,80 @@ async function probeStream(url: string, opts: NetOpts): Promise<ProbeResult> {
 }
 
 /**
- * Ask PlaybackInfo for the stream URL a real client would play. Some servers
- * front Emby with a proxy that only routes this form (e.g. redirecting
- * /videos/{id}/original.{container} to a dedicated stream host) and return
- * errors for the generic /Videos/{id}/stream path.
+ * PlaybackInfo for one item: the sources it advertises plus the play session the
+ * server issued for them. Fetched once per item and reused, because every call
+ * mints a fresh session id, and a front-end that ties its reports to the session
+ * whose stream is being read needs the URL and the reports to name the same one.
  */
-async function getClientStreamUrl(
-  baseUrl: string,
-  itemId: string,
-  mediaSourceId: string,
-  opts: MediaOpts & { directOnly?: boolean; transcodeOnly?: boolean }
-): Promise<string | undefined> {
+type PlaybackSession = { itemId: string; playSessionId?: string; sources: any[] };
+
+async function fetchPlaybackInfo(baseUrl: string, ctx: PlayCtx, itemId: string): Promise<PlaybackSession | undefined> {
   try {
-    const info = await embyRequest<any>(baseUrl, `/Items/${itemId}/PlaybackInfo?UserId=${opts.userId}`, {
+    const info = await embyRequest<any>(baseUrl, `/Items/${itemId}/PlaybackInfo?UserId=${ctx.userId}`, {
+      ...reqOpts(ctx),
       method: 'POST',
-      ua: opts.ua,
-      token: opts.token,
-      deviceName: opts.deviceName,
-      proxyUrl: opts.proxyUrl,
-      insecureTls: opts.insecureTls,
-      cancelSignal: opts.signal,
       body: { DeviceProfile: { MaxStreamingBitrate: 140_000_000 } },
     });
-    const sources: any[] = info?.MediaSources ?? [];
-    const source = sources.find(s => s.Id === mediaSourceId) ?? sources[0];
-    // directOnly keeps Real Watch on direct play; transcodeOnly is its last-resort
-    // fallback for servers that advertise no direct stream at all
-    const path: string | undefined = opts.directOnly
-      ? source?.DirectStreamUrl
-      : opts.transcodeOnly
-        ? source?.TranscodingUrl
-        : (source?.DirectStreamUrl ?? source?.TranscodingUrl ?? undefined);
-    if (!path) return undefined;
-    if (/^https?:\/\//i.test(path)) return path;
-    return `${baseUrl.replace(/\/$/, '')}${path.startsWith('/') ? '' : '/'}${path}`;
+    return {
+      itemId,
+      playSessionId: typeof info?.PlaySessionId === 'string' ? info.PlaySessionId : undefined,
+      sources: info?.MediaSources ?? [],
+    };
   } catch {
-    throwIfAborted(opts.signal);
+    throwIfAborted(ctx.signal);
     // PlaybackInfo unsupported or failed, caller falls back to the static URL
     return undefined;
   }
+}
+
+/** Cached PlaybackInfo for `itemId`; `refresh` mints a new session for it. */
+async function playbackInfoFor(
+  baseUrl: string,
+  ctx: PlayCtx,
+  itemId: string,
+  refresh = false,
+): Promise<PlaybackSession | undefined> {
+  if (!refresh && ctx.playback?.itemId === itemId) return ctx.playback;
+  const info = await fetchPlaybackInfo(baseUrl, ctx, itemId);
+  if (info) ctx.playback = info;
+  return info;
+}
+
+/** A path from PlaybackInfo resolved against the server, left alone when already absolute. */
+function absoluteStreamUrl(baseUrl: string, path?: string): string | undefined {
+  if (!path) return undefined;
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${baseUrl.replace(/\/$/, '')}${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
+/** The source PlaybackInfo advertises for `mediaSourceId`, or its first one. */
+function pickSource(info: PlaybackSession | undefined, mediaSourceId: string): any {
+  const sources = info?.sources ?? [];
+  return sources.find(s => s.Id === mediaSourceId) ?? sources[0];
+}
+
+/**
+ * The stream URL a real client would play, from what PlaybackInfo advertises. Some
+ * servers front Emby with a proxy that only routes this form (e.g. redirecting
+ * /videos/{id}/original.{container} to a dedicated stream host) and return errors
+ * for the generic /Videos/{id}/stream path.
+ */
+async function getClientStreamUrl(
+  baseUrl: string,
+  ctx: PlayCtx,
+  itemId: string,
+  mediaSourceId: string,
+  opts: { directOnly?: boolean; transcodeOnly?: boolean } = {}
+): Promise<string | undefined> {
+  const source = pickSource(await playbackInfoFor(baseUrl, ctx, itemId), mediaSourceId);
+  // directOnly keeps Real Watch on direct play; transcodeOnly is its last-resort
+  // fallback for servers that advertise no direct stream at all
+  const path: string | undefined = opts.directOnly
+    ? source?.DirectStreamUrl
+    : opts.transcodeOnly
+      ? source?.TranscodingUrl
+      : (source?.DirectStreamUrl ?? source?.TranscodingUrl ?? undefined);
+  return absoluteStreamUrl(baseUrl, path);
 }
 
 /** Whether a stream answered, and what it said when it did not. */
@@ -405,13 +437,14 @@ function streamUrlCasings(url: string | undefined): string[] {
  */
 async function isMediaAvailable(
   baseUrl: string,
+  ctx: PlayCtx,
   itemId: string,
   mediaSourceId: string,
-  opts: MediaOpts
 ): Promise<ProbeResult> {
+  const opts = netOpts(ctx);
   // Prefer the URL a real client would play; proxies that offload streaming
   // to another host often only route this form
-  const clientUrl = await getClientStreamUrl(baseUrl, itemId, mediaSourceId, opts);
+  const clientUrl = await getClientStreamUrl(baseUrl, ctx, itemId, mediaSourceId);
   let client: ProbeResult | undefined;
   for (const url of streamUrlCasings(clientUrl)) {
     client = await probeStream(url, opts);
@@ -422,7 +455,7 @@ async function isMediaAvailable(
   const params = new URLSearchParams({
     static: 'true',
     MediaSourceId: mediaSourceId,
-    api_key: opts.token,
+    api_key: ctx.token,
   });
   const staticUrl = `${baseUrl.replace(/\/$/, '')}/Videos/${itemId}/stream?${params.toString()}`;
   const staticProbe = await probeStream(staticUrl, opts);
@@ -507,25 +540,30 @@ function withPlaySession(url: string, playSessionId: string): string {
  */
 async function resolveRealStreamUrl(
   baseUrl: string,
+  ctx: PlayCtx,
   itemId: string,
   mediaSourceId: string,
-  opts: MediaOpts & { playSessionId: string; deviceId: string }
 ): Promise<ResolvedStream | undefined> {
-  const staticUrl = buildStaticStreamUrl(baseUrl, itemId, mediaSourceId, opts);
+  const opts = netOpts(ctx);
+  const staticUrl = buildStaticStreamUrl(baseUrl, itemId, mediaSourceId, {
+    token: ctx.token,
+    playSessionId: ctx.playSessionId,
+    deviceId: deviceIdFor(ctx.deviceName),
+  });
   const staticProbe = await probeStreamSize(staticUrl, opts);
   if (staticProbe.ok) return { url: staticUrl, size: staticProbe.size, transcoding: false, hls: false };
 
-  const direct = await getClientStreamUrl(baseUrl, itemId, mediaSourceId, { ...opts, directOnly: true });
+  const direct = await getClientStreamUrl(baseUrl, ctx, itemId, mediaSourceId, { directOnly: true });
   for (const candidate of streamUrlCasings(direct)) {
-    const url = withPlaySession(candidate, opts.playSessionId);
+    const url = withPlaySession(candidate, ctx.playSessionId);
     const probe = await probeStreamSize(url, opts);
     if (probe.ok) return { url, size: probe.size, transcoding: false, hls: isHlsUrl(url) };
   }
 
   // Direct play is unavailable or unservable: fall back to the transcode stream.
-  const transcode = await getClientStreamUrl(baseUrl, itemId, mediaSourceId, { ...opts, transcodeOnly: true });
+  const transcode = await getClientStreamUrl(baseUrl, ctx, itemId, mediaSourceId, { transcodeOnly: true });
   for (const candidate of streamUrlCasings(transcode)) {
-    const url = withPlaySession(candidate, opts.playSessionId);
+    const url = withPlaySession(candidate, ctx.playSessionId);
     const probe = await probeStreamSize(url, opts);
     if (!probe.ok) continue;
     const hls = isHlsUrl(url);
@@ -647,6 +685,10 @@ type PlayCtx = {
   deviceName: string;
   proxyUrl?: string;
   insecureTls?: boolean;
+  /**
+   * The session playback is reported under. Generated up front, then replaced by
+   * the one the server issues for the item in play; see `openPlaybackSession`.
+   */
   playSessionId: string;
   realWatch: boolean;
   signal?: AbortSignal;
@@ -654,6 +696,12 @@ type PlayCtx = {
   pickNote?: string;
   /** Form the server accepts playback reports in; see `reportPlayback`. */
   reportStyle?: 'body' | 'query';
+  /** PlaybackInfo for the item last asked about; see `playbackInfoFor`. */
+  playback?: PlaybackSession;
+  /** Stream URL of the session in play, read from to keep a gated lease alive. */
+  leaseUrl?: string;
+  /** Set once a report was refused for an inactive lease; see `touchLease`. */
+  leaseTouch?: boolean;
 };
 
 function toSegment(candidate: any): Segment {
@@ -682,8 +730,8 @@ function reqOpts(ctx: PlayCtx) {
   return { ua: ctx.ua, token: ctx.token, deviceName: ctx.deviceName, proxyUrl: ctx.proxyUrl, insecureTls: ctx.insecureTls, cancelSignal: ctx.signal };
 }
 
-function mediaOpts(ctx: PlayCtx): MediaOpts {
-  return { token: ctx.token, ua: ctx.ua, userId: ctx.userId, deviceName: ctx.deviceName, proxyUrl: ctx.proxyUrl, insecureTls: ctx.insecureTls, signal: ctx.signal };
+function netOpts(ctx: PlayCtx): NetOpts {
+  return { ua: ctx.ua, proxyUrl: ctx.proxyUrl, insecureTls: ctx.insecureTls, signal: ctx.signal, token: ctx.token, deviceName: ctx.deviceName };
 }
 
 // Pulls the bytes a player would consume between two playback positions.
@@ -700,14 +748,12 @@ type Streamer = {
  */
 async function buildStreamer(serverUrl: string, ctx: PlayCtx, seg: Segment): Promise<Streamer | undefined> {
   const { itemId, mediaSourceId, item, runtimeSeconds } = seg;
-  const net: NetOpts = { ua: ctx.ua, proxyUrl: ctx.proxyUrl, insecureTls: ctx.insecureTls, signal: ctx.signal, token: ctx.token, deviceName: ctx.deviceName };
+  const net = netOpts(ctx);
 
-  const resolved = await resolveRealStreamUrl(serverUrl, itemId, mediaSourceId, {
-    ...mediaOpts(ctx),
-    playSessionId: ctx.playSessionId,
-    deviceId: ctx.deviceName.replace(/\s+/g, '-'),
-  });
+  const resolved = await resolveRealStreamUrl(serverUrl, ctx, itemId, mediaSourceId);
   if (!resolved) return undefined;
+  // Keep the lease on the route the bytes actually come from, not the advertised one
+  ctx.leaseUrl = resolved.url;
 
   const source = item.MediaSources?.[0];
   const fileSize = resolved.size > 0 ? resolved.size : Number(source?.Size) || 0;
@@ -804,7 +850,24 @@ function toQuery(payload: ReportPayload): string {
   return params.toString();
 }
 
-/** POST a /Sessions/Playing* report, falling back from a JSON body to query parameters. */
+// Some front-ends gate the playback reports on a live lease: a report is only
+// accepted while the session's own stream is being read, and answers 409 once it
+// has gone quiet. A single ranged byte on that stream revives it, which is enough
+// to keep reporting without Real Watch's full-pace traffic.
+async function touchLease(ctx: PlayCtx): Promise<boolean> {
+  if (!ctx.leaseUrl) return false;
+  try {
+    return (await drainRange(ctx.leaseUrl, 0, 0, netOpts(ctx))) > 0;
+  } catch {
+    throwIfAborted(ctx.signal);
+    return false;
+  }
+}
+
+/**
+ * POST a /Sessions/Playing* report, adapting to what the server accepts: a JSON
+ * body or query parameters, and a lease kept alive by reading the stream.
+ */
 async function reportPlayback(
   serverUrl: string,
   ctx: PlayCtx,
@@ -814,19 +877,52 @@ async function reportPlayback(
 ): Promise<void> {
   const asQuery = () => embyRequest(serverUrl, `${path}?${toQuery(payload)}`, { ...opts, method: 'POST' });
 
-  if (ctx.reportStyle === 'query') {
-    await asQuery();
-    return;
-  }
+  const post = async () => {
+    if (ctx.reportStyle === 'query') {
+      await asQuery();
+      return;
+    }
+    try {
+      await embyRequest(serverUrl, path, { ...opts, method: 'POST', body: payload });
+    } catch (err) {
+      const status = (err as EmbyHttpError).status;
+      if (status !== 401 && status !== 400) throw err;
+      await asQuery();
+      ctx.reportStyle = 'query';
+      console.warn(`[embywatch] ${serverUrl} rejects playback reports sent as a JSON body — falling back to query parameters`);
+    }
+  };
+
+  // Once a lease has been seen to lapse, revive it up front rather than paying a
+  // rejected report on every interval.
+  if (ctx.leaseTouch) await touchLease(ctx);
   try {
-    await embyRequest(serverUrl, path, { ...opts, method: 'POST', body: payload });
+    await post();
   } catch (err) {
-    const status = (err as EmbyHttpError).status;
-    if (status !== 401 && status !== 400) throw err;
-    await asQuery();
-    ctx.reportStyle = 'query';
-    console.warn(`[embywatch] ${serverUrl} rejects playback reports sent as a JSON body — falling back to query parameters`);
+    // 409 is the server refusing the session's state, not the request; a lapsed
+    // lease is the one form of that we can recover from.
+    if (ctx.leaseTouch || (err as EmbyHttpError).status !== 409) throw err;
+    if (!(await touchLease(ctx))) throw err;
+    ctx.leaseTouch = true;
+    console.warn(`[embywatch] ${serverUrl} only accepts playback reports while the session's stream is being read — keeping the lease alive with a ranged read`);
+    await post();
   }
+}
+
+/**
+ * Take the play session the server issues for this item, the way a real client
+ * does: ask PlaybackInfo first, then report under the id it hands back. A
+ * front-end that validates that id refuses a self-invented one outright, and one
+ * that gates reports on the session's stream needs the reports and the bytes to
+ * name the same session. Servers that issue none keep the generated id.
+ */
+async function openPlaybackSession(serverUrl: string, ctx: PlayCtx, seg: Segment): Promise<void> {
+  const info = await playbackInfoFor(serverUrl, ctx, seg.itemId, true);
+  if (info?.playSessionId) ctx.playSessionId = info.playSessionId;
+  const source = pickSource(info, seg.mediaSourceId);
+  // A route to read from should the lease need reviving, until Real Watch resolves
+  // the one it actually streams from.
+  ctx.leaseUrl = absoluteStreamUrl(serverUrl, source?.DirectStreamUrl ?? source?.TranscodingUrl);
 }
 
 /** POST /Sessions/Playing → progress loop (+ Real Watch byte streaming) → /Sessions/Playing/Stopped. */
@@ -847,6 +943,8 @@ async function playSegment(
   // Having nothing to clear is the normal case, so failures here are ignored.
   throwIfAborted(ctx.signal);
   await reportStopped(serverUrl, ctx, seg, startSeconds, { anySession: true }).catch(() => {});
+
+  await openPlaybackSession(serverUrl, ctx, seg);
 
   try {
     await reportPlayback(
@@ -1000,7 +1098,7 @@ async function firstPlayable(
     throwIfAborted(ctx.signal);
     const seg = toSegment(candidate);
     if (!verifyPlayable) return seg;
-    const probe = await isMediaAvailable(serverUrl, seg.itemId, seg.mediaSourceId, mediaOpts(ctx));
+    const probe = await isMediaAvailable(serverUrl, ctx, seg.itemId, seg.mediaSourceId);
     if (probe.ok) return seg;
     noteUnplayable(ctx, candidate.Name, probe.why);
   }
@@ -1043,7 +1141,7 @@ async function resolveLibraryId(serverUrl: string, ctx: PlayCtx, library?: strin
 const LIBRARY_SAMPLE_SIZE = 12;
 
 async function available(serverUrl: string, ctx: PlayCtx, seg: Segment): Promise<boolean> {
-  const probe = await isMediaAvailable(serverUrl, seg.itemId, seg.mediaSourceId, mediaOpts(ctx));
+  const probe = await isMediaAvailable(serverUrl, ctx, seg.itemId, seg.mediaSourceId);
   if (!probe.ok) noteUnplayable(ctx, seg.item?.Name ?? seg.itemId, probe.why);
   return probe.ok;
 }
@@ -1175,7 +1273,7 @@ async function pickRandomSegment(serverUrl: string, ctx: PlayCtx, verifyPlayable
     }
     const seg = toSegment(items.Items[0]);
     if (!verifyPlayable) return seg;
-    const probe = await isMediaAvailable(serverUrl, seg.itemId, seg.mediaSourceId, mediaOpts(ctx));
+    const probe = await isMediaAvailable(serverUrl, ctx, seg.itemId, seg.mediaSourceId);
     if (probe.ok) return seg;
     noteUnplayable(ctx, seg.item.Name, probe.why, `attempt ${attempt}/${attempts}`);
   }
@@ -1191,7 +1289,7 @@ async function getNextEpisode(serverUrl: string, ctx: PlayCtx, item: any, verify
   if (idx < 0 || idx + 1 >= list.length) return undefined;
   const next = toSegment(list[idx + 1]);
   if (verifyPlayable) {
-    const probe = await isMediaAvailable(serverUrl, next.itemId, next.mediaSourceId, mediaOpts(ctx));
+    const probe = await isMediaAvailable(serverUrl, ctx, next.itemId, next.mediaSourceId);
     if (!probe.ok) {
       noteUnplayable(ctx, next.item.Name, probe.why);
       return undefined;
