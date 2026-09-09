@@ -1,7 +1,5 @@
-import { TelegramClient, Api, Logger, utils } from 'telegram';
+import { TelegramClient, Api, utils } from 'telegram';
 import { db } from '../db/database';
-import { LogLevel } from 'telegram/extensions/Logger';
-import { StringSession } from 'telegram/sessions';
 import type { TgProxy } from '../types';
 import type { TgDeviceParams } from '../auth/tgAuth';
 import { NewMessage, NewMessageEvent, Raw } from 'telegram/events';
@@ -13,7 +11,11 @@ import {
   textSaysSuccess,
 } from './placeholders';
 import { escapeHtml, safeHref } from '../tg/htmlEscape';
-import { connectWithTimeout, destroyQuietly, withTgClient } from '../tg/clientTimeout';
+import {
+  acquireJobClient,
+  withJobClient,
+  type JobAccountRef,
+} from '../tg/jobClient';
 
 export type CheckinAttemptLog = {
   attempt: number;
@@ -1033,21 +1035,25 @@ export async function checkSpamStatus(
   sessionString: string,
   proxy?: TgProxy,
   deviceParams?: TgDeviceParams,
+  account?: JobAccountRef,
 ): Promise<{ spamStatus: SpamStatus; rawMessage: string; buttons: string[]; source: SpamSource; aiError?: string }> {
   const SPAM_BOT = "SpamBot";
   const TIMEOUT_MS = 25_000;
 
-  const client = new TelegramClient(new StringSession(sessionString), apiId, apiHash, {
-    connectionRetries: 5,
-    autoReconnect: false,
-    baseLogger: new Logger(LogLevel.NONE),
-    ...(proxy ? { proxy } : {}),
-    ...(deviceParams ?? {}),
-  });
-
-  // Connect, ask and tear down under one bound: an unreachable proxy otherwise leaves the
-  // connect pending forever, which stalls the account and every one queued behind it.
-  const { rawMessage, buttons } = await withTgClient(client, "spam check", async (c) => {
+  // Borrows the account's pooled connection where there is one, so a spam check across many
+  // accounts no longer spends a connect apiece. Connect, ask and release stay under one
+  // bound: an unreachable proxy otherwise leaves the connect pending forever, which stalls
+  // the account and every one queued behind it.
+  const { rawMessage, buttons } = await withJobClient({
+    label: "spam check",
+    apiId,
+    apiHash,
+    sessionString,
+    accountId: account?.id,
+    proxyId: account?.proxyId,
+    proxy,
+    deviceParams,
+  }, async (c) => {
     // Set up listener BEFORE sending to avoid missing a fast reply
     const replyPromise = new Promise<{ text: string; id: number; buttons: string[] }>((resolve, reject) => {
       let done = false;
@@ -1106,6 +1112,7 @@ export async function runCheckin(
   successContains?: string,
   failContains?: string,
   webProxyUrl?: string,
+  account?: JobAccountRef,
 ): Promise<CheckinAttemptLog> {
   const attemptStart = Date.now();
   const log: CheckinAttemptLog = {
@@ -1114,16 +1121,20 @@ export async function runCheckin(
     replyTimeoutMs,
   };
 
-  const client = new TelegramClient(new StringSession(sessionString), apiId, apiHash, {
-    connectionRetries: 5,
-    autoReconnect: false,
-    baseLogger: new Logger(LogLevel.NONE),
-    ...(proxy ? { proxy } : {}),
-    ...(deviceParams ?? {}),
-  });
-
+  // Borrows the account's pooled connection where there is one. A warm client reports a
+  // connectMs near zero, which is the point: the connect is what Telegram flood-limits.
   const t_connect = Date.now();
-  await connectWithTimeout(client, 'checkin');
+  const handle = await acquireJobClient({
+    label: 'checkin',
+    apiId,
+    apiHash,
+    sessionString,
+    accountId: account?.id,
+    proxyId: account?.proxyId,
+    proxy,
+    deviceParams,
+  });
+  const client = handle.client;
   log.connectMs = Date.now() - t_connect;
 
   const assertOutcome = (...texts: string[]): void => {
@@ -1358,9 +1369,8 @@ export async function runCheckin(
     if (Array.isArray(err?.aiRetries) && err.aiRetries.length) log.aiRetries = err.aiRetries;
     throw new CheckinError(log.error!, log);
   } finally {
-    // GramJS throws TIMEOUT when the update loop stops; always swallow here.
-    // destroy, not disconnect -- only destroy stops the ping loop (issue #14).
-    // Bounded: teardown runs over the same connection, so a dead proxy would hang it too.
-    await destroyQuietly(client, 'checkin');
+    // Drops the lease on a pooled client, leaving it connected for the next job; tears down
+    // a throwaway one. Teardown is bounded, so a dead proxy cannot hang it.
+    await handle.release();
   }
 }

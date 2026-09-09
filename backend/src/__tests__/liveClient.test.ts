@@ -220,6 +220,8 @@ import {
   joinChannel,
   subscribeToMessages,
   sweepLiveClients,
+  leaseLiveClient,
+  liveClientIdentity,
   parseMiniAppLink,
   fetchPhoto,
   normalisePhoneNumber,
@@ -1324,6 +1326,26 @@ describe('normalisePhoneNumber', () => {
   });
 });
 
+// What a pooled client would authenticate as. A job compares this against the credentials it
+// was handed, and only borrows the pooled connection when the two agree -- a manual run given
+// a different session has to have its own client.
+describe('liveClientIdentity', () => {
+  it('reports the stored api id and session', () => {
+    expect(liveClientIdentity(1)).toEqual({
+      apiId: DEFAULT_ACCOUNT.api_id,
+      sessionString: DEFAULT_ACCOUNT.session_string,
+    });
+  });
+
+  it('is null for an unknown or unauthenticated account', () => {
+    setupDb(null);
+    expect(liveClientIdentity(1)).toBeNull();
+
+    setupDb({ ...DEFAULT_ACCOUNT, session_string: null });
+    expect(liveClientIdentity(1)).toBeNull();
+  });
+});
+
 describe('sweepLiveClients', () => {
   const IDLE_MS = 30 * 60_000;
 
@@ -1407,6 +1429,59 @@ describe('sweepLiveClients', () => {
     unsubscribes.forEach((u) => u());
     sweepLiveClients(Date.now());
     expect(mockClientInstance.destroy).toHaveBeenCalled();
+  });
+
+  // A job holding a lease is mid-run over that connection. Evicting it would destroy the
+  // client under the job, and reconnecting is the expensive part: every connect spends an
+  // InvokeWithLayer, which is the request Telegram flood-limits.
+  it('never evicts a leased client, even past the idle window', async () => {
+    const lease = await leaseLiveClient(700);
+
+    sweepLiveClients(Date.now() + IDLE_MS * 10);
+
+    expect(mockClientInstance.destroy).not.toHaveBeenCalled();
+    MockTelegramClient.mockClear();
+    await getLiveClient(700);
+    expect(MockTelegramClient).not.toHaveBeenCalled();
+    lease.release();
+  });
+
+  it('never evicts a leased client to make room under the cap', async () => {
+    const lease = await leaseLiveClient(710);
+    for (let i = 1; i < 10; i++) await getLiveClient(710 + i);
+
+    // The cap dropped something, but not the leased entry: it is still there unbuilt
+    expect(mockClientInstance.destroy).toHaveBeenCalled();
+    MockTelegramClient.mockClear();
+    await getLiveClient(710);
+    expect(MockTelegramClient).not.toHaveBeenCalled();
+    lease.release();
+  });
+
+  it('lets the client go once the last lease is released', async () => {
+    const first = await leaseLiveClient(720);
+    const second = await leaseLiveClient(720);
+
+    first.release();
+    sweepLiveClients(Date.now() + IDLE_MS * 10);
+    expect(mockClientInstance.destroy).not.toHaveBeenCalled();
+
+    second.release();
+    sweepLiveClients(Date.now() + IDLE_MS * 10);
+    expect(mockClientInstance.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  // Releasing twice used to be enough to drop the count below the second holder's lease
+  it('ignores a double release, so a second holder keeps its client', async () => {
+    const first = await leaseLiveClient(730);
+    const second = await leaseLiveClient(730);
+
+    first.release();
+    first.release();
+    sweepLiveClients(Date.now() + IDLE_MS * 10);
+
+    expect(mockClientInstance.destroy).not.toHaveBeenCalled();
+    second.release();
   });
 
   it('trims oversized caches on a live entry without evicting it', async () => {

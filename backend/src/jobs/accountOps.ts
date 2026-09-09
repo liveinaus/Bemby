@@ -226,6 +226,7 @@ export async function checkSpamForAccount(
       ctx.account.session_string,
       ctx.proxy,
       ctx.deviceParams,
+      { id: accountId, proxyId: ctx.account.proxy_id ?? null },
     );
     // Store the status while restricted, clear it once confirmed free, and leave
     // an existing value alone on an unknown result.

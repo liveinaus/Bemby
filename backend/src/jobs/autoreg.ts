@@ -1,6 +1,4 @@
-import { TelegramClient, Api, Logger } from "telegram";
-import { LogLevel } from "telegram/extensions/Logger";
-import { StringSession } from "telegram/sessions";
+import { TelegramClient, Api } from "telegram";
 import { NewMessage, NewMessageEvent } from "telegram/events";
 import { EditedMessage } from "telegram/events/EditedMessage";
 import type { TgProxy, AutoregConfig, CustomStepLog } from "../types";
@@ -8,7 +6,7 @@ import type { TgDeviceParams } from "../auth/tgAuth";
 import { expandCommand, parseMessages, callAI } from "./checkin";
 import { escapeHtml } from "../tg/htmlEscape";
 import { resolvePeerTarget } from "../tg/peerTarget";
-import { connectWithTimeout, destroyQuietly } from "../tg/clientTimeout";
+import { acquireJobClient, type JobAccountRef } from "../tg/jobClient";
 import { parseBotStartLink, webButtonOf, type BotStartLink } from "../tg/miniApp";
 
 // Reuses the custom-job step log shape so LogsView renders the same timeline.
@@ -848,6 +846,7 @@ export async function runAutoreg(
   proxy?: TgProxy,
   deviceParams?: TgDeviceParams,
   replyTimeoutMs = 40_000,
+  account?: JobAccountRef,
 ): Promise<AutoregJobLog> {
   const log: AutoregJobLog = { steps: [] };
   let stepNum = 0;
@@ -892,27 +891,32 @@ export async function runAutoreg(
     Math.max(1, config.listenMinutes ?? DEFAULT_LISTEN_MINUTES) * 60_000;
   const entryMode = config.entryMode === "command" ? "command" : "button";
 
-  const client = new TelegramClient(
-    new StringSession(sessionString),
+  // Borrows the account's pooled connection where there is one, rather than spending a
+  // connect (and so an InvokeWithLayer) on every run. Bounded either way: an unreachable
+  // proxy otherwise leaves this pending with nothing to cancel it, which stalls the account
+  // and everything queued behind it.
+  // Wrapped like every other failure in this run, so a refused connect still reports as an
+  // autoreg error with a step log rather than as a bare throw.
+  const handle = await acquireJobClient({
+    label: "autoreg",
     apiId,
     apiHash,
-    {
-      connectionRetries: 5,
-      autoReconnect: false,
-      baseLogger: new Logger(LogLevel.NONE),
-      ...(proxy ? { proxy } : {}),
-      ...(deviceParams ?? {}),
-    },
-  );
+    sessionString,
+    accountId: account?.id,
+    proxyId: account?.proxyId,
+    proxy,
+    deviceParams,
+  }).catch((err: any) => {
+    if (err?.message === "Job cancelled") throw err;
+    throw new AutoregJobError(err?.message ?? String(err), log);
+  });
+  const client = handle.client;
 
   const checkCancelled = () => {
     if (signal?.aborted) throw new Error("Job cancelled");
   };
 
   try {
-    // Bounded: an unreachable proxy otherwise leaves this pending with nothing to cancel it,
-    // which stalls the account and everything queued behind it.
-    await connectWithTimeout(client, "autoreg");
     checkCancelled();
 
     // 1. Resolve the group and make sure we are a member
@@ -1431,8 +1435,8 @@ export async function runAutoreg(
     if (err instanceof AutoregJobError) throw err;
     throw new AutoregJobError(err?.message ?? String(err), log);
   } finally {
-    // destroy, not disconnect -- only destroy stops the GramJS ping loop (issue #14).
-    // Bounded: teardown runs over the same connection, so a dead proxy would hang it too.
-    await destroyQuietly(client, "autoreg");
+    // Drops the lease on a pooled client, leaving it connected for the next job; tears down
+    // a throwaway one. Bounded, so a dead proxy cannot hang the teardown.
+    await handle.release();
   }
 }

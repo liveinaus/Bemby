@@ -134,6 +134,24 @@ describe("runJob — checkin", () => {
     expect(vi.mocked(runCheckin)).toHaveBeenCalledTimes(3);
   });
 
+  // Retrying five seconds into a flood wait connects again inside the wait, and Telegram
+  // answers by extending it. That is how a 60-second wait became several hundred, so the
+  // attempt loop has to stop on one instead of spending the rest of retryMax.
+  it("abandons the remaining attempts on a flood wait", async () => {
+    vi.useFakeTimers();
+    const err = new MockCheckinError(
+      "A wait of 415 seconds is required (caused by InvokeWithLayer)",
+      { ...stubCheckinLog },
+    );
+    vi.mocked(runCheckin).mockRejectedValue(err);
+    const promise = runJob(makeJob("checkin", 3), makeAccount(), []);
+    const assertion = expect(promise).rejects.toBe(err);
+    await vi.runAllTimersAsync();
+    await assertion;
+
+    expect(vi.mocked(runCheckin)).toHaveBeenCalledTimes(1);
+  });
+
   it("stops retrying and re-throws after the last attempt", async () => {
     vi.useFakeTimers();
     const err = new MockCheckinError("permanent", { ...stubCheckinLog });

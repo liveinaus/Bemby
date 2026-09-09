@@ -24,6 +24,7 @@ import {
 } from "../tg/proxyProviders";
 import { checkedProxyUrl } from "../tg/proxyHealth";
 import { globalTgProxyUrl } from "../tg/globalProxy";
+import { parseFloodWaitSeconds } from "../tg/floodWait";
 
 /**
  * The proxy a job or its template picked, if any. The job's own config wins, so a
@@ -240,6 +241,7 @@ export async function runJob(
               checkinCfg.successContains,
               checkinCfg.failContains,
               checkinProxyUrl,
+              { id: account.id, proxyId: account.proxyId ?? null },
             );
             detailLogs?.push(log);
             break;
@@ -303,6 +305,7 @@ export async function runJob(
                 id: account.id,
                 name: account.name,
                 phoneNumber: account.phoneNumber,
+                proxyId: account.proxyId ?? null,
               },
               job.retryMax,
             );
@@ -354,6 +357,7 @@ export async function runJob(
               autoregProxy,
               autoregDevice,
               job.replyTimeoutMs,
+              { id: account.id, proxyId: account.proxyId ?? null },
             );
             detailLogs?.push(autoregLog);
             break;
@@ -374,6 +378,17 @@ export async function runJob(
           `[runner] Job "${job.name}" attempt ${attempt}/${outerAttempts} failed:`,
           err,
         );
+        // A flood wait is Telegram saying "not for another N seconds". Retrying in five
+        // connects again inside the wait, which is what used to walk a 60-second wait up to
+        // several hundred, so the attempt loop stops here and the wait is left to expire.
+        const floodSeconds = parseFloodWaitSeconds(err);
+        if (floodSeconds != null) {
+          console.warn(
+            `[runner] Job "${job.name}": flood wait of ${floodSeconds}s -- ` +
+              `abandoning the remaining ${outerAttempts - attempt} attempt(s)`,
+          );
+          break;
+        }
         if (attempt < outerAttempts && signal) {
           await delayAbortable(RETRY_DELAY_MS, signal).catch(() => {
             throw lastError;

@@ -201,6 +201,9 @@ type LiveEntry = {
   dialogSearchCache?: { ts: number; items: TgDialogItem[] };
   // Last time this entry was requested or had subscribers -- drives idle eviction
   lastActiveAt: number;
+  // Outstanding job leases. A leased client is in the middle of a check-in or custom job,
+  // so it is never evicted underneath the job (see `leaseLiveClient`).
+  leases: number;
 };
 
 export type TgTypingEvent = {
@@ -247,6 +250,15 @@ function hasSubscribers(entry: LiveEntry): boolean {
   );
 }
 
+/**
+ * Someone is relying on this client right now: a viewer watching the account, or a job
+ * holding a lease. Neither may be evicted, because reconnecting is the expensive part --
+ * every connect costs an `InvokeWithLayer`, which is what Telegram flood-limits.
+ */
+function isBusy(entry: LiveEntry): boolean {
+  return entry.leases > 0 || hasSubscribers(entry);
+}
+
 // Maps iterate in insertion order, so this drops the oldest entries first
 function trimCache(cache: Map<string, unknown>, max: number): void {
   for (const key of cache.keys()) {
@@ -257,9 +269,9 @@ function trimCache(cache: Map<string, unknown>, max: number): void {
 
 /**
  * Drops the least recently used clients once the registry is over LIVE_CLIENT_MAX.
- * Entries with subscribers (someone is watching that account) and `keepId` (the one
- * just handed out) are never evicted, so the cap can be exceeded when more accounts
- * than that are genuinely being watched at once.
+ * Busy entries (a viewer is watching the account, or a job holds a lease) and `keepId`
+ * (the one just handed out) are never evicted, so the cap can be exceeded when more
+ * accounts than that are genuinely in use at once.
  */
 /**
  * The one way a live client goes away. destroy() tears down the update loop and senders;
@@ -278,7 +290,7 @@ function disposeEntry(accountId: number, entry: LiveEntry): void {
 function evictSurplusClients(keepId?: number): void {
   if (liveClients.size <= LIVE_CLIENT_MAX) return;
   const candidates = [...liveClients.entries()]
-    .filter(([id, e]) => id !== keepId && !hasSubscribers(e))
+    .filter(([id, e]) => id !== keepId && !isBusy(e))
     .sort((a, b) => a[1].lastActiveAt - b[1].lastActiveAt);
 
   for (const [accountId, entry] of candidates) {
@@ -292,7 +304,7 @@ function evictSurplusClients(keepId?: number): void {
 
 export function sweepLiveClients(now = Date.now()): void {
   for (const [accountId, entry] of liveClients) {
-    if (hasSubscribers(entry)) entry.lastActiveAt = now;
+    if (isBusy(entry)) entry.lastActiveAt = now;
 
     if (now - entry.lastActiveAt >= IDLE_DISCONNECT_MS) {
       disposeEntry(accountId, entry);
@@ -805,6 +817,58 @@ export async function getLiveClient(accountId: number): Promise<LiveEntry> {
   }
 }
 
+/** What a pooled client would authenticate as, so a caller can tell whether the pool suits it. */
+export function liveClientIdentity(
+  accountId: number,
+): { apiId: number; sessionString: string } | null {
+  const account = db
+    .prepare(
+      "SELECT api_id, api_hash, session_string FROM tg_accounts WHERE id = ?",
+    )
+    .get(accountId) as AccountRow | undefined;
+  if (!account) return null;
+  decryptAccountRow(account);
+  if (!account.session_string) return null;
+
+  const own =
+    account.api_id && account.api_hash
+      ? { apiId: account.api_id, apiHash: account.api_hash }
+      : null;
+  const apiId = (own ?? getDefaultTgApiCredentials())?.apiId;
+  if (!apiId) return null;
+  return { apiId, sessionString: account.session_string };
+}
+
+/**
+ * Borrows the account's pooled client for a job.
+ *
+ * Jobs used to build a throwaway client and connect per run, and every connect sends an
+ * `InvokeWithLayer` -- the request Telegram flood-limits per exit IP. Borrowing the client
+ * the messenger already holds open makes that roughly one connect per account per pool
+ * lifetime instead of one per job.
+ *
+ * `release` drops the lease only; it never disconnects, because the whole point is to leave
+ * the connection warm for the next job. The lease itself keeps eviction and the idle sweep
+ * off the client until the job is done.
+ */
+export async function leaseLiveClient(
+  accountId: number,
+): Promise<{ client: TelegramClient; release: () => void }> {
+  const entry = await getLiveClient(accountId);
+  entry.leases++;
+  let released = false;
+  return {
+    client: entry.client,
+    release: () => {
+      // Guarded: a double release would let the sweep evict a client still in use
+      if (released) return;
+      released = true;
+      entry.leases = Math.max(0, entry.leases - 1);
+      entry.lastActiveAt = Date.now();
+    },
+  };
+}
+
 async function connectLiveClient(accountId: number): Promise<LiveEntry> {
   let entry: LiveEntry | undefined;
   const account = db
@@ -873,6 +937,7 @@ async function connectLiveClient(accountId: number): Promise<LiveEntry> {
     eventSubscribers: new Set(),
     syncState: "live",
     lastActiveAt: Date.now(),
+    leases: 0,
   };
   liveClients.set(accountId, entry);
   evictSurplusClients(accountId);

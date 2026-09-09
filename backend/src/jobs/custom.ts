@@ -80,7 +80,7 @@ import {
 import { msOauthStepsIn } from "./msOauth2";
 import { saveAccountApiCredentials, waitForTgLoginCode } from "./tgApiCredentials";
 import { fillSecrets, missingSecretRefs } from "../db/secrets";
-import { connectWithTimeout, destroyQuietly } from "../tg/clientTimeout";
+import { acquireJobClient } from "../tg/jobClient";
 import { displayForRun } from "./runDisplays";
 
 import type {
@@ -99,6 +99,8 @@ export type CustomRunAccount = {
   id: number;
   name: string;
   phoneNumber: string;
+  /** The account's Telegram exit, for scoping a flood wait. Null is the host's own address. */
+  proxyId: string | null;
 };
 
 type WebButtonOutcome = {
@@ -1554,24 +1556,28 @@ export async function runCustom(
     );
   }
 
-  const client = new TelegramClient(
-    new StringSession(sessionString),
+  // Borrows the account's pooled connection where there is one, rather than spending a
+  // connect (and so an InvokeWithLayer) on every run. Bounded either way: an unreachable
+  // proxy otherwise leaves this pending with nothing to cancel it, which stalls the account
+  // and everything queued behind it.
+  // Wrapped like every other failure in this run, so a refused connect still reports as a
+  // custom-job error with a step log rather than as a bare throw.
+  const handle = await acquireJobClient({
+    label: "custom job",
     apiId,
     apiHash,
-    {
-      connectionRetries: 5,
-      autoReconnect: false,
-      baseLogger: new Logger(LogLevel.NONE),
-      ...(proxy ? { proxy } : {}),
-      ...(deviceParams ?? {}),
-    },
-  );
+    sessionString,
+    accountId: account?.id,
+    proxyId: account?.proxyId,
+    proxy,
+    deviceParams,
+  }).catch((err: any) => {
+    if (err?.message === "Job cancelled") throw err;
+    throw new CustomJobError(err?.message ?? String(err), log);
+  });
+  const client = handle.client;
 
   try {
-    // Bounded: an unreachable proxy otherwise leaves this pending with nothing to cancel it,
-    // which stalls the account and everything queued behind it.
-    await connectWithTimeout(client, "custom job");
-
     let lastJobError: unknown = null;
 
     for (let jobAttempt = 1; jobAttempt <= jobMaxRetries; jobAttempt++) {
@@ -4159,9 +4165,9 @@ export async function runCustom(
     if (err?.message === "Job cancelled") throw err;
     throw new CustomJobError(err?.message ?? String(err), log);
   } finally {
-    // destroy, not disconnect -- only destroy stops the GramJS ping loop (issue #14).
-    // Bounded: teardown runs over the same connection, so a dead proxy would hang it too.
-    await destroyQuietly(client, "custom job");
+    // Drops the lease on a pooled client, leaving it connected for the next job; tears down
+    // a throwaway one. Bounded, so a dead proxy cannot hang the teardown.
+    await handle.release();
   }
 
   return log;
