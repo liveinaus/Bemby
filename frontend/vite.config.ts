@@ -78,5 +78,14 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
+    rollupOptions: {
+      output: {
+        // The libraries change with a dependency bump, the panel with every release. Split
+        // apart, an upgrade re-downloads the panel and leaves the libraries cached.
+        manualChunks: {
+          vendor: ["vue", "vue-router", "axios"],
+        },
+      },
+    },
   },
 });

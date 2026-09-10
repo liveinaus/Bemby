@@ -219,13 +219,25 @@ describe('cadence anchor', () => {
     expect(scheduler.daysUntilNextRun(id, TZ, 10)).toBe(10);
   });
 
-  it('prefers whichever of the stamp and the logs is later', async () => {
-    const id = insertJob({ runEveryDays: 10, lastSuccessAt: '2024-06-05T10:05:00.000Z' });
+  it('reads the logs only when the stamp is missing', async () => {
+    // Pre-column history: the backfill covers most of it, and a log answers for the rest
+    const id = insertJob({ runEveryDays: 10 });
     testDb.prepare("INSERT INTO job_logs (job_id, ran_at, status) VALUES (?, ?, 'success')")
       .run(id, `${BASE_DATE}T10:05:00.000Z`);
 
     const scheduler = await restartScheduler();
     expect(scheduler.daysUntilNextRun(id, TZ, 10)).toBe(10);
+  });
+
+  it('takes the stamp as the authority, so the cadence costs one lookup', async () => {
+    // The stamp is what every success path writes, so it stands even against a later log
+    // row. Keeping both honest is the job of the test below.
+    const id = insertJob({ runEveryDays: 10, lastSuccessAt: '2024-06-05T10:05:00.000Z' });
+    testDb.prepare("INSERT INTO job_logs (job_id, ran_at, status) VALUES (?, ?, 'success')")
+      .run(id, `${BASE_DATE}T10:05:00.000Z`);
+
+    const scheduler = await restartScheduler();
+    expect(scheduler.daysUntilNextRun(id, TZ, 10)).toBe(0); // 10 days on from the stamp
   });
 });
 
@@ -258,6 +270,11 @@ describe('what a run leaves behind', () => {
     await scheduler.executeJob(jobArg(id, 7), null);
 
     expect(storedPlan(id)?.startsWith('2024-06-22')).toBe(true); // +7
+    // What makes the stamp the authority for the cadence: a run that succeeds writes it
+    expect(
+      (testDb.prepare('SELECT last_success_at FROM jobs WHERE id = ?').get(id) as
+        { last_success_at: string | null }).last_success_at,
+    ).toBe(`${BASE_DATE}T08:00:00.000Z`);
   });
 
   it('tries again the next day after a failed run, not a whole interval later', async () => {

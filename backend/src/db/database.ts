@@ -43,6 +43,19 @@ if (!fs.existsSync(dir)) {
 export const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
+// SQLite defaults to flushing on every commit, which under WAL buys durability against the
+// machine losing power rather than against the process dying -- the log already covers that.
+// A job run writes several times, so this is the difference between a run's logging waiting
+// on the disk and not.
+db.pragma("synchronous = NORMAL");
+// Cache and mapping windows: the defaults are 2MB and none, which for a database holding
+// run history means re-reading pages from disk on every list. Negative is KiB, so 64MB.
+db.pragma("cache_size = -65536");
+try {
+  db.pragma("mmap_size = 268435456");
+} catch {
+  // Not every build or file system supports mapping; the pragma is an optimisation only
+}
 
 // Custom function used by list endpoints for fuzzy text search (see db/fuzzy.ts)
 db.function("fuzzy_score", { deterministic: true }, (needle, haystack) =>
@@ -109,7 +122,9 @@ db.exec(`
     ('logs_template_edit_button','false'),
     ('prefer_seconds',       'false'),
     ('data_store_enabled',   'false'),
-    ('log_retention_days',   '0'),
+    -- Fresh installs keep a month of run history. Only seeded, never updated, so an
+    -- existing install's setting (0 included, which keeps everything) is left alone.
+    ('log_retention_days',   '30'),
     ('ua_presets',           '[{"name":"SenPlayer (Mac)","value":"SenPlayer/6.1.2 CFNetwork/1490.0.4 Darwin/23.2.0"},{"name":"Yamby (Android TV)","value":"Yamby/2.0.3.4(Android)"},{"name":"Hills (Windows)","value":"Hills/0.2.1"},{"name":"Lenna (iOS)","value":"Lenna/1.0.15 CFNetwork/1494.0.7 Darwin/23.4.0"},{"name":"VidHub (iOS)","value":"VidHub/2.2.4"}]');
 `);
 
@@ -126,7 +141,7 @@ try {
  * under a migration:<id> key. Value-matching UPDATEs must not re-run on every
  * boot or they silently revert values the user has deliberately set.
  */
-function runOnce(id: string, fn: () => void): void {
+export function runOnce(id: string, fn: () => void): void {
   const flagKey = `migration:${id}`;
   try {
     const done = db

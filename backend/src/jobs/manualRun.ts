@@ -16,6 +16,7 @@ import {
 import { rowToAccount, rowToJob, type JobAccountRow, type JobRow } from "./jobRows";
 import { recordJobSuccess } from "./jobSuccess";
 import { refreshScheduler } from "../scheduler";
+import { prepareRunDetail } from "./runDetail";
 import type { TgAccount } from "../types";
 
 // Manual ("Run now") job execution, shared by the trigger route and the
@@ -80,7 +81,7 @@ export function startManualJobRun(jobId: number | string): ManualRunStart {
   registerLiveDetail(logId, detailLogs);
   const completion = runJob(job, account, detailLogs, signal)
     .then(() => {
-      const detail = detailLogs.length ? JSON.stringify(detailLogs) : null;
+      const detail = prepareRunDetail(logId, detailLogs);
       const warnings = collectRunWarnings(job.jobType, detailLogs);
       // Only while the row is still open: a cancel that gave up waiting has already
       // settled it, and that verdict is the one the user was shown
@@ -99,7 +100,7 @@ export function startManualJobRun(jobId: number | string): ManualRunStart {
     .catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       const isCancelled = message === "Job cancelled";
-      const detail = detailLogs.length ? JSON.stringify(detailLogs) : null;
+      const detail = prepareRunDetail(logId, detailLogs);
       db.prepare(
         "UPDATE job_logs SET status = 'failed', message = ?, detail = ? WHERE id = ? AND status = 'running'",
       ).run(isCancelled ? "Cancelled" : message, detail, logId);

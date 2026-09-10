@@ -995,7 +995,7 @@ describe.skipIf(!exe)("page steps in a real browser", () => {
   it(
     "runs a console script and holds what it gives back",
     async () => {
-      const p = await open(`<div class="post">a</div><div class="post">b</div><title>Two posts`);
+      const p = await open(`<div class="post">a</div><div class="post">b</div><title>Two posts</title>`);
       const run = await runWebSteps(
         p,
         [

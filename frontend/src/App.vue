@@ -116,21 +116,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, type Component } from 'vue';
+import { computed, defineAsyncComponent, ref, watch, type Component } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { version } from '../package.json';
 const APP_VERSION = version + (import.meta.env.DEV ? '-dev' : '');
 import { t, locale, setLocale } from './i18n';
 import { authApi, requirePasswordChangeSignal } from './api/client';
-import AccountsView from './views/AccountsView.vue';
-import JobsView from './views/JobsView.vue';
-import TemplatesView from './views/TemplatesView.vue';
-import DataView from './views/DataView.vue';
-import LogsView from './views/LogsView.vue';
-import SettingsView from './views/SettingsView.vue';
-import HelpView from './views/HelpView.vue';
-import MessengerView from './views/MessengerView.vue';
-import ScheduleView from './views/ScheduleView.vue';
 import BulkTaskDock from './components/BulkTaskDock.vue';
 import {
   loadSchedulePageSetting,
@@ -153,16 +144,44 @@ type ViewName = 'accounts' | 'messenger' | 'jobs' | 'schedule' | 'templates' | '
 const LAST_VIEW_KEY = 'bemby:lastView';
 const VALID_VIEWS: ViewName[] = ['accounts', 'messenger', 'jobs', 'schedule', 'templates', 'data', 'settings', 'logs', 'help'];
 
+/**
+ * Views are fetched when they are first opened rather than all at once: together they are
+ * most of the panel, and a session spends it in two or three of them.
+ *
+ * An upgrade renames the chunks under a page that is already open, so a chunk that cannot be
+ * fetched means this page is from the version before. Reload it once, which is what actually
+ * fixes it, rather than leaving the view blank. The flag makes it once and not a loop, for
+ * the case where the chunk is missing for some other reason.
+ */
+const STALE_KEY = 'bemby:reloadedForChunk';
+
+function view(load: () => Promise<unknown>): Component {
+  return defineAsyncComponent({
+    loader: load as () => Promise<Component>,
+    onError(_error, retry, fail, attempts) {
+      if (attempts <= 1) {
+        retry();
+        return;
+      }
+      if (!sessionStorage.getItem(STALE_KEY)) {
+        sessionStorage.setItem(STALE_KEY, '1');
+        location.reload();
+      }
+      fail();
+    },
+  });
+}
+
 const viewComponents: Record<ViewName, Component> = {
-  accounts: AccountsView,
-  messenger: MessengerView,
-  jobs: JobsView,
-  schedule: ScheduleView,
-  templates: TemplatesView,
-  data: DataView,
-  settings: SettingsView,
-  logs: LogsView,
-  help: HelpView,
+  accounts: view(() => import('./views/AccountsView.vue')),
+  messenger: view(() => import('./views/MessengerView.vue')),
+  jobs: view(() => import('./views/JobsView.vue')),
+  schedule: view(() => import('./views/ScheduleView.vue')),
+  templates: view(() => import('./views/TemplatesView.vue')),
+  data: view(() => import('./views/DataView.vue')),
+  settings: view(() => import('./views/SettingsView.vue')),
+  logs: view(() => import('./views/LogsView.vue')),
+  help: view(() => import('./views/HelpView.vue')),
 };
 
 const savedView = localStorage.getItem(LAST_VIEW_KEY) as ViewName;

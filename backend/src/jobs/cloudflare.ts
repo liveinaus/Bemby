@@ -1,11 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type {
-  BrowserContext,
-  ConsoleMessage,
-  ElementHandle,
-  Frame,
-  Page,
-} from "playwright-core";
+import type { BrowserContext, ElementHandle, Frame, Page } from "playwright-core";
 import { cfTuning } from "./cfTuning";
 import {
   chromiumExecutable,
@@ -2752,6 +2746,14 @@ export async function runInAppClicks(
 /** Ceiling on screenshots kept for one action, so a long step list cannot bloat the log. */
 const MAX_WEB_SHOTS = 24;
 
+/**
+ * Rounds of a loop that carry screenshots. A `web_for_each` over a page's worth of items
+ * runs the same steps over and over, and the tenth round's pictures show what the second's
+ * already did. Later rounds still keep a picture of anything that failed, which is the one
+ * that says why the loop stopped.
+ */
+const MAX_WEB_SHOT_ROUNDS = 2;
+
 /** Ceiling on markers offered to the model: past this the picture is unreadable anyway. */
 const MAX_WEB_MARKS = 60;
 
@@ -3757,6 +3759,44 @@ export function webEvalExpression(script: string): string {
   return `(async () => {\n${body}\n})()`;
 }
 
+/**
+ * Wraps a `web_eval` expression so what it prints comes back with what it returns.
+ *
+ * The console is collected inside the page rather than through the browser's console
+ * events: the patched Chromium the jobs run on reports none of them (part of how it stays
+ * unremarkable to a site), so a listener out here never hears a thing. Reading it in the
+ * page also confines the capture to this one script instead of picking up whatever else the
+ * page logs while the step runs. The original methods go back on in a `finally`.
+ */
+export function webEvalCapture(expression: string, maxLines: number): string {
+  return `(async () => {
+  const __lines = [];
+  const __names = ["log", "info", "warn", "error", "debug"];
+  const __saved = {};
+  const __say = (a) => {
+    try {
+      return typeof a === "string" ? a : (JSON.stringify(a) ?? String(a));
+    } catch {
+      return String(a);
+    }
+  };
+  for (const __n of __names) {
+    __saved[__n] = console[__n];
+    console[__n] = function (...args) {
+      if (__lines.length < ${maxLines}) __lines.push(args.map(__say).join(" "));
+      try {
+        __saved[__n].apply(console, args);
+      } catch {}
+    };
+  }
+  try {
+    return { value: await ${expression}, printed: __lines };
+  } finally {
+    for (const __n of __names) console[__n] = __saved[__n];
+  }
+})()`;
+}
+
 /** What a `web_eval` result is held as: text as it stands, anything else as its JSON. */
 export function webEvalText(value: unknown): string {
   if (value === undefined || value === null) return "";
@@ -3986,7 +4026,12 @@ async function runStepList(
     // leaves nothing of the site on screen for this one to act on
     if (!container && step.type !== "web_delay" && (await interstitialOnPage(page))) {
       log.error = "a full-page Cloudflare challenge is covering the site";
-      log.screenshot = await screenshotOf(page);
+      // Counted like any other, or a loop meeting a challenge every round spends the log
+      // on pictures of the same interstitial
+      if (run.shots < MAX_WEB_SHOTS + 8) {
+        log.screenshot = await screenshotOf(page);
+        if (log.screenshot) run.shots++;
+      }
       return `${log.label}: ${log.error}`;
     }
 
@@ -4419,14 +4464,6 @@ async function runStepList(
             ),
           );
 
-          // What the script printed, which is what a bare `console.log(...)` leaves behind:
-          // used when the script itself hands nothing back
-          const printed: string[] = [];
-          const onConsole = (msg: ConsoleMessage) => {
-            if (printed.length < WEB_EVAL_CONSOLE_LINES) printed.push(msg?.text?.() ?? "");
-          };
-          page.on?.("console", onConsole);
-
           // `frame` names an iframe the same way a selector's `frame:` prefix does, so a
           // script can read the document a step is failing to find anything in
           const evalFrame = (step.frame ?? "").trim();
@@ -4442,15 +4479,19 @@ async function runStepList(
             evalCtx = entered.ctx;
           }
 
-          const running = evalCtx.evaluate(webEvalExpression(script)) as Promise<unknown>;
+          // What the script printed comes back with what it returned, and is what a bare
+          // `console.log(...)` leaves behind for the step to hold
+          const running = evalCtx.evaluate(
+            webEvalCapture(webEvalExpression(script), WEB_EVAL_CONSOLE_LINES),
+          ) as Promise<{ value?: unknown; printed?: string[] } | undefined>;
           // Handled here as well, so a script still failing after its own step gave up
           // does not come back as an unhandled rejection
           running.catch(() => {});
           let timedOut = false;
           let timer: ReturnType<typeof setTimeout> | undefined;
-          let value: unknown;
+          let captured: { value?: unknown; printed?: string[] } | undefined;
           try {
-            value = await Promise.race([
+            captured = await Promise.race([
               running,
               new Promise<never>((_, reject) => {
                 timer = setTimeout(() => {
@@ -4467,10 +4508,10 @@ async function runStepList(
             );
           } finally {
             if (timer) clearTimeout(timer);
-            page.off?.("console", onConsole);
           }
 
-          const returned = webEvalText(value).trim();
+          const printed = captured?.printed ?? [];
+          const returned = webEvalText(captured?.value).trim();
           const printedText = printed.join("\n").trim();
           const text = returned || printedText;
           if (!text && name)
@@ -5866,7 +5907,10 @@ async function runStepList(
       // exactly the one whose screenshot is worth having, so those keep a small allowance
       // of their own past the cap -- a loop's rounds would otherwise spend it all.
       await sleep(tune.inAppStepMs, deadline);
-      if (run.shots < MAX_WEB_SHOTS || (log.error && run.shots < MAX_WEB_SHOTS + 8)) {
+      const round = Number(run.round?.split("/")[0] ?? 0);
+      const roundSpent = round > MAX_WEB_SHOT_ROUNDS;
+      const allowance = log.error ? MAX_WEB_SHOTS + 8 : MAX_WEB_SHOTS;
+      if (run.shots < allowance && (!roundSpent || log.error)) {
         log.screenshot = await screenshotOf(page);
         if (log.screenshot) run.shots++;
       }

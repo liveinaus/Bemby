@@ -69,9 +69,21 @@ describe("expandCommand", () => {
       expect(n).toBeLessThanOrEqual(30);
       seen.add(got);
     }
-    // Both ends come up: an off-by-one at either would show here
-    expect(seen.has("1")).toBe(true);
-    expect(seen.has("30")).toBe(true);
+    expect(seen.size).toBeGreaterThan(1);
+  });
+
+  it("{num:low-high} can reach both bounds", () => {
+    // Asked of the draw itself rather than of 200 random ones: needing both ends to turn up
+    // by chance fails about one run in 450, which is a test that cries wolf.
+    const draw = vi.spyOn(Math, "random");
+    try {
+      draw.mockReturnValue(0);
+      expect(expandCommand("{num:1-30}")).toBe("1");
+      draw.mockReturnValue(0.999999);
+      expect(expandCommand("{num:1-30}")).toBe("30");
+    } finally {
+      draw.mockRestore();
+    }
   });
 
   it("a leading zero pads the range to a fixed width", () => {

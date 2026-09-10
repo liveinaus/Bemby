@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/database';
 import { cancelJob, isJobRunning, getLiveDetail } from '../jobs/cancellation';
 import { parsePaging, textParam, escapeLike, bulkIds } from './list-query';
+import { inlineRunImages } from '../jobs/runDetail';
 
 const router = Router();
 
@@ -40,7 +41,10 @@ router.get('/:id', (req, res) => {
     ranAt: row.ran_at,
     status: row.status,
     message: row.message,
-    detail: liveDetail ?? (row.detail ? JSON.parse(row.detail) : null),
+    // The row keeps `shot:` references and the images sit beside the database; the panel
+    // reads them inline, as it always has. Live detail is passed through the same way: a
+    // run being written up while this is fetched has references in it too.
+    detail: inlineRunImages(id, liveDetail ?? (row.detail ? JSON.parse(row.detail) : null)),
   });
 });
 

@@ -2045,6 +2045,10 @@ export type UAPreset = {
 
 export type Settings = {
   default_timezone: string;
+  /** "true" shows each job's effective exit in the job list. */
+  jobs_show_effective_proxy?: string;
+  /** "false" stops the panel checking for a newer release. */
+  update_check_enabled?: string;
   default_max_retry: string;
   check_daily_run: string;
   default_ua: string;

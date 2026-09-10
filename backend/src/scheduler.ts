@@ -2,6 +2,7 @@ import {
   db,
   getDefaultTgApiCredentials,
   getDefaultTimezone,
+  runOnce,
   FALLBACK_TIMEZONE,
 } from "./db/database";
 import { decryptSecret } from "./db/secretColumns";
@@ -24,6 +25,13 @@ import {
 import { toMinutes, pickNextRun } from "./scheduler-utils";
 import { collectRunWarnings, completedMessage } from "./jobs/runWarnings";
 import { recordJobSuccess } from "./jobs/jobSuccess";
+import {
+  prepareRunDetail,
+  deleteRunShots,
+  pruneOrphanRunShots,
+  boundRunImages,
+  externaliseRunImages,
+} from "./jobs/runDetail";
 
 type ScheduleEntry = {
   job: Job;
@@ -154,28 +162,28 @@ function intervalFromSeed(
  * its cadence on the next restart.
  */
 function lastSuccessAt(jobId: number): string | null {
-  let stamp: string | null = null;
   try {
-    stamp =
+    const stamp =
       (
         db.prepare("SELECT last_success_at FROM jobs WHERE id = ?").get(jobId) as
           | { last_success_at: string | null }
           | undefined
       )?.last_success_at ?? null;
+    // Every success path stamps the column, so the log scan below is only for history
+    // written before it existed -- which the migration backfilled anyway.
+    if (stamp) return stamp;
   } catch {
     // Column not there yet (a database opened before the migration): logs still answer.
   }
-  const logged =
+  return (
     (
       db
         .prepare(
           "SELECT ran_at FROM job_logs WHERE job_id = ? AND status = 'success' ORDER BY ran_at DESC LIMIT 1",
         )
         .get(jobId) as { ran_at: string } | undefined
-    )?.ran_at ?? null;
-  if (!stamp) return logged;
-  if (!logged) return stamp;
-  return logged > stamp ? logged : stamp;
+    )?.ran_at ?? null
+  );
 }
 
 /**
@@ -282,6 +290,13 @@ export function loadEligibleJobs(): Array<{
     )
     .all() as any[];
 
+  // Looked up once for the whole batch rather than per job, and only if a job actually
+  // needs it: it is a settings read and a decrypt, and a busy install refreshes a few
+  // hundred jobs at a time.
+  let fallbackCredentials: ReturnType<typeof getDefaultTgApiCredentials> | undefined;
+  const defaultCredentials = () =>
+    (fallbackCredentials ??= getDefaultTgApiCredentials()) ?? null;
+
   return rows.map((row) => ({
     job: {
       id: row.id,
@@ -313,8 +328,7 @@ export function loadEligibleJobs(): Array<{
               row.api_id && ownApiHash
                 ? { apiId: row.api_id, apiHash: ownApiHash }
                 : null;
-            const credentials =
-              ownCredentials ?? getDefaultTgApiCredentials();
+            const credentials = ownCredentials ?? defaultCredentials();
             return {
               id: row.account_id,
               name: row.account_name,
@@ -406,7 +420,7 @@ export async function executeJob(
     }
 
     await runJob(job, account, detailLogs, signal);
-    const detail = detailLogs.length ? JSON.stringify(detailLogs) : null;
+    const detail = prepareRunDetail(logId, detailLogs);
     // Warnings ride along with a successful run: the job completed, so failing it
     // would be wrong, but the log should say what didn't work.
     const warnings = collectRunWarnings(job.jobType, detailLogs);
@@ -429,7 +443,7 @@ export async function executeJob(
     const message = err instanceof Error ? err.message : String(err);
     const isCancelled = message === "Job cancelled";
     if (logId !== undefined) {
-      const detail = detailLogs.length ? JSON.stringify(detailLogs) : null;
+      const detail = prepareRunDetail(logId, detailLogs);
       db.prepare(
         "UPDATE job_logs SET status = 'failed', message = ?, detail = ? WHERE id = ? AND status = 'running'",
       ).run(isCancelled ? "Cancelled" : message, detail, logId);
@@ -597,14 +611,101 @@ export function purgeOldLogs(): void {
   if (!Number.isFinite(days) || days <= 0) return;
 
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+  // Read the ids first: the screenshots of a purged run sit beside the database, and once
+  // the row is gone nothing is left to say which folder was its.
+  const going = db
+    .prepare("SELECT id FROM job_logs WHERE ran_at < ? AND status != 'running'")
+    .all(cutoff) as Array<{ id: number }>;
   const { changes } = db
     .prepare("DELETE FROM job_logs WHERE ran_at < ? AND status != 'running'")
     .run(cutoff);
+  for (const { id } of going) deleteRunShots(id);
   if (changes > 0) {
     console.log(
       `[scheduler] Purged ${changes} job log(s) older than ${days} day(s)`,
     );
   }
+}
+
+/**
+ * Moves the images in run history already stored inside the rows out to files, once.
+ *
+ * Without this an install that has been running a while keeps whatever its logs grew to:
+ * one measured database was 531MB, 500MB of it images in 836 rows, and nothing would have
+ * shrunk it short of the operator deleting their history. Done a row at a time so the pass
+ * costs one row's worth of memory rather than the table's, and after the first pass the
+ * flag makes it free.
+ */
+export function migrateRunImagesToFiles(): void {
+  runOnce("job-logs-images-to-files", () => {
+    const pick = db.prepare(
+      "SELECT id, detail FROM job_logs WHERE detail LIKE '%data:image/%' ORDER BY id LIMIT 1",
+    );
+    const save = db.prepare("UPDATE job_logs SET detail = ? WHERE id = ?");
+    let moved = 0;
+    let freed = 0;
+    // One at a time, re-querying rather than paging: each row is rewritten so it drops out
+    // of the match, and a row that somehow cannot be is skipped by id below.
+    const skip = new Set<number>();
+    for (;;) {
+      const row = pick.get() as { id: number; detail: string } | undefined;
+      if (!row || skip.has(row.id)) break;
+      try {
+        const parsed = JSON.parse(row.detail);
+        boundRunImages(parsed);
+        externaliseRunImages(row.id, parsed);
+        const next = JSON.stringify(parsed);
+        freed += row.detail.length - next.length;
+        save.run(next, row.id);
+        moved++;
+      } catch (e) {
+        console.warn(`[scheduler] run ${row.id} log left as it was:`, e);
+        skip.add(row.id);
+      }
+    }
+    if (moved)
+      console.log(
+        `[scheduler] Moved the images of ${moved} run log(s) out of the database (${Math.round(freed / 1_048_576)}MB)`,
+      );
+  });
+}
+
+/**
+ * Drops screenshot folders no row points at any more, and gives SQLite's freed pages back
+ * to the file system. A purge only marks pages reusable, so without this the database keeps
+ * whatever size its largest day of logs took it to.
+ */
+export function sweepLogStorage(): void {
+  const stillLogged = db.prepare("SELECT 1 FROM job_logs WHERE id = ?");
+  try {
+    const removed = pruneOrphanRunShots((logId) => stillLogged.get(logId) !== undefined);
+    if (removed > 0) console.log(`[scheduler] Removed screenshots of ${removed} gone run(s)`);
+  } catch (e) {
+    console.warn("[scheduler] screenshot sweep failed:", e);
+  }
+  try {
+    const before = pageCount();
+    db.exec("VACUUM");
+    // In WAL mode the rewrite lands in the log, not the database file: without a truncating
+    // checkpoint the pages are free but the disk is not, which is the whole point of this.
+    db.pragma("wal_checkpoint(TRUNCATE)");
+    const after = pageCount();
+    if (before - after > 256)
+      console.log(
+        `[scheduler] Database compacted: ${Math.round(((before - after) * pageSize()) / 1_048_576)}MB returned`,
+      );
+  } catch (e) {
+    // A vacuum needs room for a copy of the database and cannot run inside a transaction
+    console.warn("[scheduler] database not compacted:", e);
+  }
+}
+
+function pageCount(): number {
+  return Number((db.pragma("page_count", { simple: true }) as number) ?? 0);
+}
+
+function pageSize(): number {
+  return Number((db.pragma("page_size", { simple: true }) as number) ?? 4096);
 }
 
 /**
@@ -633,6 +734,13 @@ export function startScheduler(): void {
   purgeOldLogs();
   // Retention sweep is cheap, so hourly keeps the table tidy without load
   setInterval(purgeOldLogs, 60 * 60 * 1000);
+  // Reclaiming disk is not: a vacuum rewrites the file, so it waits for a quiet moment
+  // after boot and then runs daily.
+  setTimeout(() => {
+    migrateRunImagesToFiles();
+    sweepLogStorage();
+  }, 5 * 60 * 1000);
+  setInterval(sweepLogStorage, 24 * 60 * 60 * 1000);
 }
 
 export function getSchedulerStatus(): Array<{

@@ -4,7 +4,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json",
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "test": "npm run typecheck && npm run build && npm run check:bundle"
   },
   "dependencies": {
     "@fortawesome/fontawesome-free": "^7.2.0",
@@ -16,6 +19,7 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.8",
     "typescript": "^5.3.3",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "vue-tsc": "^3.3.11"
   }
 }
