@@ -18,6 +18,7 @@ vi.mock('../jobs/notify', () => ({
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
+import type { Job } from '../types';
 
 // Fixed reference day; window 10:00-12:00 UTC; tests run at 08:00 (before window).
 const BASE_DATE = '2024-06-15';
@@ -225,5 +226,53 @@ describe('cadence anchor', () => {
 
     const scheduler = await restartScheduler();
     expect(scheduler.daysUntilNextRun(id, TZ, 10)).toBe(10);
+  });
+});
+
+describe('what a run leaves behind', () => {
+  function jobArg(id: number, runEveryDays: number): Job {
+    return {
+      id,
+      name: 'Job',
+      accountId: null,
+      jobType: 'embywatch',
+      botUsername: '',
+      scheduleWindowStart: 1000,
+      scheduleWindowEnd: 1200,
+      timezone: TZ,
+      replyTimeoutMs: 40000,
+      retryMax: 1,
+      enabled: true,
+      createdAt: `${BASE_DATE}T00:00:00Z`,
+      config: null,
+      startCommand: '/start',
+      checkinButton: '签到',
+      runEveryDays,
+    } as Job;
+  }
+
+  it('waits the full interval after a successful run', async () => {
+    const id = insertJob({ runEveryDays: 7 });
+    const scheduler = await restartScheduler();
+
+    await scheduler.executeJob(jobArg(id, 7), null);
+
+    expect(storedPlan(id)?.startsWith('2024-06-22')).toBe(true); // +7
+  });
+
+  it('tries again the next day after a failed run, not a whole interval later', async () => {
+    const id = insertJob({ runEveryDays: 7 });
+    const scheduler = await restartScheduler();
+    const { runJob } = await import('../jobs/runner');
+    vi.mocked(runJob).mockRejectedValueOnce(new Error('Emby server unreachable'));
+
+    await scheduler.executeJob(jobArg(id, 7), null);
+
+    expect(storedPlan(id)?.startsWith('2024-06-16')).toBe(true); // +1
+    // The failure did not stamp a success, so the interval still counts from the last one
+    expect(
+      (testDb.prepare('SELECT last_success_at FROM jobs WHERE id = ?').get(id) as
+        { last_success_at: string | null }).last_success_at,
+    ).toBeNull();
   });
 });

@@ -340,6 +340,7 @@ export async function executeJob(
   await acquireRunSlot();
   const detailLogs: JobDetailLog[] = [];
   let logId: number | bigint | undefined;
+  let succeeded = false;
   try {
     // Re-fetch job settings so changes made after scheduling take effect
     const freshJob = db
@@ -417,6 +418,7 @@ export async function executeJob(
     // Stamps the success and, for a one-time job, switches it off. The finally block
     // below re-reads `enabled`, so a job switched off here does not re-arm its timer.
     recordJobSuccess(job, ranAt);
+    succeeded = true;
     console.log(`[scheduler] "${job.name}" completed`);
     void notifyJobEvent(
       "success",
@@ -453,7 +455,12 @@ export async function executeJob(
       .prepare("SELECT enabled FROM jobs WHERE id = ?")
       .get(job.id) as { enabled: number } | undefined;
     if (current?.enabled) {
-      scheduleOne(job, account, resolveRunEveryDays(job.id, job.runEveryDays ?? 1, job.runEveryDaysMax));
+      // The run-every-days interval spaces out *successful* runs, so a failed attempt tries
+      // again the next day rather than giving up the whole interval it never earned.
+      const daysAhead = succeeded
+        ? resolveRunEveryDays(job.id, job.runEveryDays ?? 1, job.runEveryDaysMax)
+        : 1;
+      scheduleOne(job, account, daysAhead);
     }
   }
 }

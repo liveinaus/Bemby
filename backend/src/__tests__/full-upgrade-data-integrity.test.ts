@@ -115,6 +115,23 @@ function seedLegacyDatabase(dbFilePath: string) {
   };
 }
 
+/** Every table's column names, so an upgraded database can be compared with a fresh one. */
+function tableColumns(database: InstanceType<typeof Database>): Record<string, string[]> {
+  const tables = (
+    database
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+      .all() as Array<{ name: string }>
+  ).map((t) => t.name);
+  return Object.fromEntries(
+    tables.map((t) => [
+      t,
+      (database.prepare(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map(
+        (c) => c.name,
+      ),
+    ]),
+  );
+}
+
 describe('full upgrade path — no data lost from oldest schema to current', () => {
   it('preserves accounts, job-account links, and job run history end to end', async () => {
     const { samId, jamesId, checkinJobId, customJobId } = seedLegacyDatabase(dbPath);
@@ -145,6 +162,9 @@ describe('full upgrade path — no data lost from oldest schema to current', () 
       const customJob = db.prepare('SELECT * FROM jobs WHERE id = ?').get(customJobId) as any;
       expect(customJob.name).toBe('James Custom Flow');
       expect(customJob.account_id).toBe(jamesId);
+      // Columns added later: an upgraded row carries no plan, so the first refresh after
+      // the upgrade derives one from the run-every-days interval as it always has.
+      expect(customJob.next_run_at).toBeNull();
 
       // Job run history must not be cascade-deleted by the table rebuilds
       const logs = db.prepare('SELECT * FROM job_logs WHERE job_id = ? ORDER BY ran_at').all(checkinJobId) as any[];
@@ -179,6 +199,53 @@ describe('full upgrade path — no data lost from oldest schema to current', () 
       expect(() =>
         db.prepare('INSERT INTO job_templates (name, run_every_days) VALUES (?, ?)').run('t', 2),
       ).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  // A column added by a CREATE TABLE but not by an ALTER exists on a fresh install and is
+  // missing on every upgraded database -- the failure only shows up on a user's machine,
+  // where the first write to it throws. Comparing the two schemas catches it here instead.
+  it('gives an upgraded database the same columns as a fresh install', async () => {
+    seedLegacyDatabase(dbPath);
+
+    process.env.DB_PATH = dbPath;
+    vi.resetModules();
+    const upgraded = await import('../db/database');
+    const upgradedColumns = tableColumns(upgraded.db);
+    upgraded.db.close();
+
+    process.env.DB_PATH = path.join(tmpDir, 'fresh-install.db');
+    vi.resetModules();
+    const fresh = await import('../db/database');
+    const freshColumns = tableColumns(fresh.db);
+    fresh.db.close();
+
+    for (const [table, columns] of Object.entries(freshColumns)) {
+      const missing = columns.filter((c) => !(upgradedColumns[table] ?? []).includes(c));
+      expect({ table, missing }).toEqual({ table, missing: [] });
+    }
+  });
+
+  it('accepts the writes the scheduler makes to a job it upgraded', async () => {
+    const { checkinJobId } = seedLegacyDatabase(dbPath);
+
+    process.env.DB_PATH = dbPath;
+    vi.resetModules();
+    const { db } = await import('../db/database');
+
+    try {
+      // The scheduler stamps both of these on every run it plans or completes, so a column
+      // missing after an upgrade would break scheduling for every pre-existing job.
+      expect(() =>
+        db
+          .prepare('UPDATE jobs SET next_run_at = ?, last_success_at = ? WHERE id = ?')
+          .run('2026-09-20T10:30:00.000Z', '2026-09-13T10:05:00.000Z', checkinJobId),
+      ).not.toThrow();
+
+      const job = db.prepare('SELECT * FROM jobs WHERE id = ?').get(checkinJobId) as any;
+      expect(job.next_run_at).toBe('2026-09-20T10:30:00.000Z');
     } finally {
       db.close();
     }

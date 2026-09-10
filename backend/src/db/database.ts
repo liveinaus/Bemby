@@ -144,6 +144,11 @@ function runOnce(id: string, fn: () => void): void {
 
 // Migrations for columns added after initial schema
 try {
+  // The very first schema had no message column, so the oldest databases reach the current
+  // code without it and every run log insert would fail.
+  db.exec("ALTER TABLE job_logs ADD COLUMN message TEXT");
+} catch {}
+try {
   db.exec(
     "ALTER TABLE job_logs ADD COLUMN source TEXT NOT NULL DEFAULT 'scheduler'",
   );
