@@ -48,7 +48,7 @@
           {{ t("logs.totalSize").replace("{size}", fmtBytes(totalSizeBytes)) }}
         </span>
         <button
-          v-if="totalSizeBytes > 0"
+          v-if="total > 0"
           class="btn btn-ghost"
           :disabled="compactingAll"
           :title="t('logs.compact')"
@@ -238,9 +238,14 @@
                     >
                       <i class="fa-solid fa-file-pen"></i>
                     </button>
-                    <!-- Only worth offering on a log heavy enough to have pictures in it -->
+                    <!-- Offered on a log heavy enough to hold pictures, and on one whose
+                         size is not known yet: a run still being measured must not be the
+                         one row you cannot act on -->
                     <button
-                      v-if="l.status !== 'running' && (l.sizeBytes ?? 0) > COMPACTABLE_BYTES"
+                      v-if="
+                        l.status !== 'running' &&
+                        (l.sizeBytes == null || l.sizeBytes > COMPACTABLE_BYTES)
+                      "
                       class="btn btn-sm btn-ghost btn-icon"
                       style="flex-shrink: 0; color: var(--text-faint)"
                       :title="t('logs.compact')"

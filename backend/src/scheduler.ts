@@ -645,61 +645,173 @@ export function purgeOldLogs(): void {
   }
 }
 
+// ── Bringing existing history up to date ──────────────────────────────────────
+//
+// Two things every log row needs that older rows do not have: its screenshots as files
+// rather than inside the row, and its size recorded. Both are one-time work over the whole
+// table, which on a real install means tens of thousands of rows and hundreds of megabytes
+// of blob, so how it is done matters more than what it does:
+//
+//  - One forward pass ordered by id. The first version picked each row with
+//    `WHERE detail LIKE '%data:image/%'`, which scans the table (and every blob in it) once
+//    per row rewritten: measured at 508ms a row on a 20,000 row table, so hours of work
+//    that never finished.
+//  - In batches with the event loop given a turn in between. better-sqlite3 is synchronous,
+//    so a long pass does not slow the panel down, it stops it dead.
+//  - Resumable. The cursor is stored, so a restart carries on rather than starting again.
+//  - The blob is left in the database unless it is actually needed: SQLite can say how long
+//    it is and whether it holds an image without handing it over.
+
+/** Rows per turn, and the pause between turns. Small enough that no turn is felt. */
+const LOG_BACKFILL_BATCH = 25;
+const LOG_BACKFILL_PAUSE_MS = 50;
+
+const BACKFILL_DONE_KEY = "migration:job-logs-storage";
+const BACKFILL_CURSOR_KEY = "migration:job-logs-storage-cursor";
+
+function settingNumber(key: string): number | null {
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as
+    | { value: string }
+    | undefined;
+  if (row?.value == null) return null;
+  const n = Number(row.value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function setSetting(key: string, value: string): void {
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value);
+}
+
+/** Whether any history is still waiting to be brought up to date. */
+export function runLogBackfillPending(): boolean {
+  try {
+    if (settingNumber(BACKFILL_DONE_KEY) === 1) return false;
+    // An install that finished the first version of this pass has nothing left to do
+    const oldFlags = db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM settings WHERE key IN ('migration:job-logs-images-to-files', 'migration:job-logs-detail-bytes')",
+      )
+      .get() as { n: number };
+    if (oldFlags.n === 2) {
+      setSetting(BACKFILL_DONE_KEY, "1");
+      return false;
+    }
+    return true;
+  } catch {
+    return false; // no settings table (a test fixture): nothing to do
+  }
+}
+
+export type BackfillProgress = {
+  /** Rows looked at this turn. */
+  processed: number;
+  /** Rows whose images were moved out of the database. */
+  moved: number;
+  /** Rows whose size was recorded for the first time. */
+  measured: number;
+  done: boolean;
+};
+
 /**
- * Moves the images in run history already stored inside the rows out to files, once.
- *
- * Without this an install that has been running a while keeps whatever its logs grew to:
- * one measured database was 531MB, 500MB of it images in 836 rows, and nothing would have
- * shrunk it short of the operator deleting their history. Done a row at a time so the pass
- * costs one row's worth of memory rather than the table's, and after the first pass the
- * flag makes it free.
+ * One turn of the pass: brings up to `limit` rows up to date and moves the cursor. Returns
+ * what it did, and whether the table is finished.
  */
-export function migrateRunImagesToFiles(): void {
-  runOnce("job-logs-images-to-files", () => {
-    const pick = db.prepare(
-      "SELECT id, detail FROM job_logs WHERE detail LIKE '%data:image/%' ORDER BY id LIMIT 1",
-    );
-    const save = db.prepare("UPDATE job_logs SET detail = ? WHERE id = ?");
-    let moved = 0;
-    let freed = 0;
-    // One at a time, re-querying rather than paging: each row is rewritten so it drops out
-    // of the match, and a row that somehow cannot be is skipped by id below.
-    const skip = new Set<number>();
-    for (;;) {
-      const row = pick.get() as { id: number; detail: string } | undefined;
-      if (!row || skip.has(row.id)) break;
-      try {
-        const parsed = JSON.parse(row.detail);
+export function backfillRunLogStorage(limit = LOG_BACKFILL_BATCH): BackfillProgress {
+  const idle: BackfillProgress = { processed: 0, moved: 0, measured: 0, done: true };
+  if (!runLogBackfillPending()) return idle;
+
+  const after = settingNumber(BACKFILL_CURSOR_KEY) ?? 0;
+  // What is needed about each row, without carrying the blob itself out of SQLite
+  const rows = db
+    .prepare(
+      `SELECT id,
+              LENGTH(COALESCE(detail, '')) AS len,
+              instr(COALESCE(detail, ''), 'data:image/') AS inlineImage,
+              instr(COALESCE(detail, ''), 'shot:') AS shotRef,
+              detail_bytes AS bytes
+       FROM job_logs
+       WHERE id > ?
+       ORDER BY id
+       LIMIT ?`,
+    )
+    .all(after, limit) as Array<{
+    id: number;
+    len: number;
+    inlineImage: number;
+    shotRef: number;
+    bytes: number | null;
+  }>;
+
+  if (!rows.length) {
+    setSetting(BACKFILL_DONE_KEY, "1");
+    console.log("[scheduler] Run log history is up to date");
+    return idle;
+  }
+
+  const readDetail = db.prepare("SELECT detail FROM job_logs WHERE id = ?");
+  const saveBoth = db.prepare("UPDATE job_logs SET detail = ?, detail_bytes = ? WHERE id = ?");
+  const saveSize = db.prepare("UPDATE job_logs SET detail_bytes = ? WHERE id = ?");
+
+  let moved = 0;
+  let measured = 0;
+  for (const row of rows) {
+    try {
+      if (row.inlineImage > 0) {
+        const stored = (readDetail.get(row.id) as { detail: string | null }).detail;
+        if (!stored) continue;
+        const parsed = JSON.parse(stored);
         boundRunImages(parsed);
         externaliseRunImages(row.id, parsed);
         const next = JSON.stringify(parsed);
-        freed += row.detail.length - next.length;
-        save.run(next, row.id);
+        saveBoth.run(next, next.length + runShotsBytes(row.id), row.id);
         moved++;
-      } catch (e) {
-        console.warn(`[scheduler] run ${row.id} log left as it was:`, e);
-        skip.add(row.id);
+      } else if (row.bytes == null) {
+        // Only a row that points at a file has a folder worth measuring
+        saveSize.run(row.len + (row.shotRef > 0 ? runShotsBytes(row.id) : 0), row.id);
+        measured++;
       }
+    } catch (e) {
+      console.warn(`[scheduler] run ${row.id} log left as it was:`, e);
     }
-    if (moved)
-      console.log(
-        `[scheduler] Moved the images of ${moved} run log(s) out of the database (${Math.round(freed / 1_048_576)}MB)`,
-      );
-  });
+  }
 
-  // The size the log list shows. Recorded on every run from here on, so this is only for
-  // the history that pre-dates the column.
-  runOnce("job-logs-detail-bytes", () => {
-    const rows = db
-      .prepare("SELECT id, LENGTH(COALESCE(detail, '')) AS len FROM job_logs WHERE detail_bytes IS NULL")
-      .all() as Array<{ id: number; len: number }>;
-    const save = db.prepare("UPDATE job_logs SET detail_bytes = ? WHERE id = ?");
-    const record = db.transaction((list: Array<{ id: number; len: number }>) => {
-      for (const row of list) save.run(row.len + runShotsBytes(row.id), row.id);
-    });
-    record(rows);
-    if (rows.length) console.log(`[scheduler] Measured ${rows.length} run log(s)`);
-  });
+  setSetting(BACKFILL_CURSOR_KEY, String(rows[rows.length - 1].id));
+  return { processed: rows.length, moved, measured, done: false };
+}
+
+/**
+ * Works through the history in the background, a batch at a time. Started once at boot;
+ * ends when the table is finished, and picks up where it left off after a restart.
+ */
+export function startRunLogBackfill(): void {
+  if (!runLogBackfillPending()) return;
+  let moved = 0;
+  let measured = 0;
+  let processed = 0;
+
+  const turn = () => {
+    let progress: BackfillProgress;
+    try {
+      progress = backfillRunLogStorage();
+    } catch (e) {
+      console.warn("[scheduler] run log history pass stopped:", e);
+      return;
+    }
+    moved += progress.moved;
+    measured += progress.measured;
+    processed += progress.processed;
+    if (progress.done) {
+      if (moved || measured)
+        console.log(
+          `[scheduler] Run log history brought up to date: ${processed} row(s), ${moved} with images moved out of the database, ${measured} measured`,
+        );
+      return;
+    }
+    setTimeout(turn, LOG_BACKFILL_PAUSE_MS).unref?.();
+  };
+
+  console.log("[scheduler] Bringing run log history up to date in the background");
+  setTimeout(turn, LOG_BACKFILL_PAUSE_MS).unref?.();
 }
 
 /**
@@ -716,7 +828,15 @@ export function sweepLogStorage(): void {
     console.warn("[scheduler] screenshot sweep failed:", e);
   }
   try {
+    // A vacuum rewrites the whole file and blocks everything else while it does, so it is
+    // worth it only when there is real space to get back: on a large database that has not
+    // been purged, a daily rewrite is all cost and no gain. 8MB of free pages, or a tenth
+    // of the file, is the point where it pays.
     const before = pageCount();
+    const free = freePageCount();
+    const worthIt = free * pageSize() > 8_388_608 || free > before / 10;
+    if (!worthIt) return;
+
     db.exec("VACUUM");
     // In WAL mode the rewrite lands in the log, not the database file: without a truncating
     // checkpoint the pages are free but the disk is not, which is the whole point of this.
@@ -738,6 +858,10 @@ function pageCount(): number {
 
 function pageSize(): number {
   return Number((db.pragma("page_size", { simple: true }) as number) ?? 4096);
+}
+
+function freePageCount(): number {
+  return Number((db.pragma("freelist_count", { simple: true }) as number) ?? 0);
 }
 
 /**
@@ -768,10 +892,10 @@ export function startScheduler(): void {
   setInterval(purgeOldLogs, 60 * 60 * 1000);
   // Reclaiming disk is not: a vacuum rewrites the file, so it waits for a quiet moment
   // after boot and then runs daily.
-  setTimeout(() => {
-    migrateRunImagesToFiles();
-    sweepLogStorage();
-  }, 5 * 60 * 1000);
+  // The history pass runs itself in the background; the sweep waits for a quiet moment so
+  // it is not competing with it or with the jobs a fresh boot arms.
+  startRunLogBackfill();
+  setTimeout(sweepLogStorage, 10 * 60 * 1000);
   setInterval(sweepLogStorage, 24 * 60 * 60 * 1000);
 }
 

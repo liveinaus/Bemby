@@ -57,6 +57,29 @@ describe("how the database is opened", () => {
     }
   });
 
+  it("indexes the size column the log list totals", async () => {
+    const db = await open();
+    try {
+      const indexes = (
+        db
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'job_logs'")
+          .all() as Array<{ name: string }>
+      ).map((r) => r.name);
+      // Summing detail_bytes from the table reads past the detail blob in every record. The
+      // index covers the sum on its own, and it is created in a statement of its own so an
+      // unrelated failure in the index block cannot take it out.
+      expect(indexes).toContain("idx_job_logs_size");
+      expect(
+        db
+          .prepare("EXPLAIN QUERY PLAN SELECT SUM(detail_bytes) FROM job_logs WHERE retired = 0")
+          .all()
+          .some((r: any) => String(r.detail).includes("idx_job_logs_size")),
+      ).toBe(true);
+    } finally {
+      db.close();
+    }
+  });
+
   it("still opens where memory mapping is unavailable", async () => {
     const db = await open();
     try {

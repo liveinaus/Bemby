@@ -155,7 +155,7 @@ describe("what a run writes to the row", () => {
   });
 });
 
-describe("migrateRunImagesToFiles", () => {
+describe("bringing existing history up to date", () => {
   /** A row as an older version wrote it: the images inside the JSON. */
   function inlineRow(db: any, jobId: number, images: number) {
     const detail = Array.from({ length: images }, (_, i) => ({
@@ -169,12 +169,22 @@ describe("migrateRunImagesToFiles", () => {
     );
   }
 
+  /** Turns until the table is finished, the way the background pass does it. */
+  function runToCompletion(scheduler: any, batch = 2): number {
+    let turns = 0;
+    for (;;) {
+      const progress = scheduler.backfillRunLogStorage(batch);
+      turns++;
+      if (progress.done || turns > 500) return turns;
+    }
+  }
+
   it("moves the images of existing history out of the rows", async () => {
     const { db, scheduler, jobId } = await boot();
     const a = inlineRow(db, jobId, 4);
     const b = inlineRow(db, jobId, 3);
 
-    scheduler.migrateRunImagesToFiles();
+    runToCompletion(scheduler);
 
     for (const id of [a, b]) {
       const row = db.prepare("SELECT detail FROM job_logs WHERE id = ?").get(id) as {
@@ -191,7 +201,7 @@ describe("migrateRunImagesToFiles", () => {
     const { db, scheduler, jobId } = await boot();
     const id = inlineRow(db, jobId, 5);
 
-    scheduler.migrateRunImagesToFiles();
+    runToCompletion(scheduler);
 
     const detail = JSON.parse(
       (db.prepare("SELECT detail FROM job_logs WHERE id = ?").get(id) as { detail: string }).detail,
@@ -207,42 +217,105 @@ describe("migrateRunImagesToFiles", () => {
     db.close();
   });
 
-  it("runs once and then costs nothing", async () => {
+  it("records a size for every row, images or not", async () => {
     const { db, scheduler, jobId } = await boot();
     inlineRow(db, jobId, 2);
+    db.prepare("INSERT INTO job_logs (job_id, ran_at, status, detail) VALUES (?, ?, 'success', ?)")
+      .run(jobId, new Date().toISOString(), '[{"label":"no pictures here"}]');
+    db.prepare("INSERT INTO job_logs (job_id, ran_at, status, detail) VALUES (?, ?, 'failed', NULL)")
+      .run(jobId, new Date().toISOString());
 
-    scheduler.migrateRunImagesToFiles();
-    const after = db.prepare("SELECT detail FROM job_logs").all();
-    scheduler.migrateRunImagesToFiles(); // the flag makes the second pass a no-op
+    runToCompletion(scheduler);
 
-    expect(db.prepare("SELECT detail FROM job_logs").all()).toEqual(after);
-    expect(
-      db.prepare("SELECT 1 FROM settings WHERE key = 'migration:job-logs-images-to-files'").get(),
-    ).toBeDefined();
+    expect(db.prepare("SELECT COUNT(*) n FROM job_logs WHERE detail_bytes IS NULL").get()).toEqual({
+      n: 0,
+    });
     db.close();
   });
 
-  it("leaves a row it cannot read alone rather than looping on it", async () => {
+  it("works in bounded turns rather than one long one", async () => {
     const { db, scheduler, jobId } = await boot();
-    const broken = Number(
-      db
-        .prepare("INSERT INTO job_logs (job_id, ran_at, status, detail) VALUES (?, ?, 'failed', ?)")
-        .run(jobId, new Date().toISOString(), '{"data:image/jpeg;base64,AAA" not json')
-        .lastInsertRowid,
-    );
+    for (let i = 0; i < 7; i++) inlineRow(db, jobId, 1);
 
-    scheduler.migrateRunImagesToFiles(); // must return, not spin on the same row
+    // Two rows a turn: four turns of work, then one that finds the end
+    const first = scheduler.backfillRunLogStorage(2);
+    expect(first.processed).toBe(2);
+    expect(first.done).toBe(false);
+    expect(runToCompletion(scheduler, 2)).toBeLessThan(8);
+    db.close();
+  });
 
+  it("carries on where it stopped rather than starting again", async () => {
+    const { db, scheduler, jobId } = await boot();
+    const ids = Array.from({ length: 6 }, () => inlineRow(db, jobId, 1));
+
+    scheduler.backfillRunLogStorage(2);
+    const doneEarly = ids.filter(
+      (id) =>
+        (db.prepare("SELECT detail_bytes n FROM job_logs WHERE id = ?").get(id) as { n: number | null })
+          .n != null,
+    ).length;
+    expect(doneEarly).toBe(2);
+
+    // A restart: a fresh module, same database
+    const restarted = await import("../scheduler");
+    restarted.backfillRunLogStorage(2);
     expect(
-      (db.prepare("SELECT detail FROM job_logs WHERE id = ?").get(broken) as { detail: string })
-        .detail,
+      (db.prepare("SELECT COUNT(*) n FROM job_logs WHERE detail_bytes IS NOT NULL").get() as {
+        n: number;
+      }).n,
+    ).toBe(4); // the next two, not the first two again
+    db.close();
+  });
+
+  it("stops asking once the table is finished", async () => {
+    const { db, scheduler, jobId } = await boot();
+    inlineRow(db, jobId, 2);
+
+    runToCompletion(scheduler);
+    expect(scheduler.runLogBackfillPending()).toBe(false);
+
+    const after = db.prepare("SELECT detail FROM job_logs").all();
+    expect(scheduler.backfillRunLogStorage().processed).toBe(0);
+    expect(db.prepare("SELECT detail FROM job_logs").all()).toEqual(after);
+    db.close();
+  });
+
+  it("treats an install that finished the older pass as done", async () => {
+    const { db, scheduler, jobId } = await boot();
+    inlineRow(db, jobId, 2);
+    for (const key of ["migration:job-logs-images-to-files", "migration:job-logs-detail-bytes"])
+      db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, '1')").run(key);
+
+    expect(scheduler.runLogBackfillPending()).toBe(false);
+    expect(scheduler.backfillRunLogStorage().processed).toBe(0);
+    db.close();
+  });
+
+  it("leaves a row it cannot read alone rather than stopping the pass", async () => {
+    const { db, scheduler, jobId } = await boot();
+    db.prepare("INSERT INTO job_logs (job_id, ran_at, status, detail) VALUES (?, ?, 'failed', ?)")
+      .run(jobId, new Date().toISOString(), '{"data:image/jpeg;base64,AAA" not json');
+    const good = inlineRow(db, jobId, 1);
+
+    runToCompletion(scheduler);
+
+    // The broken row is untouched, and the pass still reached the one after it
+    expect(
+      (db.prepare("SELECT detail FROM job_logs WHERE detail LIKE '%not json%'").get() as {
+        detail: string;
+      }).detail,
     ).toContain("not json");
+    expect(
+      (db.prepare("SELECT detail FROM job_logs WHERE id = ?").get(good) as { detail: string })
+        .detail,
+    ).toContain("shot:");
     db.close();
   });
 
   it("has nothing to do on an install with no history", async () => {
     const { db, scheduler } = await boot();
-    expect(() => scheduler.migrateRunImagesToFiles()).not.toThrow();
+    expect(scheduler.backfillRunLogStorage().done).toBe(true);
     db.close();
   });
 });
@@ -294,6 +367,25 @@ describe("sweepLogStorage", () => {
 
     expect(fs.statSync(dbPath).size).toBeLessThan(grown / 2);
     expect(addLog).toBeTypeOf("function");
+    db.close();
+  });
+
+  it("leaves a healthy database alone rather than rewriting it daily", async () => {
+    const { db, scheduler, jobId } = await boot();
+    // A table with nothing to reclaim: a vacuum here is all cost. On a multi-gigabyte
+    // database a daily rewrite blocks everything else for as long as it takes.
+    const insert = db.prepare(
+      "INSERT INTO job_logs (job_id, ran_at, status, detail) VALUES (?, ?, 'success', ?)",
+    );
+    for (let i = 0; i < 20; i++) insert.run(jobId, new Date().toISOString(), "x".repeat(20_000));
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    const size = fs.statSync(dbPath).size;
+    const free = db.pragma("freelist_count", { simple: true }) as number;
+    expect(free * 4096).toBeLessThan(8_388_608);
+
+    scheduler.sweepLogStorage();
+
+    expect(fs.statSync(dbPath).size).toBe(size); // untouched
     db.close();
   });
 
