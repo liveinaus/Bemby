@@ -505,6 +505,13 @@ try {
   db.exec("ALTER TABLE job_templates ADD COLUMN one_time INTEGER NOT NULL DEFAULT 0");
 } catch {}
 
+// The scheduler's planned run for each job, so a restart (an upgrade, say) re-arms the
+// same plan instead of rebuilding it from the run history. Added after the jobs table
+// rebuild above so its positional `SELECT *` copy isn't broken.
+try {
+  db.exec("ALTER TABLE jobs ADD COLUMN next_run_at TEXT");
+} catch {}
+
 try {
   db.exec(`
     CREATE TABLE IF NOT EXISTS tg_message_cache (

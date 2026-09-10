@@ -67,7 +67,9 @@ const SCHEMA = `
     start_command         TEXT    NOT NULL DEFAULT '/start',
     checkin_button        TEXT    NOT NULL DEFAULT '签到',
     template_id           INTEGER,
-    retired               TEXT
+    retired               TEXT,
+    last_success_at       TEXT,
+    next_run_at           TEXT
   );
 `;
 

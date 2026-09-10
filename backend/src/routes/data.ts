@@ -122,6 +122,7 @@ type JobRow = {
   run_every_days_max: number | null;
   retired: string | null;
   last_success_at: string | null;
+  next_run_at: string | null;
   one_time: number;
 };
 
@@ -220,6 +221,8 @@ export type ExportPayload = {
     retired?: string | null;
     /** Last successful run, which the run-every-days spacing is measured from. */
     lastSuccessAt?: string | null;
+    /** The scheduler's planned run, so a restore keeps the plan rather than rebuilding it. */
+    nextRunAt?: string | null;
     /** Switches itself off after a successful run; absent in older backups. */
     oneTime?: boolean;
   }>;
@@ -368,6 +371,7 @@ router.post('/export', (req, res) => {
       runEveryDaysMax: j.run_every_days_max ?? null,
       retired: j.retired ?? null,
       lastSuccessAt: j.last_success_at ?? null,
+      nextRunAt: j.next_run_at ?? null,
       oneTime: j.one_time === 1,
     })),
     aiSuppliers: aiSuppliers.map(s => ({
@@ -572,8 +576,8 @@ router.post('/import', async (req, res) => {
         `INSERT INTO jobs
            (account_id, template_id, name, job_type, bot_username, schedule_window_start, schedule_window_end,
             timezone, reply_timeout_ms, retry_max, enabled, config, start_command, checkin_button,
-            run_every_days, run_every_days_max, retired, last_success_at, one_time)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            run_every_days, run_every_days_max, retired, last_success_at, next_run_at, one_time)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         resolvedAccountId,
         resolvedTemplateId,
@@ -594,6 +598,7 @@ router.post('/import', async (req, res) => {
         // A retired job must not come back live; older backups have no such jobs
         j.retired ?? null,
         j.lastSuccessAt ?? null,
+        j.nextRunAt ?? null,
         j.oneTime ? 1 : 0,
       );
       results.jobsImported++;

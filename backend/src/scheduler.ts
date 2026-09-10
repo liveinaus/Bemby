@@ -148,6 +148,81 @@ function intervalFromSeed(
 }
 
 /**
+ * When the job last succeeded. `jobs.last_success_at` is the durable stamp and job_logs the
+ * fallback for rows written before it existed -- the logs are pruned by the retention
+ * setting, so reading them alone would make a long-interval job look never-run and reset
+ * its cadence on the next restart.
+ */
+function lastSuccessAt(jobId: number): string | null {
+  let stamp: string | null = null;
+  try {
+    stamp =
+      (
+        db.prepare("SELECT last_success_at FROM jobs WHERE id = ?").get(jobId) as
+          | { last_success_at: string | null }
+          | undefined
+      )?.last_success_at ?? null;
+  } catch {
+    // Column not there yet (a database opened before the migration): logs still answer.
+  }
+  const logged =
+    (
+      db
+        .prepare(
+          "SELECT ran_at FROM job_logs WHERE job_id = ? AND status = 'success' ORDER BY ran_at DESC LIMIT 1",
+        )
+        .get(jobId) as { ran_at: string } | undefined
+    )?.ran_at ?? null;
+  if (!stamp) return logged;
+  if (!logged) return stamp;
+  return logged > stamp ? logged : stamp;
+}
+
+/**
+ * Stamps the planned run on the job so a restart re-arms the same plan. Isolated: a write
+ * failure must not stop the job being scheduled in memory.
+ */
+function persistNextRun(jobId: number, iso: string | null): void {
+  try {
+    db.prepare("UPDATE jobs SET next_run_at = ? WHERE id = ?").run(iso, jobId);
+  } catch (e) {
+    console.warn(`[scheduler] job ${jobId} next-run stamp failed:`, e);
+  }
+}
+
+/** The plan a previous process left behind, if any. */
+function storedNextRun(jobId: number): DateTime | null {
+  let raw: string | null = null;
+  try {
+    raw =
+      (
+        db.prepare("SELECT next_run_at FROM jobs WHERE id = ?").get(jobId) as
+          | { next_run_at: string | null }
+          | undefined
+      )?.next_run_at ?? null;
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  const when = DateTime.fromISO(raw);
+  return when.isValid ? when : null;
+}
+
+/**
+ * Whether a stored plan still sits inside the job's window. The window (or the timezone it
+ * is read in) can be edited while the process is down, which would leave the stored run at
+ * an hour the job is no longer meant to run at.
+ */
+function planFitsWindow(job: Job, when: DateTime, tz: string): boolean {
+  const local = when.setZone(tz);
+  const minuteOfDay = local.hour * 60 + local.minute;
+  return (
+    minuteOfDay >= toMinutes(job.scheduleWindowStart) &&
+    minuteOfDay < toMinutes(job.scheduleWindowEnd)
+  );
+}
+
+/**
  * The interval to defer by after a run, resolved from the range. Seeded by the
  * job's last successful run so the value stays stable across refreshes/restarts
  * within a cycle and re-rolls only once a new successful run is recorded.
@@ -157,12 +232,7 @@ export function resolveRunEveryDays(
   min: number,
   max?: number | null,
 ): number {
-  const row = db
-    .prepare(
-      "SELECT ran_at FROM job_logs WHERE job_id = ? AND status = 'success' ORDER BY ran_at DESC LIMIT 1",
-    )
-    .get(jobId) as { ran_at: string } | undefined;
-  return intervalFromSeed(min, max, `${jobId}:${row?.ran_at ?? "first"}`);
+  return intervalFromSeed(min, max, `${jobId}:${lastSuccessAt(jobId) ?? "first"}`);
 }
 
 export function daysUntilNextRun(
@@ -171,20 +241,16 @@ export function daysUntilNextRun(
   runEveryDays: number,
   runEveryDaysMax?: number | null,
 ): number {
-  const row = db
-    .prepare(
-      "SELECT ran_at FROM job_logs WHERE job_id = ? AND status = 'success' ORDER BY ran_at DESC LIMIT 1",
-    )
-    .get(jobId) as { ran_at: string } | undefined;
-  if (!row) return 0;
+  const ranAt = lastSuccessAt(jobId);
+  if (!ranAt) return 0;
   // Same seed as resolveRunEveryDays so the scheduled date is consistent whether
   // it was set after a run or recomputed on restart.
   const runEvery = intervalFromSeed(
     runEveryDays,
     runEveryDaysMax,
-    `${jobId}:${row.ran_at}`,
+    `${jobId}:${ranAt}`,
   );
-  const lastRun = DateTime.fromISO(row.ran_at, { zone: "utc" })
+  const lastRun = DateTime.fromISO(ranAt, { zone: "utc" })
     .setZone(tz)
     .startOf("day");
   const today = DateTime.now().setZone(tz).startOf("day");
@@ -392,24 +458,16 @@ export async function executeJob(
   }
 }
 
-function scheduleOne(job: Job, account: TgAccount | null, daysAhead = 0): void {
+/** Arms the timer for an already-decided run and records it as the job's plan. */
+function armRun(
+  job: Job,
+  account: TgAccount | null,
+  timezone: string,
+  nextRun: DateTime,
+): void {
   const existing = schedule.get(job.id);
   if (existing) clearTimeout(existing.timer);
 
-  // Stagger away from every other job's slot so runs don't pile into the
-  // same minute (issue #10)
-  const occupied = Array.from(schedule.values())
-    .filter((entry) => entry.job.id !== job.id)
-    .map((entry) => entry.nextRun.getTime());
-
-  const timezone = resolveJobTimezone(job.timezone);
-  const nextRun = pickNextRun(
-    job.scheduleWindowStart,
-    job.scheduleWindowEnd,
-    timezone,
-    daysAhead,
-    { occupied, gapMinutes: getScheduleGapMinutes() },
-  );
   const delayMs = Math.max(0, nextRun.toMillis() - Date.now());
 
   let timer!: ReturnType<typeof setTimeout>;
@@ -429,10 +487,29 @@ function scheduleOne(job: Job, account: TgAccount | null, daysAhead = 0): void {
     nextRun: nextRun.toJSDate(),
     timer,
   });
+  persistNextRun(job.id, nextRun.toUTC().toISO());
 
   console.log(
     `[scheduler] "${job.name}" next run: ${nextRun.toISO()} (in ${Math.round(delayMs / 60_000)} min)`,
   );
+}
+
+function scheduleOne(job: Job, account: TgAccount | null, daysAhead = 0): void {
+  // Stagger away from every other job's slot so runs don't pile into the
+  // same minute (issue #10)
+  const occupied = Array.from(schedule.values())
+    .filter((entry) => entry.job.id !== job.id)
+    .map((entry) => entry.nextRun.getTime());
+
+  const timezone = resolveJobTimezone(job.timezone);
+  const nextRun = pickNextRun(
+    job.scheduleWindowStart,
+    job.scheduleWindowEnd,
+    timezone,
+    daysAhead,
+    { occupied, gapMinutes: getScheduleGapMinutes() },
+  );
+  armRun(job, account, timezone, nextRun);
 }
 
 function refreshJobs(): void {
@@ -444,6 +521,9 @@ function refreshJobs(): void {
     if (!eligibleIds.has(id)) {
       clearTimeout(entry.timer);
       schedule.delete(id);
+      // Drop the stored plan too: a job switched off now keeps no claim on a date, so
+      // re-enabling it later goes back through the interval.
+      persistNextRun(id, null);
       console.log(`[scheduler] Unscheduled job ${id}`);
     }
   }
@@ -455,6 +535,20 @@ function refreshJobs(): void {
     const existing = schedule.get(job.id);
     const resolvedTz = resolveJobTimezone(job.timezone);
     if (!existing) {
+      // Nothing in memory means either a fresh process (an upgrade restart, say) or a job
+      // that just became eligible. Re-arm the plan the last process left behind rather than
+      // rebuilding it from the run history: a run that was days out has to stay days out.
+      const stored = storedNextRun(job.id);
+      if (
+        stored &&
+        stored.toMillis() > Date.now() &&
+        planFitsWindow(job, stored, resolvedTz)
+      ) {
+        armRun(job, account, resolvedTz, stored.setZone(resolvedTz));
+        continue;
+      }
+      // No plan, or one whose moment has passed while the process was down -- fall back to
+      // the interval, which puts a missed run at the next opportunity.
       const daysAhead = dailyCheckOn
         ? daysUntilNextRun(job.id, resolvedTz, job.runEveryDays ?? 1, job.runEveryDaysMax)
         : 0;

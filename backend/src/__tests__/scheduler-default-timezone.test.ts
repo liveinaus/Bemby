@@ -80,7 +80,9 @@ const SCHEMA = `
     checkin_button        TEXT    NOT NULL DEFAULT '签到',
     template_id           INTEGER,
     run_every_days        INTEGER NOT NULL DEFAULT 1,
-    retired               TEXT
+    retired               TEXT,
+    last_success_at       TEXT,
+    next_run_at           TEXT
   );
   CREATE TABLE IF NOT EXISTS job_logs (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
