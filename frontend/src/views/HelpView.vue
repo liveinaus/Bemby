@@ -1391,6 +1391,15 @@
               <code>7</code>）为固定间隔，填范围（如
               <code>7-15</code>）则每次排程时在范围内随机取一个天数，使执行节奏不固定。任务与模板均支持。
             </p>
+            <p class="help-para">
+              排定的时间会<strong>存下来</strong>：升级或重启后，任务按原定的那一刻继续执行，
+              而不是重新排一遍计划表。因此原本分散在未来几天的任务不会全部挤到第二天，
+              「跳过这次」的顺延也会保留。停机期间错过的运行，会在下一个可执行时机补上。
+            </p>
+            <p class="help-note">
+              执行失败的任务<strong>次日重试</strong>，不会白等一个完整间隔 --
+              间隔约束的是两次成功之间的节奏。
+            </p>
             <p class="help-note">
               在设置中关闭<em>每天仅运行一次</em>，可让调度器对今天已运行过的任务重新触发，便于测试。
             </p>
@@ -1919,6 +1928,19 @@
               each time the job schedules, so the cadence is not fixed. Both jobs
               and templates support it.
             </p>
+            <p class="help-para">
+              The time a job is scheduled for is <strong>kept</strong>: after an
+              upgrade or a restart it runs at that same moment rather than
+              having its whole plan rebuilt. Runs that were days out stay days
+              out instead of piling onto the next day, and a "skip this run"
+              deferral survives too. A run missed while the process was down
+              goes at the next opportunity.
+            </p>
+            <p class="help-note">
+              A run that fails <strong>tries again the next day</strong> rather
+              than giving up a whole interval: the interval spaces out
+              successful runs.
+            </p>
             <p class="help-note">
               Disable <em>Enforce one run per day</em> in Settings to allow the
               scheduler to re-trigger jobs that have already run today -- useful
@@ -2400,6 +2422,22 @@
                   </td>
                 </tr>
                 <tr>
+                  <td>日志保留天数</td>
+                  <td>
+                    早于该天数的任务日志会被自动删除，连同其截图；0
+                    表示保留全部。新装默认 30 天，已有安装保持原设置不变。
+                    删除后每天会有一次整理，把腾出的空间真正还给磁盘。
+                  </td>
+                </tr>
+                <tr>
+                  <td>每次运行保留的截图数</td>
+                  <td>
+                    每条日志只保留最近的这么多张截图，0 表示不保留。
+                    留空则按体积上限自动裁剪（约 1.5 MB／次），这也是默认行为。
+                    步骤记录不受影响，截图才是日志占空间的原因；已有日志可在日志页用<strong>精简</strong>处理。
+                  </td>
+                </tr>
+                <tr>
                   <td>默认播放时长</td>
                   <td>未在任务中单独设置时，Emby 观看会话的默认时长（秒）。</td>
                 </tr>
@@ -2549,6 +2587,27 @@
                     already-scheduled jobs pick it up at their next scheduling.
                     At most 2 jobs execute at once — extras queue and run in
                     turn.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Days to keep logs</td>
+                  <td>
+                    Job logs older than this are deleted automatically, their
+                    screenshots with them; 0 keeps everything. A fresh install
+                    defaults to 30 days and an existing one keeps whatever it
+                    already had. A daily sweep follows the deletion so the space
+                    is actually returned to the disk.
+                  </td>
+                </tr>
+                <tr>
+                  <td>Screenshots to keep per run</td>
+                  <td>
+                    Each run's log keeps only its most recent screenshots; 0
+                    keeps none. Leave it blank to let the size budget trim them
+                    (roughly 1.5 MB a run), which is the default. What each step
+                    did is kept either way, and the pictures are what make a log
+                    big. For logs already recorded, use <strong>Compact</strong>
+                    on the Logs page.
                   </td>
                 </tr>
                 <tr>
@@ -2728,6 +2787,30 @@
               <span class="badge badge-orange">运行中</span>
             </div>
             <p class="help-para" style="margin-top: 10px">
+              <strong>大小与精简</strong>
+            </p>
+            <p class="help-para">
+              <strong>大小</strong>列显示每次运行的日志占用空间，工具栏则显示当前筛选结果的合计。
+              一条日志的体积几乎全部来自截图：网页与小程序任务每执行一步都会保存一张页面截图，
+              这也是调试时最有用的部分。截图本身存放在数据目录的
+              <code>run-shots</code> 下（不再塞进数据库），日志行只保存引用，打开详情时再取回显示。
+            </p>
+            <ul class="help-steps">
+              <li>
+                <strong>精简单条</strong> -- 日志行上的压缩图标，会询问保留最近几张截图（0 表示全部删除）。
+              </li>
+              <li>
+                <strong>精简所选</strong> -- 勾选多行后在批量操作栏中执行。
+              </li>
+              <li>
+                <strong>精简全部</strong> -- 工具栏按钮，作用于所有日志，历史积压时用这个。
+              </li>
+            </ul>
+            <p class="help-note">
+              精简只删除截图，每一步做了什么、结果如何都会保留，因此日志依然可读；截图删除后无法恢复。
+              若希望新的运行本来就少存截图，可在设置中配置<strong>每次运行保留的截图数</strong>。
+            </p>
+            <p class="help-para" style="margin-top: 10px">
               <strong>签到任务详情</strong>
             </p>
             <p class="help-para">
@@ -2838,6 +2921,40 @@
               <span class="badge badge-red">Failed</span>
               <span class="badge badge-orange">Running</span>
             </div>
+            <p class="help-para" style="margin-top: 10px">
+              <strong>Size and compacting</strong>
+            </p>
+            <p class="help-para">
+              The <strong>Size</strong> column shows what each run's log costs,
+              and the toolbar shows the total for whatever the filters match.
+              Almost all of it is screenshots: a web or Mini App job saves a
+              picture of the page after every step, which is also the most
+              useful part of the log when something goes wrong. The pictures are
+              kept as files under <code>run-shots</code> in the data directory
+              rather than inside the database, and the row holds a reference the
+              detail panel resolves when you open it.
+            </p>
+            <ul class="help-steps">
+              <li>
+                <strong>Compact one</strong> -- the compress icon on a log row.
+                It asks how many of the most recent screenshots to keep, where 0
+                drops them all.
+              </li>
+              <li>
+                <strong>Compact a selection</strong> -- tick some rows and use
+                the bulk action bar.
+              </li>
+              <li>
+                <strong>Compact all</strong> -- the toolbar button, for history
+                that has already grown.
+              </li>
+            </ul>
+            <p class="help-note">
+              Compacting drops only the pictures. What each step did and how it
+              turned out is kept, so the log still reads; the screenshots cannot
+              be brought back. To have new runs keep fewer in the first place,
+              set <strong>Screenshots to keep per run</strong> in Settings.
+            </p>
             <p class="help-para" style="margin-top: 10px">
               <strong>Check-in detail view</strong>
             </p>

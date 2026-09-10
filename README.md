@@ -78,6 +78,7 @@ Bemby可签到市面上所有的服（需要正确配置）。无论是TG内，�
 - **详细日志** — 点击日志行可展开详情：签到任务显示仿 Telegram 气泡对话；Emby 观看任务显示播放摘要卡片（剧集信息、起止位置、已看标记、已串流数据量，顺序播放时另列出本次播放的每一集、顺序播放集数与总观看时长）
 - **TG 通知** — 在设置中填入 BotFather 提供的机器人 Token 与默认目标（Chat ID 或频道 @名称）及触发时机（失败/成功），任务结束后由该机器人发送通知，不依赖任务账号是否已登录；可"查找会话"从机器人最近的对话中直接选取 Chat ID，并可发送测试通知验证整条链路；支持发送到群组中的指定话题（Topic）：在会话后加上话题 ID，如 `-1001234567890/12`、`@群组名/12`，或直接粘贴复制的话题链接；未配置 Token 时沿用旧方式：由任务关联账号发送（**已弃用**，将在后续版本中移除，请尽早改用机器人 Token）
 - **停止运行中的任务** — 可在日志列表中随时中止正在执行的任务
+- **日志体积与精简** — 日志列表新增**大小**列，显示每次运行占用的空间，工具栏显示当前筛选结果的合计。一条日志的体积几乎全部来自截图（网页与小程序任务每步一张），因此截图不再塞进数据库，而是存放在数据目录的 `run-shots` 下，行内只保留引用，打开详情时取回显示；单次运行的截图另有体积上限，长循环的后续轮次只在出错时留图。历史日志可**精简**：单条（日志行上的压缩图标）、所选多条（批量操作栏）或全部（工具栏按钮），并可指定保留最近几张截图（0 表示全部删除）——步骤记录始终保留。新运行想少存截图，可在设置中配置**每次运行保留的截图数**；日志保留天数到期时会连同截图一并删除，并每天整理一次把空间真正还给磁盘
 - **复制任务 / 复制模板** — 在任务列表或模板列表中一键复制为新任务/新模板
 - **任务级代理覆盖** — 由模板创建的任务可单独选择代理：下拉默认为"跟随模板代理设置"（并显示模板当前使用的代理名称），选定其它代理后仅该任务改用自己的出口。代理仍只作用于浏览器侧（Cloudflare 验证 / 小程序），Telegram 连接始终跟随账户代理
 - **节点订阅代理（VLESS / VMess / Trojan / Shadowsocks）** — 设置 → 代理服务器 → 「节点订阅」中填入订阅地址，每个节点会在本机开一个 SOCKS5 端口，之后与普通代理完全一样：可用于 Telegram 账户连接、浏览器侧、任务代理，端口跨重启保持不变。VLESS over WebSocket（如部署在 Cloudflare Workers 上的 edgetunnel）由 Bemby 自带客户端承载，开箱即用；机场订阅常见的其余节点（尤其是 VLESS + REALITY，以及 VMess、Trojan、Shadowsocks）需要在同一面板中一键安装 Xray 内核（按需下载到数据目录，约 40MB，升级镜像后无需重装）。Workers 节点的出口是 Cloudflare 自己的 IP 段、同一个 Worker 上所有节点出口相同，因此默认不参与「随机」与 Cloudflare 自动轮换；机场节点各自有独立出口，默认与普通代理一样参与
@@ -234,6 +235,8 @@ cd Bemby
 
 使用 `backend/.env` 中配置的账号登录（默认 `admin` / `changeme`）。
 
+**测试。** `cd backend && npm test` 运行后端测试；`cd frontend && npm test` 会检查类型、构建前端并校验打包体积预算（各视图按需加载，若有人误加静态 import 把这一点破坏掉，这里会直接失败）。部分后端测试会启动真实浏览器：若容器内缺少 Chrome 所需的系统库，执行一次 `scripts/dev-browser-deps.sh` 将其解包到数据目录，之后 `dev.sh` 与测试都会自动使用。
+
 ---
 
 ## 项目结构
@@ -250,6 +253,7 @@ bemby/
 │       │   ├── runner.ts      -- 任务分发与重试
 │       │   ├── checkin.ts     -- Telegram MTProto 签到逻辑
 │       │   ├── embywatch.ts   -- Emby 播放模拟
+│       │   ├── runDetail.ts   -- 运行日志的体积上限与截图落盘
 │       │   └── notify.ts      -- 任务通知（机器人，回退到账号自发）
 │       ├── routes/
 │       │   ├── auth.ts        -- 登录、JWT、凭证管理、验证码
@@ -275,19 +279,23 @@ bemby/
 └── env.example
 ```
 
+数据目录（容器内 `/app/data`，即挂载卷）除数据库外还有：`run-shots/<日志ID>/` 存放各次运行的截图，`cloakbrowser/`、`cf-profiles/`、`cf-fonts/` 存放按需下载的浏览器与其配置文件，`xray/` 存放节点订阅所需的 Xray 内核。这些都随卷保留，升级镜像后无需重新下载。
+
 ---
 
 ## 调度器工作原理
 
 1. 启动时（以及任务创建/更新/删除后），`refreshScheduler()` 重新运行
-2. 对每个已启用的任务调用 `pickNextRun()`：
+2. 任务若已有**存下来的计划**且时间尚未到达，则按原定的那一刻重新挂上定时器。每次排定时间都会写回任务，因此升级或重启是接着原计划继续，而不是重排一遍：原本在未来几天的任务不会挤到第二天，「跳过这次」的顺延也保留。停机期间已过期的计划视为欠下的运行，在下一个可执行时机补上
+3. 没有可用计划的任务才调用 `pickNextRun()` 重新排定：
    - 当前时间在窗口**之前** → 在今日完整窗口内随机安排
    - 当前时间在窗口**之内** → 在今日剩余窗口时间内随机安排
    - 窗口已**过去**（或任务今日已执行且开启了"每日只执行一次"）→ 安排在明日窗口内执行
+   - 具体哪一天由「每隔多少天执行」从该任务**最近一次成功**算起；该时间戳直接记在任务上，不再从日志历史推算（日志会按保留天数清理，被清掉的日志不应重置任务节奏）
    - 选取时间时自动避开其他任务的执行时间，至少保持设置的最小间隔（任务错峰，默认 2 分钟）；窗口过窄无法满足间隔时自动退化为尽量分散且不重复同一分钟
-3. `setTimeout` 在指定时间触发并执行任务；同一时刻最多并发执行 2 个任务，超出的任务排队依次执行
-4. 执行完成（无论成功或失败）后立即为次日重新调度
-5. 后台每 5 分钟轮询一次，补偿停机期间遗漏的任务
+4. `setTimeout` 在指定时间触发并执行任务；同一时刻最多并发执行 2 个任务，超出的任务排队依次执行
+5. 执行完成后重新调度：**成功**的任务等待完整间隔，**失败**的任务次日重试——间隔约束的是两次成功之间的节奏
+6. 后台每 5 分钟轮询一次，补偿停机期间遗漏的任务
 
 ---
 
@@ -435,6 +443,7 @@ A self-hosted automation tool for managing daily Telegram bot check-ins (签到)
 - **Rich log detail** — click any log row to expand: check-in jobs show a Telegram-style chat view; Emby Watch jobs show a playback summary card with episode info, position data, and streamed volume, listing every episode played plus episodes completed and total watched time for Sequence Play runs
 - **TG notifications** — set a bot token from BotFather plus a default target (chat ID, or a channel's @name) and trigger events (failed / success) in Settings; the bot sends when a job finishes, so notifications no longer depend on the job's account being authenticated. **Find chats** reads the chat IDs the bot has heard from lately so you can pick one, and **Send test** proves the whole path. A forum group can be narrowed to one topic by appending its topic id to the chat (`-1001234567890/12`, `@groupname/12`, or a pasted topic link). With no token set, the old sender still applies — the linked account sends to the configured target, falling back to Saved Messages — but it is **deprecated and will be removed in a future release**, so set a token
 - **Stop running jobs** — cancel an in-progress job directly from the log list
+- **Log size and compacting** — the log list has a **Size** column for what each run costs and a total in the toolbar for whatever the filters match. Almost all of it is screenshots (a web or Mini App job saves one per step), so the pictures are kept as files under `run-shots` in the data directory rather than inside the database, with the row holding a reference the detail panel resolves when opened; a run also has a size budget for them, and past the opening rounds of a long loop only a failing step keeps its picture. Recorded logs can be **compacted**: one row (the compress icon), a selection (the bulk bar), or all of them (the toolbar button), keeping however many of the most recent screenshots you ask for (0 drops them all) -- what each step did is always kept. To have new runs keep fewer, set **Screenshots to keep per run** in Settings; the log retention window deletes screenshots along with the rows and a daily sweep returns the space to the disk
 - **Duplicate job / template** — copy any existing job or template into a new one with one click from its list
 - **Per-job proxy override** — a job created from a template can pick a proxy of its own: the dropdown defaults to *Follow template proxy setting* (naming the proxy the template uses), and picking another exit applies to that one job. The proxy still covers the browser side only (Cloudflare checks / Mini Apps); the Telegram connection always follows the account's proxy
 - **Node subscription proxies (VLESS / VMess / Trojan / Shadowsocks)** — point Settings → Proxies → *Node subscription* at a subscription URL and each node gets a loopback SOCKS5 port that behaves like any other proxy: usable for Telegram account connections, the browser side, and per-job overrides, on the same port across restarts. VLESS over WebSocket, such as an edgetunnel deployment on Cloudflare Workers, is carried by Bemby itself and needs nothing installed; everything a commercial seller serves — VLESS behind REALITY above all, plus VMess, Trojan and Shadowsocks — needs the Xray core, which the same panel fetches into the data dir on demand (about 40MB, kept across an upgrade). A Worker's exits are Cloudflare's own addresses and every node on one Worker shares them, so those stay out of unnamed random draws and the Cloudflare fall-through; a seller's nodes each have an exit of their own and take part like any other proxy
@@ -592,6 +601,8 @@ On first run `dev.sh` copies `env.example` to `backend/.env` and warns if placeh
 
 Log in with the credentials configured in `backend/.env` (default `admin` / `changeme`).
 
+**Tests.** `cd backend && npm test` runs the backend suite. `cd frontend && npm test` type-checks the panel, builds it, and checks the bundle budget (the views are loaded on demand, and a static import that quietly undid that would otherwise go unnoticed). Some backend tests drive a real browser; in a container without Chrome's system libraries, run `scripts/dev-browser-deps.sh` once to unpack them into the data directory and both `dev.sh` and the test run will find them.
+
 ---
 
 ### Project structure
@@ -608,6 +619,7 @@ bemby/
 │       │   ├── runner.ts      -- Job dispatcher with retry
 │       │   ├── checkin.ts     -- Telegram MTProto check-in logic
 │       │   ├── embywatch.ts   -- Emby playback simulation
+│       │   ├── runDetail.ts   -- run log size budget, screenshots on disk
 │       │   └── notify.ts      -- job notifications (bot, account fallback)
 │       ├── routes/
 │       │   ├── auth.ts        -- Login, JWT, credential management, CAPTCHA
@@ -633,19 +645,23 @@ bemby/
 └── env.example
 ```
 
+Besides the database, the data directory (`/app/data` in the container, which is the volume) holds `run-shots/<logId>/` for each run's screenshots, `cloakbrowser/`, `cf-profiles/` and `cf-fonts/` for the browser downloaded on demand and its profiles, and `xray/` for the Xray core node subscriptions need. All of it survives the volume, so an image upgrade re-downloads nothing.
+
 ---
 
 ### How the scheduler works
 
 1. On startup (and after any job create/update/delete), `refreshScheduler()` runs
-2. For each enabled job it calls `pickNextRun()`:
+2. A job that already has a **stored plan** in the future is re-armed for exactly that moment. The plan is written to the job whenever one is chosen, so an upgrade or a restart continues the schedule instead of rebuilding it: runs that were days out stay days out, and a skipped run stays skipped. A plan whose moment passed while the process was down is treated as owed and goes at the next opportunity
+3. A job with no usable plan gets one from `pickNextRun()`:
    - If the current time is **before** the window -> schedules randomly within the full window today
    - If the current time is **inside** the window -> schedules randomly within the remaining window time today
    - If the window has **passed** (or the job already ran today and *Enforce one run per day* is on) -> schedules within the window tomorrow
+   - The day itself comes from *Run every (days)* counted from the job's last **successful** run, which is stamped on the job rather than derived from the log history (logs are pruned by the retention window, and a pruned log must not reset a job's cadence)
    - The chosen time automatically avoids other jobs' slots, keeping at least the configured minimum gap (Job Staggering, default 2 minutes); when a window is too narrow to honour the gap, jobs still spread out without doubling up a minute
-3. A `setTimeout` fires at the chosen time and executes the job; at most 2 jobs run simultaneously — extras queue and run in turn
-4. On completion (success or failure) the job is immediately rescheduled for the next day
-5. A background poll runs every 5 minutes to catch any jobs missed during downtime
+4. A `setTimeout` fires at the chosen time and executes the job; at most 2 jobs run simultaneously — extras queue and run in turn
+5. On completion the job is rescheduled: a **successful** run waits its full interval, a **failed** one tries again the next day, since the interval is there to space out successful runs
+6. A background poll runs every 5 minutes to catch any jobs missed during downtime
 
 ---
 

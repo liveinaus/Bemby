@@ -4,6 +4,56 @@ All notable changes to Bemby are documented here.
 
 ---
 
+## 未发布 / Unreleased
+
+计划任务在升级后保持原定日期，运行日志不再撑爆数据库（实测 527MB → 35MB），面板首屏体积减少约 70%。
+
+Scheduled runs keep their dates across an upgrade, run logs stop filling the database (527MB to 35MB on a real install), and the panel's first load is about 70% smaller.
+
+### 中文
+
+**修复**
+
+- **修复升级后计划任务被重排** -- 此前每次进程启动都会根据"最近一次成功 + 间隔天数"重新推算整张计划表，任何无法从这两项还原的信息都会丢失：失败后的顺延、「跳过这次」的顺延、尚未成功过的任务，以及具体的执行时刻。结果就是原本分散在未来几天的任务在升级后全部挤到同一天（多在深夜重启时集中到第二天，因为当天窗口已过）。现在每次排定的时间都会写回任务本身，重启后直接按原定的那一刻继续；停机期间错过的运行视为欠下的，在下一个可执行时机补上。间隔为一天的签到任务看不出差别，这也是此前一直没被发现的原因。
+- **修复日志清理会重置任务节奏** -- 间隔天数原先从日志历史推算，而日志会按"日志保留天数"清理，因此间隔长于保留窗口的任务在每次重启时都会被当作从未运行过、立即执行一次。现改用记在任务上的最近成功时间戳。
+- **失败的运行改为次日重试** -- 原先无论成功或失败都顺延一个完整间隔，间隔 7 天的任务失败一次就要再等一周。间隔约束的是两次成功之间的节奏，因此失败只顺延一天。
+- **修复最早版本升级后缺少 `job_logs.message` 列** -- 该列只在全新安装的建表语句中，没有对应的 ALTER，因此从最初版本一路升级上来的数据库始终缺它，而每次写运行日志都会用到它。同时新增一项测试，直接比对"从最老结构升级"与"全新安装"两者的全部表结构，任何漏掉的 ALTER 都会在此暴露。
+- **修复浏览器脚本步骤取不到 console 输出** -- 「运行脚本」步骤原本通过浏览器的 console 事件收集输出，但任务所用的指纹修补版 Chromium 根本不上报这类事件（这正是它不显眼的一部分），因此"脚本只打印、不返回"的用法始终报"没有返回值"。现改为在页面内收集，与浏览器无关。
+
+**性能**
+
+- **运行日志的截图移出数据库** -- 网页与小程序任务每执行一步都会保存一张页面截图，此前以 base64 直接写入日志行。实测一个安装的数据库为 527MB，其中 500MB 是这些截图，最大的一条日志有 493 张、达 14.7MB。现在截图以文件形式存放在数据目录的 `run-shots/<日志ID>/` 下，行内只保留引用，打开详情时取回显示（面板显示效果不变）。同时每次运行有截图体积上限（约 1.5MB，失败步骤的截图优先保留），长循环从第 3 轮起只在出错时留图，也不再白拍这些图。升级后约 5 分钟会自动把已有日志的截图迁出，并把腾出的空间还给磁盘：实测 527MB → 35MB，836 条日志、18852 条步骤记录一条不少。
+- **日志保留与磁盘回收** -- 日志清理会连同其截图一并删除；每天整理一次，清掉无主的截图目录并执行 VACUUM（WAL 模式下还需一次截断式 checkpoint，否则空间只是"可复用"而没有真正还给磁盘）。全新安装的日志保留天数默认为 30 天，已有安装保持原设置不变。
+- **面板按需加载** -- 九个视图此前全部静态引入，打包为单个 1.64MB 的 JS，首次打开就要全部下载（含从未打开的帮助页）。现改为按需加载，首屏 JS 降至 350KB，另有 141KB 的第三方库单独打包（升级后仍可命中缓存），首屏 CSS 从 210KB 降至 93KB。升级导致分块文件名变化时，页面会自动重载一次而不是留下空白视图。
+- **数据库参数** -- WAL 模式下改用 `synchronous = NORMAL`（进程崩溃仍由 WAL 保证，掉电才需要 FULL），并设置 64MB 缓存与内存映射。调度刷新时的凭据查询与最近成功时间查询也由"每个任务若干次"改为整批一次。
+
+**新功能**
+
+- **日志大小与精简** -- 日志列表新增<strong>大小</strong>列（每次运行占用的空间，含截图文件），工具栏显示当前筛选结果的合计。可精简单条（日志行上的压缩图标）、所选多条（批量操作栏）或全部（工具栏按钮），并指定保留最近几张截图（0 表示全部删除）；步骤记录始终保留，只删截图。新增设置<strong>每次运行保留的截图数</strong>，对之后的运行生效；留空则仅按体积上限裁剪。
+
+### English
+
+**Fixes**
+
+- **Fixed scheduled runs being reshuffled by an upgrade** -- every process start rebuilt the whole plan from "last successful run + run-every-days", so anything not recoverable from those two was lost: a deferral after a failure, a skipped run, a job that had never succeeded yet, and the time of day itself. Runs spread over the coming days all collapsed onto one day after an upgrade, usually the next one, since a late-night restart finds today's windows already past. The time a job is scheduled for is now written to the job, and a restart re-arms that same moment; a run missed while the process was down is treated as owed and goes at the next opportunity. A daily check-in cannot show the problem, which is why it went unnoticed for so long.
+- **Fixed log retention resetting a job's cadence** -- the interval was measured from the log history, which the retention window prunes, so any job whose interval was longer than its retention looked never-run and fired immediately on every restart. It now reads the last-success stamp kept on the job.
+- **A failed run now retries the next day** -- a run was deferred by its full interval whether it succeeded or not, so one failure on a 7-day job cost a week. The interval is there to space out successful runs, so a failure waits a day.
+- **Fixed `job_logs.message` missing after upgrading from the earliest release** -- the column was only in the fresh-install `CREATE TABLE` with no matching ALTER, so a database upgraded all the way from the first version never had it, and every run log insert names it. A test now compares the full schema of an upgraded database against a fresh install, so any missed ALTER fails there instead of on someone's machine.
+- **Fixed a browser script step losing its console output** -- the Run a script step collected output through the browser's console events, but the fingerprint-patched Chromium the jobs run on reports none of them (part of how it stays unremarkable to a site), so a script whose only output was what it printed always came back as "gave nothing back". The console is now collected inside the page, which works on any browser.
+
+**Performance**
+
+- **Run screenshots moved out of the database** -- a web or Mini App job saves a picture of the page after every step, and those were written into the log row as base64. One measured install had a 527MB database of which 500MB was these pictures, the worst single log holding 493 of them at 14.7MB. They are now files under `run-shots/<logId>/` in the data directory with a reference in the row, resolved when the detail panel is opened, so the panel looks exactly as it did. A run also has a budget for them (about 1.5MB, a failed step's picture kept ahead of a working one) and past the second round of a long loop only a failing step keeps one, which also stops the pictures being taken at all. About five minutes after the upgrade the screenshots in existing history are moved out and the space returned: 527MB to 35MB on a real install, with all 836 logs and 18,852 step entries intact.
+- **Log retention and reclaiming disk** -- a retention purge now deletes the screenshots of the runs it removes, and a daily sweep drops screenshot folders nothing points at any more and vacuums the database (under WAL that needs a truncating checkpoint too, or the pages are merely reusable and the disk never comes back). A fresh install defaults to 30 days of history; an existing one keeps whatever it had.
+- **The panel loads its views on demand** -- all nine views were imported into the app shell, so everything shipped as one 1.64MB chunk that every visit downloaded before showing anything, the help page included. First-load JS is now 350KB with the libraries in a separate 141KB chunk that stays cached across upgrades, and first-load CSS is down from 210KB to 93KB. When an upgrade renames the chunks under an open page, it reloads once rather than leaving a blank view.
+- **Database settings** -- WAL now runs with `synchronous = NORMAL` (the log already covers the process dying; FULL is for losing power), with a 64MB cache and memory mapping where the file system allows it. The credential and last-success lookups a scheduler refresh makes are now once per batch rather than several times per job.
+
+**Features**
+
+- **Log size and compacting** -- the log list has a <strong>Size</strong> column for what each run costs, screenshot files included, and a total in the toolbar for whatever the filters match. One row (the compress icon), a selection (the bulk bar) or all of them (the toolbar button) can be compacted, keeping however many of the most recent screenshots you ask for, where 0 drops them all; what each step did is always kept. A new <strong>Screenshots to keep per run</strong> setting applies the same trim to future runs, and left blank they are bounded by size alone.
+
+---
+
 ## v1.0.0
 
 第一个 1.0 版本：小程序（Mini App）支持、网页子步骤、注册任务增强、计划列表与批量资料生成，Cloudflare 验证改用 CloakBrowser，并完成一轮安全加固。
