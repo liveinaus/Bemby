@@ -31,6 +31,8 @@ import {
   pruneOrphanRunShots,
   boundRunImages,
   externaliseRunImages,
+  runShotsBytes,
+  keepScreenshotsSetting,
 } from "./jobs/runDetail";
 
 type ScheduleEntry = {
@@ -117,6 +119,22 @@ export function resolveJobTimezone(jobTimezone: string | null | undefined): stri
   if (IANAZone.isValidZone(tz)) return tz;
   const fallback = getDefaultTimezone();
   return IANAZone.isValidZone(fallback) ? fallback : FALLBACK_TIMEZONE;
+}
+
+/** How many screenshots a run's log keeps, when the operator has set a number. */
+export function keepScreenshots(): number | null {
+  return keepScreenshotsSetting((key) => {
+    try {
+      return (
+        db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as
+          | { value: string }
+          | undefined
+      )?.value;
+    } catch {
+      // A run's log must not be lost over a settings read; the byte budget still applies
+      return undefined;
+    }
+  });
 }
 
 function checkDailyRunEnabled(): boolean {
@@ -420,14 +438,14 @@ export async function executeJob(
     }
 
     await runJob(job, account, detailLogs, signal);
-    const detail = prepareRunDetail(logId, detailLogs);
+    const stored = prepareRunDetail(logId, detailLogs, keepScreenshots());
     // Warnings ride along with a successful run: the job completed, so failing it
     // would be wrong, but the log should say what didn't work.
     const warnings = collectRunWarnings(job.jobType, detailLogs);
     // Only while the row is still open, so a cancel that already settled it stands
     db.prepare(
-      "UPDATE job_logs SET status = 'success', message = ?, detail = ? WHERE id = ? AND status = 'running'",
-    ).run(completedMessage(warnings), detail, logId);
+      "UPDATE job_logs SET status = 'success', message = ?, detail = ?, detail_bytes = ? WHERE id = ? AND status = 'running'",
+    ).run(completedMessage(warnings), stored.detail, stored.bytes, logId);
     if (warnings.length) console.warn(`[scheduler] "${job.name}" completed with warnings: ${warnings.join('; ')}`);
     // Stamps the success and, for a one-time job, switches it off. The finally block
     // below re-reads `enabled`, so a job switched off here does not re-arm its timer.
@@ -443,10 +461,10 @@ export async function executeJob(
     const message = err instanceof Error ? err.message : String(err);
     const isCancelled = message === "Job cancelled";
     if (logId !== undefined) {
-      const detail = prepareRunDetail(logId, detailLogs);
+      const stored = prepareRunDetail(logId, detailLogs, keepScreenshots());
       db.prepare(
-        "UPDATE job_logs SET status = 'failed', message = ?, detail = ? WHERE id = ? AND status = 'running'",
-      ).run(isCancelled ? "Cancelled" : message, detail, logId);
+        "UPDATE job_logs SET status = 'failed', message = ?, detail = ?, detail_bytes = ? WHERE id = ? AND status = 'running'",
+      ).run(isCancelled ? "Cancelled" : message, stored.detail, stored.bytes, logId);
     }
     console.error(`[scheduler] "${job.name}" failed:`, message);
     if (!isCancelled) {
@@ -667,6 +685,20 @@ export function migrateRunImagesToFiles(): void {
       console.log(
         `[scheduler] Moved the images of ${moved} run log(s) out of the database (${Math.round(freed / 1_048_576)}MB)`,
       );
+  });
+
+  // The size the log list shows. Recorded on every run from here on, so this is only for
+  // the history that pre-dates the column.
+  runOnce("job-logs-detail-bytes", () => {
+    const rows = db
+      .prepare("SELECT id, LENGTH(COALESCE(detail, '')) AS len FROM job_logs WHERE detail_bytes IS NULL")
+      .all() as Array<{ id: number; len: number }>;
+    const save = db.prepare("UPDATE job_logs SET detail_bytes = ? WHERE id = ?");
+    const record = db.transaction((list: Array<{ id: number; len: number }>) => {
+      for (const row of list) save.run(row.len + runShotsBytes(row.id), row.id);
+    });
+    record(rows);
+    if (rows.length) console.log(`[scheduler] Measured ${rows.length} run log(s)`);
   });
 }
 

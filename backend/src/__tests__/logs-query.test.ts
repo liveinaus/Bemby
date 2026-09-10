@@ -37,7 +37,8 @@ const SCHEMA = `
     status  TEXT    NOT NULL,
     message TEXT,
     detail  TEXT,
-    retired INTEGER NOT NULL DEFAULT 0
+    retired INTEGER NOT NULL DEFAULT 0,
+    detail_bytes INTEGER
   );
 `;
 

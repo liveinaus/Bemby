@@ -105,6 +105,8 @@ export type Paged<T> = {
   total: number;
   page: number;
   pageSize: number;
+  /** Logs only: the size of everything the filters match, not just this page. */
+  totalSizeBytes?: number;
 };
 
 export type ListParams = {
@@ -1479,6 +1481,11 @@ export type Log = {
   status: "success" | "failed" | "running";
   message: string | null;
   retired: boolean;
+  /**
+   * What the run's log costs, its row and its screenshot files together. Null on history
+   * recorded before sizes were kept.
+   */
+  sizeBytes?: number | null;
   /** One entry per run attempt, so a retried run carries the log of every attempt. */
   detail?:
     | CheckinAttemptLog[]
@@ -1975,6 +1982,25 @@ export const logsApi = {
         retired,
       })
       .then((r) => r.data),
+  /**
+   * Drops a run's screenshots, keeping the last `keep` of them (none by default). What each
+   * step did is kept either way; it is the pictures that make a log cost anything.
+   */
+  compact: (id: number, keep = 0) =>
+    api
+      .post<{ dropped: number; sizeBytes: number | null; freedBytes: number }>(
+        `/logs/${id}/compact`,
+        { keep },
+      )
+      .then((r) => r.data),
+  /** The same for a selection, or for every run there is. */
+  bulkCompact: (target: { ids: number[] } | { all: true }, keep = 0) =>
+    api
+      .post<{ changed: number; dropped: number; freedBytes: number }>("/logs/bulk-compact", {
+        ...target,
+        keep,
+      })
+      .then((r) => r.data),
 };
 
 // ── Status ────────────────────────────────────────────────────────────────────
@@ -2051,6 +2077,8 @@ export type Settings = {
   update_check_enabled?: string;
   default_max_retry: string;
   check_daily_run: string;
+  /** Screenshots a run's log keeps. Blank leaves it to the size budget; 0 keeps none. */
+  log_keep_screenshots?: string;
   default_ua: string;
   default_play_duration: string;
   default_device_name: string;

@@ -71,7 +71,8 @@ const SCHEMA = `
     message TEXT,
     detail  TEXT,
     source  TEXT    NOT NULL DEFAULT 'scheduler',
-    retired INTEGER NOT NULL DEFAULT 0
+    retired INTEGER NOT NULL DEFAULT 0,
+    detail_bytes INTEGER
   );
   CREATE TABLE IF NOT EXISTS ai_suppliers (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

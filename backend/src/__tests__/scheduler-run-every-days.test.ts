@@ -75,7 +75,8 @@ const SCHEMA = `
     message TEXT,
     source  TEXT    NOT NULL DEFAULT 'scheduler',
     detail  TEXT,
-    retired INTEGER NOT NULL DEFAULT 0
+    retired INTEGER NOT NULL DEFAULT 0,
+    detail_bytes INTEGER
   );
   CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,

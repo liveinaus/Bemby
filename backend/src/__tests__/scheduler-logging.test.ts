@@ -132,16 +132,13 @@ describe("executeJob — DB status logging", () => {
   it("stores the error message in the failed update", async () => {
     vi.mocked(runJob).mockRejectedValue(new Error("connection refused"));
     await executeJob(job, null).catch(() => {});
-    expect(mockUpdateRun).toHaveBeenCalledWith(
-      "connection refused",
-      null,
-      99,
-    );
+    // message, detail, the size the row records, and the row
+    expect(mockUpdateRun).toHaveBeenCalledWith("connection refused", null, 0, 99);
   });
 
   it("marks the run as 'Cancelled' when the job is cancelled", async () => {
     vi.mocked(runJob).mockRejectedValue(new Error("Job cancelled"));
     await executeJob(job, account).catch(() => {});
-    expect(mockUpdateRun).toHaveBeenCalledWith("Cancelled", null, 99);
+    expect(mockUpdateRun).toHaveBeenCalledWith("Cancelled", null, 0, 99);
   });
 });

@@ -61,7 +61,8 @@ const SCHEMA = `
     ran_at  TEXT    NOT NULL,
     status  TEXT    NOT NULL,
     message TEXT,
-    detail  TEXT
+    detail  TEXT,
+    detail_bytes INTEGER
   );
   CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,

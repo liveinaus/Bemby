@@ -147,6 +147,7 @@ export const ALLOWED_KEYS = [
   UPDATE_CHECK_KEY,
   "data_store_enabled",
   "log_retention_days",
+  "log_keep_screenshots",
   "schedule_min_gap_minutes",
   "cf_solver_enabled",
   CF_PROFILE_ID_KEY,

@@ -44,6 +44,18 @@
         <button class="btn btn-ghost" @click="load">
           <i class="fa-solid fa-rotate"></i> {{ t("common.refresh") }}
         </button>
+        <span v-if="totalSizeBytes > 0" class="logs-total-size">
+          {{ t("logs.totalSize").replace("{size}", fmtBytes(totalSizeBytes)) }}
+        </span>
+        <button
+          v-if="totalSizeBytes > 0"
+          class="btn btn-ghost"
+          :disabled="compactingAll"
+          :title="t('logs.compact')"
+          @click="compactAll"
+        >
+          <i class="fa-solid fa-compress"></i> {{ t("logs.compactAll") }}
+        </button>
       </div>
     </div>
 
@@ -61,6 +73,10 @@
         <button v-if="showRetired" class="btn btn-sm btn-secondary" @click="bulkRetire(false)">
           <i class="fa-solid fa-rotate-left"></i>
           {{ t("logs.bulkUnretire").replace("{n}", String(selectedLogIds.size)) }}
+        </button>
+        <button class="btn btn-sm btn-secondary" @click="bulkCompact">
+          <i class="fa-solid fa-compress"></i>
+          {{ t("logs.compactSelected").replace("{n}", String(selectedLogIds.size)) }}
         </button>
         <button
           class="btn btn-sm btn-ghost"
@@ -96,12 +112,13 @@
               <th>{{ t("logs.colJob") }}</th>
               <th class="col-hide-mobile">{{ t("logs.colAccount") }}</th>
               <th>{{ t("logs.colStatus") }}</th>
+              <th class="col-hide-mobile size-cell">{{ t("logs.colSize") }}</th>
               <th>{{ t("logs.colMessage") }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="!logs.length">
-              <td colspan="6" class="empty">{{ t("logs.noLogs") }}</td>
+              <td colspan="7" class="empty">{{ t("logs.noLogs") }}</td>
             </tr>
             <template v-for="(l, idx) in logs" :key="l.id">
               <tr
@@ -136,6 +153,10 @@
                   <span :class="statusBadge(l.status)">{{
                     t(`logs.status.${l.status}`)
                   }}</span>
+                </td>
+                <td class="col-hide-mobile size-cell">
+                  <span v-if="l.sizeBytes != null">{{ fmtBytes(l.sizeBytes) }}</span>
+                  <span v-else :title="t('logs.sizeUnmeasured')">—</span>
                 </td>
                 <td class="msg-cell">
                   <div style="display: flex; align-items: center; gap: 8px">
@@ -217,6 +238,17 @@
                     >
                       <i class="fa-solid fa-file-pen"></i>
                     </button>
+                    <!-- Only worth offering on a log heavy enough to have pictures in it -->
+                    <button
+                      v-if="l.status !== 'running' && (l.sizeBytes ?? 0) > COMPACTABLE_BYTES"
+                      class="btn btn-sm btn-ghost btn-icon"
+                      style="flex-shrink: 0; color: var(--text-faint)"
+                      :title="t('logs.compact')"
+                      :disabled="compacting.has(l.id)"
+                      @click.stop="compactLog(l)"
+                    >
+                      <i class="fa-solid fa-compress"></i>
+                    </button>
                     <button
                       v-if="l.status !== 'running'"
                       class="btn btn-sm btn-ghost btn-icon"
@@ -233,7 +265,7 @@
               <!-- Detail panel — checkin jobs: chat-style attempt log -->
               <tr v-if="l.jobType === 'checkin' && expandedId === l.id">
                 <td
-                  colspan="6"
+                  colspan="7"
                   style="padding: 0; background: var(--bg-subtle); border-top: none"
                 >
                   <div class="detail-panel">
@@ -565,7 +597,7 @@
               <!-- Detail panel — custom and autoreg jobs: step-by-step timeline -->
               <tr v-if="(l.jobType === 'custom' || l.jobType === 'autoreg') && expandedId === l.id">
                 <td
-                  colspan="6"
+                  colspan="7"
                   style="padding: 0; background: var(--bg-subtle); border-top: none"
                 >
                   <div class="detail-panel">
@@ -1091,7 +1123,7 @@
               <!-- Detail panel — embywatch jobs: playback summary -->
               <tr v-if="l.jobType === 'embywatch' && expandedId === l.id">
                 <td
-                  colspan="6"
+                  colspan="7"
                   style="padding: 0; background: var(--bg-subtle); border-top: none"
                 >
                   <div class="detail-panel">
@@ -1390,6 +1422,25 @@ useAvailableFilter(filterJobId, () => jobs.value.map((j) => j.id), "", onFilterC
 const page = ref(1);
 const pageSize = usePersistedRef<number>("bemby:logs:pageSize", 50);
 const total = ref(0);
+/** What everything the filters match costs, which is the figure worth acting on. */
+const totalSizeBytes = ref(0);
+const compacting = ref(new Set<number>());
+const compactingAll = ref(false);
+
+/**
+ * Below this a log has no pictures worth dropping: what is left is the text of the run,
+ * which compacting does not touch. Roughly one screenshot at the size they are taken.
+ */
+const COMPACTABLE_BYTES = 20_000;
+
+/** Bytes as an operator reads them, which is the point of showing a size at all. */
+function fmtBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${Math.round(kb)} KB`;
+  const mb = kb / 1024;
+  return mb < 100 ? `${mb.toFixed(1)} MB` : `${Math.round(mb)} MB`;
+}
 
 const expandedId = ref<number | null>(null);
 const expandedDetail = ref<
@@ -1507,6 +1558,77 @@ async function bulkRetire(retired: boolean) {
   await logsApi.bulkRetire(ids, retired);
   clearLogSelection();
   await load();
+}
+
+// ── Compacting ────────────────────────────────────────────────────────────────
+// Dropping the screenshots out of stored logs. What each step did stays: it is the pictures
+// that make a run's log cost megabytes, and they are what an operator short of disk wants
+// back. Every one of these asks how many recent shots to keep, so "all but the last two" is
+// as reachable as "none at all".
+
+/** The keep count, from the operator. Null means they thought better of it. */
+function askKeep(): number | null {
+  const answer = prompt(t("logs.compactKeepPrompt"), "0");
+  if (answer === null) return null;
+  const n = Number(answer.trim());
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
+function reportCompacted(dropped: number, freedBytes: number) {
+  if (!dropped) {
+    alert(t("logs.compactedNone"));
+    return;
+  }
+  alert(
+    t("logs.compacted")
+      .replace("{n}", String(dropped))
+      .replace("{size}", fmtBytes(freedBytes)),
+  );
+}
+
+async function compactLog(log: Log) {
+  const keep = askKeep();
+  if (keep === null) return;
+  compacting.value = new Set(compacting.value).add(log.id);
+  try {
+    const res = await logsApi.compact(log.id, keep);
+    reportCompacted(res.dropped, res.freedBytes);
+    // The panel is showing images that have just gone, so it is closed rather than left stale
+    if (expandedId.value === log.id) expandedId.value = null;
+    await load();
+  } finally {
+    const next = new Set(compacting.value);
+    next.delete(log.id);
+    compacting.value = next;
+  }
+}
+
+async function bulkCompact() {
+  const ids = [...selectedLogIds.value];
+  if (!ids.length) return;
+  const keep = askKeep();
+  if (keep === null) return;
+  const res = await logsApi.bulkCompact({ ids }, keep);
+  reportCompacted(res.dropped, res.freedBytes);
+  clearLogSelection();
+  expandedId.value = null;
+  await load();
+}
+
+async function compactAll() {
+  // The count first, then the confirmation: what is about to happen depends on the answer
+  const keep = askKeep();
+  if (keep === null) return;
+  if (!confirm(t("logs.compactAllConfirm").replace("{n}", String(total.value)))) return;
+  compactingAll.value = true;
+  try {
+    const res = await logsApi.bulkCompact({ all: true }, keep);
+    reportCompacted(res.dropped, res.freedBytes);
+    expandedId.value = null;
+    await load();
+  } finally {
+    compactingAll.value = false;
+  }
 }
 
 // ── Per-row shortcuts ─────────────────────────────────────────────────────────
@@ -1754,6 +1876,7 @@ async function load() {
   }
   logs.value = res.items;
   total.value = res.total;
+  totalSizeBytes.value = res.totalSizeBytes ?? 0;
   // The anchor indexes the list just replaced, and a row no longer on it cannot be acted on
   lastLogSelectedIdx = null;
   if (selectedLogIds.value.size)
@@ -1972,6 +2095,17 @@ function hasWarning(l: Log): boolean {
   vertical-align: middle;
 }
 
+.size-cell {
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.logs-total-size {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
 .bulk-bar {
   display: flex;
   gap: 8px;

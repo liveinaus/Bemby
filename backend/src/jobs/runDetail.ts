@@ -219,21 +219,51 @@ function readShot(dir: string, seq: string, ext: string): string | undefined {
 }
 
 /**
- * The detail to store for a run: bounded, with its images moved out of the row. Returns the
- * JSON, or null when the run logged nothing.
+ * The detail to store for a run: trimmed to the operator's screenshot count if they set
+ * one, bounded by the byte budget either way, and with its images moved out of the row.
+ * `bytes` is what the run's log costs all told, row and files together, which is the figure
+ * the log list reports.
  */
 export function prepareRunDetail(
   logId: number | bigint | undefined,
   detail: unknown[],
-): string | null {
-  if (!detail.length) return null;
-  const dropped = boundRunImages(detail);
+  keepImages: number | null = null,
+): { detail: string | null; bytes: number } {
+  if (!detail.length) return { detail: null, bytes: 0 };
+
+  let dropped = keepImages == null ? 0 : keepLastImages(undefined, detail, keepImages);
+  dropped += boundRunImages(detail);
   if (dropped)
     console.log(
       `[logs] run ${logId ?? "?"}: ${dropped} screenshot(s) left out to keep the log small`,
     );
-  if (logId !== undefined) externaliseRunImages(Number(logId), detail);
-  return JSON.stringify(detail);
+
+  const id = logId === undefined ? undefined : Number(logId);
+  if (id !== undefined) externaliseRunImages(id, detail);
+  const json = JSON.stringify(detail);
+  return { detail: json, bytes: json.length + (id === undefined ? 0 : runShotsBytes(id)) };
+}
+
+/**
+ * Strips an already-stored log back to its last `keep` images, files included. Returns the
+ * JSON and the size to record, or null when there was nothing to change.
+ */
+export function compactStoredDetail(
+  logId: number,
+  storedDetail: string | null,
+  keep: number,
+): { detail: string; bytes: number; dropped: number } | null {
+  if (!storedDetail) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(storedDetail);
+  } catch {
+    return null; // not something this can rewrite; left exactly as it is
+  }
+  const dropped = keepLastImages(logId, parsed, keep);
+  if (!dropped) return null;
+  const json = JSON.stringify(parsed);
+  return { detail: json, bytes: json.length + runShotsBytes(logId), dropped };
 }
 
 /** Drops one run's screenshots. */
@@ -265,4 +295,103 @@ export function pruneOrphanRunShots(stillLogged: (logId: number) => boolean): nu
     removed++;
   }
   return removed;
+}
+
+/**
+ * Total bytes one run's screenshots take on disk. Reported alongside the row's own length
+ * so a log's size is what it actually costs, not just the part inside the database.
+ */
+export function runShotsBytes(logId: number): number {
+  let total = 0;
+  try {
+    for (const name of fs.readdirSync(shotsDir(logId)))
+      total += fs.statSync(path.join(shotsDir(logId), name)).size;
+  } catch {
+    return 0; // no folder: nothing stored for this run
+  }
+  return total;
+}
+
+/**
+ * Drops all but the last `keep` images, and any file they were stored in. The last are the
+ * ones kept: a run is read from the end, where it either finished or stopped.
+ *
+ * `keep` 0 strips a log of pictures entirely. Returns how many were dropped.
+ */
+export function keepLastImages(logId: number | undefined, detail: unknown, keep: number): number {
+  const slots = collectImages(detail);
+  const refs = collectShotRefs(detail);
+  const total = slots.length + refs.length;
+  const kept = Math.max(0, Math.floor(keep));
+  if (total <= kept) return 0;
+
+  // Inline images and references are one sequence in document order, so a keep count spans
+  // both: a log part way through being rewritten holds some of each.
+  const dropInline = Math.max(0, slots.length - Math.max(0, kept - refs.length));
+  const dropRefs = Math.max(0, refs.length - kept);
+
+  for (let i = dropRefs - 1; i >= 0; i--) {
+    if (logId !== undefined) {
+      try {
+        fs.rmSync(path.join(shotsDir(logId), refs[i].file), { force: true });
+      } catch {
+        // The row is what the panel reads; a file left behind is swept later
+      }
+    }
+    refs[i].replace(undefined);
+  }
+  for (let i = dropInline - 1; i >= 0; i--) slots[i].replace(undefined);
+  return dropInline + dropRefs;
+}
+
+type ShotRefSlot = { file: string; replace: (next: string | undefined) => void };
+
+/** The `shot:` references in a stored log, in the order the panel shows them. */
+function collectShotRefs(node: unknown): ShotRefSlot[] {
+  if (Array.isArray(node)) {
+    const found: ShotRefSlot[] = [];
+    node.forEach((item, i) => {
+      const ref = typeof item === "string" ? SHOT_REF.exec(item) : null;
+      if (ref) {
+        found.push({
+          file: `${ref[1]}.${ref[2]}`,
+          replace: (next) => {
+            if (next === undefined) node.splice(i, 1);
+            else node[i] = next;
+          },
+        });
+        return;
+      }
+      found.push(...collectShotRefs(item));
+    });
+    return found;
+  }
+  if (!node || typeof node !== "object") return [];
+  const row = node as Record<string, unknown>;
+  const found: ShotRefSlot[] = [];
+  for (const key of Object.keys(row)) {
+    const value = row[key];
+    const ref = typeof value === "string" ? SHOT_REF.exec(value) : null;
+    if (ref) {
+      found.push({
+        file: `${ref[1]}.${ref[2]}`,
+        replace: (next) => {
+          if (next === undefined) delete row[key];
+          else row[key] = next;
+        },
+      });
+      continue;
+    }
+    found.push(...collectShotRefs(value));
+  }
+  return found;
+}
+
+/** How many images one run's log keeps. Blank or absent leaves it to the byte budget. */
+export function keepScreenshotsSetting(read: (key: string) => string | undefined): number | null {
+  const raw = read("log_keep_screenshots");
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.floor(n);
 }

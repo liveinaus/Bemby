@@ -125,6 +125,7 @@ db.exec(`
     -- Fresh installs keep a month of run history. Only seeded, never updated, so an
     -- existing install's setting (0 included, which keeps everything) is left alone.
     ('log_retention_days',   '30'),
+    ('log_keep_screenshots',  ''),
     ('ua_presets',           '[{"name":"SenPlayer (Mac)","value":"SenPlayer/6.1.2 CFNetwork/1490.0.4 Darwin/23.2.0"},{"name":"Yamby (Android TV)","value":"Yamby/2.0.3.4(Android)"},{"name":"Hills (Windows)","value":"Hills/0.2.1"},{"name":"Lenna (iOS)","value":"Lenna/1.0.15 CFNetwork/1494.0.7 Darwin/23.4.0"},{"name":"VidHub (iOS)","value":"VidHub/2.2.4"}]');
 `);
 
@@ -214,6 +215,11 @@ try {
 } catch {}
 try {
   db.exec("ALTER TABLE job_logs ADD COLUMN retired INTEGER NOT NULL DEFAULT 0");
+} catch {}
+try {
+  // What one run's log costs, row and screenshot files together, so the log list can show
+  // it and a total without reading every detail column to measure it.
+  db.exec("ALTER TABLE job_logs ADD COLUMN detail_bytes INTEGER");
 } catch {}
 try {
   db.exec(

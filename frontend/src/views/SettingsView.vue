@@ -1134,6 +1134,23 @@
               {{ t("settings.logRetentionHint") }}
             </p>
           </div>
+          <div class="form-group">
+            <label class="form-label">{{
+              t("settings.labelKeepScreenshots")
+            }}</label>
+            <input
+              v-model="keepScreenshots"
+              class="form-input"
+              type="number"
+              min="0"
+              :placeholder="t('settings.keepScreenshotsAll')"
+              style="max-width: 160px"
+              @change="saveKeepScreenshots"
+            />
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
+              {{ t("settings.keepScreenshotsHint") }}
+            </p>
+          </div>
 
           <!-- Schedule staggering -->
           <div class="settings-subsection" style="margin-top: 28px">
@@ -4405,6 +4422,8 @@ onMounted(async () => {
     form.check_daily_run = s.check_daily_run !== "false";
     logRetentionDays.value = Number(s.log_retention_days) || 0;
     logRetentionSaved = logRetentionDays.value;
+    keepScreenshots.value = s.log_keep_screenshots ?? "";
+    keepScreenshotsSaved = keepScreenshots.value;
     scheduleGapMinutes.value =
       s.schedule_min_gap_minutes != null && s.schedule_min_gap_minutes !== ""
         ? Math.max(0, Number(s.schedule_min_gap_minutes) || 0)
@@ -4927,6 +4946,27 @@ async function saveLogRetention() {
     logRetentionSaved = value;
   } catch {
     logRetentionDays.value = logRetentionSaved;
+  }
+}
+
+/**
+ * Screenshots a run's log keeps. Blank leaves it to the size budget, which is what an
+ * install that has never thought about it gets; a number trims every run to that many, and
+ * 0 keeps none at all. Held as a string so blank stays blank rather than reading as zero.
+ */
+const keepScreenshots = ref("");
+let keepScreenshotsSaved = "";
+
+async function saveKeepScreenshots() {
+  const raw = String(keepScreenshots.value).trim();
+  const value = raw === "" ? "" : String(Math.max(0, Math.floor(Number(raw) || 0)));
+  keepScreenshots.value = value;
+  if (value === keepScreenshotsSaved) return;
+  try {
+    await settingsApi.update({ log_keep_screenshots: value });
+    keepScreenshotsSaved = value;
+  } catch {
+    keepScreenshots.value = keepScreenshotsSaved;
   }
 }
 

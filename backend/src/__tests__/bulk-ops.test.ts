@@ -135,7 +135,8 @@ const SCHEMA = `
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     job_id  INTEGER NOT NULL,
     status  TEXT    NOT NULL,
-    message TEXT
+    message TEXT,
+    detail_bytes INTEGER
   );
   CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db/database';
 import { cancelJob, isJobRunning, getLiveDetail } from '../jobs/cancellation';
 import { parsePaging, textParam, escapeLike, bulkIds } from './list-query';
-import { inlineRunImages } from '../jobs/runDetail';
+import { inlineRunImages, compactStoredDetail } from '../jobs/runDetail';
 
 const router = Router();
 
@@ -90,7 +90,7 @@ router.get('/', (req, res) => {
     ${where}
   `;
   const selectSql = `
-    SELECT l.id, l.job_id, l.ran_at, l.status, l.message, l.retired,
+    SELECT l.id, l.job_id, l.ran_at, l.status, l.message, l.retired, l.detail_bytes,
            j.name AS job_name, j.job_type,
            a.name AS account_name
     ${baseSql}
@@ -107,6 +107,9 @@ router.get('/', (req, res) => {
     status: r.status,
     message: r.message,
     retired: r.retired === 1,
+    // What the run's log costs, row and screenshot files together. Null on history written
+    // before the size was recorded, which the one-off pass fills in.
+    sizeBytes: r.detail_bytes ?? null,
   });
 
   if (!paging) {
@@ -121,12 +124,91 @@ router.get('/', (req, res) => {
   const totalRow = db.prepare(`SELECT COUNT(*) AS total ${baseSql}`).get(...params) as { total: number };
   const rows = db.prepare(selectSql).all(...params, paging.limit, paging.offset) as any[];
 
+  // Summed from the recorded column rather than measured, so asking for the total does not
+  // mean reading every detail in the table
+  const sizeRow = db.prepare(`SELECT SUM(l.detail_bytes) AS bytes ${baseSql}`).get(...params) as {
+    bytes: number | null;
+  };
+
   res.json({
     items: rows.map(toJson),
     total: totalRow.total,
+    totalSizeBytes: sizeRow.bytes ?? 0,
     page: paging.page,
     pageSize: paging.pageSize,
   });
+});
+
+/** The screenshots a compact keeps when the request does not say. */
+const DEFAULT_COMPACT_KEEP = 0;
+
+function keepParam(body: unknown): number {
+  const raw = (body as { keep?: unknown } | null)?.keep;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_COMPACT_KEEP;
+  return Math.min(500, Math.floor(n));
+}
+
+/**
+ * POST /:id/compact -- drops a stored run's screenshots, keeping the last `keep` of them
+ * (none by default). The steps themselves stay: what a run did is most of what its log is
+ * for, and it is the pictures that make one cost megabytes.
+ */
+router.post('/:id/compact', (req, res) => {
+  const id = Number(req.params.id);
+  const row = db.prepare('SELECT detail, detail_bytes FROM job_logs WHERE id = ?').get(id) as
+    | { detail: string | null; detail_bytes: number | null }
+    | undefined;
+  if (!row) { res.status(404).json({ error: 'Not found' }); return; }
+
+  const compacted = compactStoredDetail(id, row.detail, keepParam(req.body));
+  if (!compacted) {
+    res.json({ dropped: 0, sizeBytes: row.detail_bytes ?? null, freedBytes: 0 });
+    return;
+  }
+  db.prepare('UPDATE job_logs SET detail = ?, detail_bytes = ? WHERE id = ?').run(
+    compacted.detail,
+    compacted.bytes,
+    id,
+  );
+  res.json({
+    dropped: compacted.dropped,
+    sizeBytes: compacted.bytes,
+    freedBytes: Math.max(0, (row.detail_bytes ?? 0) - compacted.bytes),
+  });
+});
+
+/**
+ * POST /bulk-compact -- the same for many rows, or for every row the filters would show.
+ * `ids` names them; `all: true` takes the lot, which is the one that matters to an operator
+ * whose history has already grown.
+ */
+router.post('/bulk-compact', (req, res) => {
+  const body = (req.body ?? {}) as { all?: unknown };
+  const keep = keepParam(req.body);
+  const ids = body.all === true
+    ? (db.prepare("SELECT id FROM job_logs WHERE detail IS NOT NULL").all() as Array<{ id: number }>).map((r) => r.id)
+    : bulkIds(req.body);
+  if (!ids) { res.status(400).json({ error: 'ids array required' }); return; }
+
+  const read = db.prepare('SELECT detail, detail_bytes FROM job_logs WHERE id = ?');
+  const save = db.prepare('UPDATE job_logs SET detail = ?, detail_bytes = ? WHERE id = ?');
+  let changed = 0;
+  let dropped = 0;
+  let freedBytes = 0;
+  // Not one transaction: the files are deleted as it goes, so a rollback could not put them
+  // back and would leave rows pointing at pictures that are gone.
+  for (const id of ids) {
+    const row = read.get(id) as { detail: string | null; detail_bytes: number | null } | undefined;
+    if (!row) continue;
+    const compacted = compactStoredDetail(id, row.detail, keep);
+    if (!compacted) continue;
+    save.run(compacted.detail, compacted.bytes, id);
+    changed++;
+    dropped += compacted.dropped;
+    freedBytes += Math.max(0, (row.detail_bytes ?? 0) - compacted.bytes);
+  }
+  res.json({ changed, dropped, freedBytes });
 });
 
 router.patch('/:id/retire', (req, res) => {

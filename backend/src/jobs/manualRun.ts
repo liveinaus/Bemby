@@ -17,6 +17,7 @@ import { rowToAccount, rowToJob, type JobAccountRow, type JobRow } from "./jobRo
 import { recordJobSuccess } from "./jobSuccess";
 import { refreshScheduler } from "../scheduler";
 import { prepareRunDetail } from "./runDetail";
+import { keepScreenshots } from "../scheduler";
 import type { TgAccount } from "../types";
 
 // Manual ("Run now") job execution, shared by the trigger route and the
@@ -81,13 +82,13 @@ export function startManualJobRun(jobId: number | string): ManualRunStart {
   registerLiveDetail(logId, detailLogs);
   const completion = runJob(job, account, detailLogs, signal)
     .then(() => {
-      const detail = prepareRunDetail(logId, detailLogs);
+      const stored = prepareRunDetail(logId, detailLogs, keepScreenshots());
       const warnings = collectRunWarnings(job.jobType, detailLogs);
       // Only while the row is still open: a cancel that gave up waiting has already
       // settled it, and that verdict is the one the user was shown
       db.prepare(
-        "UPDATE job_logs SET status = 'success', message = ?, detail = ? WHERE id = ? AND status = 'running'",
-      ).run(completedMessage(warnings), detail, logId);
+        "UPDATE job_logs SET status = 'success', message = ?, detail = ?, detail_bytes = ? WHERE id = ? AND status = 'running'",
+      ).run(completedMessage(warnings), stored.detail, stored.bytes, logId);
       // Stamps the success and, for a one-time job, switches it off. A switched-off job
       // still holds a timer from the last refresh, so drop it.
       if (recordJobSuccess(job, ranAt)) refreshScheduler();
@@ -100,10 +101,10 @@ export function startManualJobRun(jobId: number | string): ManualRunStart {
     .catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       const isCancelled = message === "Job cancelled";
-      const detail = prepareRunDetail(logId, detailLogs);
+      const stored = prepareRunDetail(logId, detailLogs, keepScreenshots());
       db.prepare(
-        "UPDATE job_logs SET status = 'failed', message = ?, detail = ? WHERE id = ? AND status = 'running'",
-      ).run(isCancelled ? "Cancelled" : message, detail, logId);
+        "UPDATE job_logs SET status = 'failed', message = ?, detail = ?, detail_bytes = ? WHERE id = ? AND status = 'running'",
+      ).run(isCancelled ? "Cancelled" : message, stored.detail, stored.bytes, logId);
       if (!isCancelled) {
         void notifyJobEvent(
           "failed",

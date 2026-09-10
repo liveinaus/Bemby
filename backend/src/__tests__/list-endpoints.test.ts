@@ -130,7 +130,8 @@ const SCHEMA = `
     message TEXT,
     detail  TEXT,
     retired INTEGER NOT NULL DEFAULT 0,
-    source  TEXT    NOT NULL DEFAULT 'scheduler'
+    source  TEXT    NOT NULL DEFAULT 'scheduler',
+    detail_bytes INTEGER
   );
 `;
 
