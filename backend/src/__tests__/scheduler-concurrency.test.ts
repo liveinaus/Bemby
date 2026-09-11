@@ -12,11 +12,23 @@ vi.mock("../jobs/runner", () => ({
     () => new Promise<void>((resolve) => releaseRun.push(resolve)),
   ),
 }));
+let controllers = new Map<number, AbortController>();
 vi.mock("../jobs/cancellation", () => ({
-  registerJob: vi.fn().mockReturnValue(new AbortController().signal),
+  registerJob: vi.fn((logId: number) => {
+    const ctrl = new AbortController();
+    controllers.set(logId, ctrl);
+    return ctrl.signal;
+  }),
   unregisterJob: vi.fn(),
   registerLiveDetail: vi.fn(),
   clearLiveDetail: vi.fn(),
+  // Stands in for the real abort: the run under test ignores it, which is the case that
+  // used to hold a slot for good
+  cancelJob: vi.fn((logId: number) => {
+    controllers.get(logId)?.abort();
+    return true;
+  }),
+  runningLogIds: vi.fn(() => []),
 }));
 vi.mock("../jobs/notify", () => ({
   getNotifyConfig: vi.fn().mockReturnValue({ events: [], username: null }),
@@ -28,7 +40,7 @@ vi.mock("../jobs/notify", () => ({
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
-import { executeJob } from "../scheduler";
+import { executeJob, runSlotUsage, DEFAULT_MAX_RUN_MINUTES } from "../scheduler";
 import { runJob } from "../jobs/runner";
 import type { Job } from "../types";
 
@@ -92,6 +104,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2024-06-15T08:00:00Z"));
   releaseRun = [];
+  controllers = new Map();
   vi.mocked(runJob).mockClear();
   testDb.exec("DELETE FROM job_logs; DELETE FROM jobs;");
 });
@@ -164,5 +177,66 @@ describe("job execution concurrency cap", () => {
     releaseRun.forEach((release) => release());
     await drain();
     await Promise.all([p1, p2, p3]);
+  });
+});
+
+describe("a run that never comes back", () => {
+  it("gives up its slot at the ceiling instead of wedging the scheduler", async () => {
+    const [j1, j2, j3] = [insertJob(), insertJob(), insertJob()];
+
+    // Two runs that ignore both the abort and the clock -- what a stuck driver call looks like
+    const p1 = executeJob(j1, null);
+    const p2 = executeJob(j2, null);
+    await drain();
+    const p3 = executeJob(j3, null);
+    await drain();
+
+    expect(runJob).toHaveBeenCalledTimes(2);
+    expect(runSlotUsage()).toMatchObject({ held: 2, waiting: 1 });
+
+    // Ceiling passes, the runs are asked to stop, then abandoned after the grace
+    await vi.advanceTimersByTimeAsync(DEFAULT_MAX_RUN_MINUTES * 60_000 + 25_000);
+    await drain();
+
+    // The queued job got its slot rather than waiting behind the two zombies
+    expect(runJob).toHaveBeenCalledTimes(3);
+
+    const failed = testDb
+      .prepare("SELECT message FROM job_logs WHERE status = 'failed' ORDER BY id")
+      .all() as Array<{ message: string }>;
+    expect(failed).toHaveLength(2);
+    expect(failed[0].message).toMatch(/abandoned/i);
+
+    releaseRun.forEach((release) => release());
+    await drain();
+    await Promise.all([p1, p2, p3]);
+  });
+
+  it("gives up its slot shortly after a cancel it ignores", async () => {
+    const [j1, j2] = [insertJob(), insertJob()];
+
+    const p1 = executeJob(j1, null);
+    await drain();
+    expect(runSlotUsage()).toMatchObject({ held: 1 });
+
+    // Operator cancels; the run takes no notice of the signal
+    [...controllers.values()][0].abort();
+    await vi.advanceTimersByTimeAsync(25_000);
+    await drain();
+
+    expect(runSlotUsage()).toMatchObject({ held: 0, waiting: 0 });
+    const row = testDb
+      .prepare("SELECT status, message FROM job_logs WHERE job_id = ?")
+      .get(j1.id) as { status: string; message: string };
+    expect(row).toMatchObject({ status: "failed", message: "Cancelled" });
+
+    // And the next job starts straight away
+    const p2 = executeJob(j2, null);
+    await drain();
+    expect(runJob).toHaveBeenCalledTimes(2);
+
+    releaseRun.forEach((release) => release());
+    await drain();
+    await Promise.all([p1, p2]);
   });
 });

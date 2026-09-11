@@ -3,7 +3,7 @@ let testDb!: InstanceType<typeof Database>;
 vi.mock('../db/database', () => ({ get db() { return testDb; } }));
 vi.mock('../jobs/runner', () => ({ runJob: vi.fn() }));
 vi.mock('../jobs/cancellation', () => ({
-  registerJob: vi.fn().mockReturnValue(new AbortController().signal),
+  registerJob: vi.fn(() => new AbortController().signal),
   unregisterJob: vi.fn(),
   registerLiveDetail: vi.fn(),
   clearLiveDetail: vi.fn(),
@@ -292,5 +292,64 @@ describe('what a run leaves behind', () => {
       (testDb.prepare('SELECT last_success_at FROM jobs WHERE id = ?').get(id) as
         { last_success_at: string | null }).last_success_at,
     ).toBeNull();
+  });
+});
+
+describe('a run the day owes', () => {
+  // The wedge case: timers fired, the runs never happened, and by the time the process comes
+  // back the window has closed -- which used to put every missed job on tomorrow.
+  const afterWindow = `${BASE_DATE}T13:00:00Z`;
+
+  it('places a missed run in the rest of the day, past the closed window', async () => {
+    const id = insertJob({ nextRunAt: `${BASE_DATE}T10:30:00.000Z` });
+    vi.setSystemTime(new Date(afterWindow));
+
+    const scheduler = await restartScheduler();
+    scheduler.refreshScheduler();
+
+    // 13:01, not 10:00 tomorrow: the window is 10:00-12:00 and long shut
+    expect(storedPlan(id)).toBe(`${BASE_DATE}T13:01:00.000Z`);
+  });
+
+  it('leaves a job that already ran today alone', async () => {
+    const id = insertJob({
+      nextRunAt: `${BASE_DATE}T10:30:00.000Z`,
+      lastSuccessAt: `${BASE_DATE}T10:30:00.000Z`,
+    });
+    vi.setSystemTime(new Date(afterWindow));
+
+    const scheduler = await restartScheduler();
+    scheduler.refreshScheduler();
+
+    // Its run happened, so the plan goes to tomorrow's window as usual
+    expect(storedPlan(id)?.startsWith('2024-06-16T10:00')).toBe(true);
+  });
+
+  it('does not catch up a plan that belongs to an earlier day', async () => {
+    // Days down, not a wedge: the interval decides, so it must not fire tonight
+    const id = insertJob({ nextRunAt: '2024-06-13T10:30:00.000Z' });
+    vi.setSystemTime(new Date(afterWindow));
+
+    const scheduler = await restartScheduler();
+    scheduler.refreshScheduler();
+
+    expect(storedPlan(id)?.startsWith('2024-06-16T10:00')).toBe(true);
+  });
+
+  it('staggers the caught-up runs instead of stacking them on one minute', async () => {
+    const ids = [1, 2, 3].map(() => insertJob({ nextRunAt: `${BASE_DATE}T10:30:00.000Z` }));
+    vi.setSystemTime(new Date(afterWindow));
+
+    const scheduler = await restartScheduler();
+    scheduler.refreshScheduler();
+
+    const plans = ids.map((id) => storedPlan(id));
+    expect(new Set(plans).size).toBe(3);
+    // Every pair at least the 2-minute default gap apart
+    const minutes = plans
+      .map((p) => new Date(p!).getTime())
+      .sort((a, b) => a - b);
+    expect(minutes[1] - minutes[0]).toBeGreaterThanOrEqual(2 * 60_000);
+    expect(minutes[2] - minutes[1]).toBeGreaterThanOrEqual(2 * 60_000);
   });
 });

@@ -21,6 +21,8 @@ import {
   unregisterJob,
   registerLiveDetail,
   clearLiveDetail,
+  cancelJob,
+  runningLogIds,
 } from "./jobs/cancellation";
 import { toMinutes, pickNextRun } from "./scheduler-utils";
 import { collectRunWarnings, completedMessage } from "./jobs/runWarnings";
@@ -94,19 +96,140 @@ const MAX_CONCURRENT_JOBS = 2;
 let runningJobs = 0;
 const waitingJobs: Array<() => void> = [];
 
-async function acquireRunSlot(): Promise<void> {
+/**
+ * A job that has waited this long for a slot says the runs ahead of it are not coming back.
+ * Two stuck runs fill the cap and every later job queues silently behind them, so the
+ * scheduler looks idle when it is actually wedged -- this is what puts that in the log.
+ */
+const SLOT_WAIT_WARN_MS = 10 * 60 * 1000;
+
+async function acquireRunSlot(jobName: string): Promise<void> {
   if (runningJobs < MAX_CONCURRENT_JOBS) {
     runningJobs++;
     return;
   }
+  const warn = setTimeout(() => {
+    console.warn(
+      `[scheduler] "${jobName}" has waited ${SLOT_WAIT_WARN_MS / 60_000} min for one of ` +
+        `${MAX_CONCURRENT_JOBS} run slot(s); ${waitingJobs.length} job(s) queued behind ` +
+        `run(s) ${runningLogIds().join(", ") || "(none registered)"}`,
+    );
+  }, SLOT_WAIT_WARN_MS);
+  warn.unref?.();
   // Slot is handed over directly by releaseRunSlot, so no counter change here
   await new Promise<void>((resolve) => waitingJobs.push(resolve));
+  clearTimeout(warn);
 }
 
 function releaseRunSlot(): void {
   const next = waitingJobs.shift();
   if (next) next();
   else runningJobs--;
+}
+
+/** How the run slots are doing; served at GET /api/status/slots. */
+export function runSlotUsage(): {
+  held: number;
+  waiting: number;
+  max: number;
+} {
+  return {
+    held: runningJobs,
+    waiting: waitingJobs.length,
+    max: MAX_CONCURRENT_JOBS,
+  };
+}
+
+export const DEFAULT_MAX_RUN_MINUTES = 120;
+const MAX_MAX_RUN_MINUTES = 24 * 60;
+
+/**
+ * Wall-clock ceiling on one run. Aborting is cooperative and not every wait takes notice of
+ * it, so a run sitting in a driver or network call that never returns would otherwise hold
+ * its slot for the life of the process. Well clear of any real run -- a watch job's budget
+ * is minutes -- so reaching it means the run is not coming back.
+ */
+export function getMaxRunMinutes(): number {
+  const row = db
+    .prepare("SELECT value FROM settings WHERE key = 'max_run_minutes'")
+    .get() as { value: string } | undefined;
+  if (row?.value == null || row.value === "") return DEFAULT_MAX_RUN_MINUTES;
+  const n = Number(row.value);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_MAX_RUN_MINUTES;
+  return Math.min(MAX_MAX_RUN_MINUTES, Math.floor(n));
+}
+
+/**
+ * How long a run has to unwind after being asked to stop before its slot is taken back.
+ * Matches the grace the cancel endpoint gives the row, so a run marked force stopped there
+ * stops occupying the cap at about the same moment.
+ */
+const DETACH_GRACE_MS = 20_000;
+
+/**
+ * Awaits a run, but gives up on it rather than holding its slot forever.
+ *
+ * Whichever comes first -- an operator cancel that the run ignores, or the run passing its
+ * ceiling -- the run is asked to stop, given a grace period, and then abandoned. The promise
+ * is left to settle whenever it likes; its late writes are already no-ops, because every
+ * update below is guarded on the row still being 'running'.
+ */
+function awaitRunBounded(
+  run: Promise<void>,
+  signal: AbortSignal,
+  logId: number,
+  jobName: string,
+): Promise<void> {
+  // Read once, so the limit the messages quote is the one that was actually applied
+  const limitMinutes = getMaxRunMinutes();
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+    const finish = (err?: unknown) => {
+      if (settled) return;
+      settled = true;
+      for (const timer of timers) clearTimeout(timer);
+      if (err === undefined) resolve();
+      else reject(err);
+    };
+    // Attached now, so an abandoned run rejecting later is still a handled rejection
+    Promise.resolve(run).then(() => finish(), finish);
+
+    let overran = false;
+    const detachAfterGrace = () => {
+      const timer = setTimeout(() => {
+        console.warn(
+          `[scheduler] "${jobName}" (run ${logId}) did not stop when asked; ` +
+            `abandoning it so its run slot is not held`,
+        );
+        finish(
+          new Error(
+            overran
+              ? `Run abandoned after passing the ${limitMinutes} minute limit`
+              : "Job cancelled",
+          ),
+        );
+      }, DETACH_GRACE_MS);
+      timer.unref?.();
+      timers.push(timer);
+    };
+
+    if (signal.aborted) detachAfterGrace();
+    else signal.addEventListener("abort", detachAfterGrace, { once: true });
+
+    const ceiling = setTimeout(() => {
+      overran = true;
+      console.warn(
+        `[scheduler] "${jobName}" (run ${logId}) passed its ${limitMinutes} minute ` +
+          `limit; asking it to stop`,
+      );
+      // Unwinds the cooperative waits and closes the run's browsers; the abort listener
+      // above then arms the grace, so this settles either way
+      cancelJob(logId);
+    }, limitMinutes * 60_000);
+    ceiling.unref?.();
+    timers.push(ceiling);
+  });
 }
 
 /**
@@ -369,7 +492,7 @@ export async function executeJob(
   job: Job,
   account: TgAccount | null,
 ): Promise<void> {
-  await acquireRunSlot();
+  await acquireRunSlot(job.name);
   const detailLogs: JobDetailLog[] = [];
   let logId: number | bigint | undefined;
   let succeeded = false;
@@ -437,7 +560,12 @@ export async function executeJob(
         account = { ...account, sessionString: decryptSecret(fresh.session_string) };
     }
 
-    await runJob(job, account, detailLogs, signal);
+    await awaitRunBounded(
+      runJob(job, account, detailLogs, signal),
+      signal,
+      Number(logId),
+      job.name,
+    );
     const stored = prepareRunDetail(logId, detailLogs, keepScreenshots());
     // Warnings ride along with a successful run: the job completed, so failing it
     // would be wrong, but the log should say what didn't work.
@@ -503,6 +631,7 @@ function armRun(
   account: TgAccount | null,
   timezone: string,
   nextRun: DateTime,
+  catchUp = false,
 ): void {
   const existing = schedule.get(job.id);
   if (existing) clearTimeout(existing.timer);
@@ -529,11 +658,17 @@ function armRun(
   persistNextRun(job.id, nextRun.toUTC().toISO());
 
   console.log(
-    `[scheduler] "${job.name}" next run: ${nextRun.toISO()} (in ${Math.round(delayMs / 60_000)} min)`,
+    `[scheduler] "${job.name}"${catchUp ? " catching up today's missed run;" : ""} ` +
+      `next run: ${nextRun.toISO()} (in ${Math.round(delayMs / 60_000)} min)`,
   );
 }
 
-function scheduleOne(job: Job, account: TgAccount | null, daysAhead = 0): void {
+function scheduleOne(
+  job: Job,
+  account: TgAccount | null,
+  daysAhead = 0,
+  catchUp = false,
+): void {
   // Stagger away from every other job's slot so runs don't pile into the
   // same minute (issue #10)
   const occupied = Array.from(schedule.values())
@@ -546,9 +681,32 @@ function scheduleOne(job: Job, account: TgAccount | null, daysAhead = 0): void {
     job.scheduleWindowEnd,
     timezone,
     daysAhead,
-    { occupied, gapMinutes: getScheduleGapMinutes() },
+    { occupied, gapMinutes: getScheduleGapMinutes(), catchUp },
   );
-  armRun(job, account, timezone, nextRun);
+  armRun(job, account, timezone, nextRun, catchUp);
+}
+
+/**
+ * Whether today's run was promised and never happened.
+ *
+ * The stored plan is the promise: a run that went ahead rewrites it on the way out, so a plan
+ * still sitting in today's past means the run was lost -- the process was killed mid-day, or
+ * it wedged. Guarded on the success stamp so a job that did run today is never sent again.
+ */
+function missedTodaysRun(jobId: number, tz: string): boolean {
+  const stored = storedNextRun(jobId);
+  if (!stored) return false;
+  const today = DateTime.now().setZone(tz).startOf("day");
+  const planned = stored.setZone(tz);
+  if (planned >= DateTime.now() || !planned.startOf("day").equals(today))
+    return false;
+
+  const ranAt = lastSuccessAt(jobId);
+  if (!ranAt) return true;
+  return !DateTime.fromISO(ranAt, { zone: "utc" })
+    .setZone(tz)
+    .startOf("day")
+    .equals(today);
 }
 
 function refreshJobs(): void {
@@ -584,6 +742,12 @@ function refreshJobs(): void {
         planFitsWindow(job, stored, resolvedTz)
       ) {
         armRun(job, account, resolvedTz, stored.setZone(resolvedTz));
+        continue;
+      }
+      // A plan for today that came and went is a run the day still owes; place it in what is
+      // left of the day rather than letting the closed window push it to tomorrow.
+      if (missedTodaysRun(job.id, resolvedTz)) {
+        scheduleOne(job, account, 0, true);
         continue;
       }
       // No plan, or one whose moment has passed while the process was down -- fall back to

@@ -13,7 +13,7 @@ vi.mock("../db/database", () => ({
 }));
 vi.mock("../jobs/runner", () => ({ runJob: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../jobs/cancellation", () => ({
-  registerJob: vi.fn().mockReturnValue(new AbortController().signal),
+  registerJob: vi.fn(() => new AbortController().signal),
   unregisterJob: vi.fn(),
   registerLiveDetail: vi.fn(),
   clearLiveDetail: vi.fn(),

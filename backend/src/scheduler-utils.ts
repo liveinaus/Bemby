@@ -9,7 +9,14 @@ export type PickNextRunOptions = {
   occupied?: number[];
   /** Minimum spacing from occupied slots, in minutes. 0 disables staggering. */
   gapMinutes?: number;
+  /**
+   * Placing a run that was due earlier today and never happened. What is left of the window
+   * is no room for a day's worth of missed runs, so the rest of the day is used instead.
+   */
+  catchUp?: boolean;
 };
+
+const MINUTES_IN_DAY = 24 * 60;
 
 const MAX_RANDOM_ATTEMPTS = 20;
 
@@ -79,6 +86,10 @@ export function pickNextRun(
 
   if (daysAhead === 0) {
     if (nowMin < startMin) return pickMinute(now, startMin, endMin, options);
+    // A catch-up run is already late, so it takes the rest of the day rather than the sliver
+    // of window that is left -- dropping it to tomorrow is what loses the run entirely
+    if (options.catchUp && nowMin + 1 < MINUTES_IN_DAY)
+      return pickMinute(now, nowMin + 1, MINUTES_IN_DAY, options);
     if (nowMin + 1 < endMin)
       return pickMinute(now, nowMin + 1, endMin, options);
     // Past window or under a minute left -- schedule tomorrow

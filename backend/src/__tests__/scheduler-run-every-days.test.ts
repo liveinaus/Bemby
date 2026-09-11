@@ -3,7 +3,7 @@ let testDb!: InstanceType<typeof Database>;
 vi.mock('../db/database', () => ({ get db() { return testDb; } }));
 vi.mock('../jobs/runner', () => ({ runJob: vi.fn() }));
 vi.mock('../jobs/cancellation', () => ({
-  registerJob: vi.fn().mockReturnValue(new AbortController().signal),
+  registerJob: vi.fn(() => new AbortController().signal),
   unregisterJob: vi.fn(),
   registerLiveDetail: vi.fn(),
   clearLiveDetail: vi.fn(),

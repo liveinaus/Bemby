@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSchedulerStatus, skipNextRun } from '../scheduler';
+import { getSchedulerStatus, skipNextRun, runSlotUsage } from '../scheduler';
 import { memoryReport } from '../monitor/memory';
 import {
   readSystemLog,
@@ -32,6 +32,12 @@ router.post('/skip/:jobId', (req, res) => {
 // Separate path so the schedule list above keeps returning a bare array
 router.get('/memory', (req, res) => {
   res.json(memoryReport());
+});
+
+// Held at the cap with jobs waiting and nothing finishing is what a wedged scheduler looks
+// like from outside -- worth being able to read without going through the log
+router.get('/slots', (req, res) => {
+  res.json(runSlotUsage());
 });
 
 const LOG_LEVELS = ['debug', 'log', 'info', 'warn', 'error'] as const;

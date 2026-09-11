@@ -22,7 +22,7 @@ vi.mock("../jobs/notify", () => ({
   getNotifyConfig: vi.fn().mockReturnValue({ events: [], username: null }),
 }));
 vi.mock("../jobs/cancellation", () => ({
-  registerJob: vi.fn().mockReturnValue(new AbortController().signal),
+  registerJob: vi.fn(() => new AbortController().signal),
   unregisterJob: vi.fn(),
   registerLiveDetail: vi.fn(),
   clearLiveDetail: vi.fn(),

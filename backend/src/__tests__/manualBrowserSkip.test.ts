@@ -19,7 +19,7 @@ vi.mock("../db/database", () => ({ db: { prepare: mockPrepare } }));
 vi.mock("../jobs/runner", () => ({ runJob: vi.fn() }));
 vi.mock("../jobs/manualBrowser", () => ({ manualSessionJobId: manualJobId }));
 vi.mock("../jobs/cancellation", () => ({
-  registerJob: vi.fn().mockReturnValue(new AbortController().signal),
+  registerJob: vi.fn(() => new AbortController().signal),
   unregisterJob: vi.fn(),
   registerLiveDetail: vi.fn(),
   clearLiveDetail: vi.fn(),

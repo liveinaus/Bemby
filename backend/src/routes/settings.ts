@@ -149,6 +149,8 @@ export const ALLOWED_KEYS = [
   "log_retention_days",
   "log_keep_screenshots",
   "schedule_min_gap_minutes",
+  // Wall-clock ceiling on one run, after which its slot is taken back
+  "max_run_minutes",
   "cf_solver_enabled",
   CF_PROFILE_ID_KEY,
   CF_BROWSER_LANG_KEY,
