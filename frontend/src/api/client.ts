@@ -2174,6 +2174,7 @@ export type Settings = {
   log_retention_days?: string;
   /** Minimum minutes between scheduled runs; "0" disables staggering. */
   schedule_min_gap_minutes?: string;
+  max_concurrent_jobs?: string;
   /** "true" once the user has enabled the on-demand Cloudflare solver. */
   cf_solver_enabled?: string;
   /** Server-computed: "true" when the Cloudflare-solver browser is installed. */

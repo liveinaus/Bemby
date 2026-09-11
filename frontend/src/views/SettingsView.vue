@@ -1173,6 +1173,23 @@
               {{ t("settings.scheduleGapHint") }}
             </p>
           </div>
+          <div class="form-group">
+            <label class="form-label">{{
+              t("settings.labelMaxConcurrent")
+            }}</label>
+            <input
+              v-model.number="maxConcurrentJobs"
+              class="form-input"
+              type="number"
+              min="1"
+              max="20"
+              style="max-width: 160px"
+              @change="saveMaxConcurrent"
+            />
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
+              {{ t("settings.maxConcurrentHint") }}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -4429,6 +4446,11 @@ onMounted(async () => {
         ? Math.max(0, Number(s.schedule_min_gap_minutes) || 0)
         : 2;
     scheduleGapSaved = scheduleGapMinutes.value;
+    maxConcurrentJobs.value =
+      s.max_concurrent_jobs != null && s.max_concurrent_jobs !== ""
+        ? Math.min(20, Math.max(1, Number(s.max_concurrent_jobs) || 2))
+        : 2;
+    maxConcurrentSaved = maxConcurrentJobs.value;
     form.default_ua = s.default_ua ?? "";
     try {
       uaPresets.value = JSON.parse(s.ua_presets ?? "[]");
@@ -4985,6 +5007,25 @@ async function saveScheduleGap() {
     scheduleGapSaved = value;
   } catch {
     scheduleGapMinutes.value = scheduleGapSaved;
+  }
+}
+
+const maxConcurrentJobs = ref(2);
+let maxConcurrentSaved = 2;
+
+async function saveMaxConcurrent() {
+  // Blank or nonsense falls back to the default rather than to 0, which would stop every job
+  const value = Math.min(
+    20,
+    Math.max(1, Math.floor(Number(maxConcurrentJobs.value) || 2)),
+  );
+  maxConcurrentJobs.value = value;
+  if (value === maxConcurrentSaved) return;
+  try {
+    await settingsApi.update({ max_concurrent_jobs: String(value) });
+    maxConcurrentSaved = value;
+  } catch {
+    maxConcurrentJobs.value = maxConcurrentSaved;
   }
 }
 

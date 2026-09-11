@@ -31,6 +31,7 @@ Scheduled runs keep their dates across an upgrade, run logs stop filling the dat
 
 **新功能**
 
+- **同时运行上限可在设置中调整** -- 「任务错峰」下新增<strong>同时运行上限</strong>，默认 2，可设 1-20。此前写死为 2，是整套调度吞吐的实际上限：需要补跑的任务再多，也只能两个两个来。修改立即生效，调高时正在排队的任务马上开始，调低则等当前运行自然结束，不会中断。每个运行都可能占用一个浏览器和一条 Telegram 连接，调高会明显增加内存与 CPU 占用。
 - **日志大小与精简** -- 日志列表新增<strong>大小</strong>列（每次运行占用的空间，含截图文件），工具栏显示当前筛选结果的合计。可精简单条（日志行上的压缩图标）、所选多条（批量操作栏）或全部（工具栏按钮），并指定保留最近几张截图（0 表示全部删除）；步骤记录始终保留，只删截图。新增设置<strong>每次运行保留的截图数</strong>，对之后的运行生效；留空则仅按体积上限裁剪。
 
 ### English
@@ -54,6 +55,7 @@ Scheduled runs keep their dates across an upgrade, run logs stop filling the dat
 
 **Features**
 
+- **The simultaneous run cap is now a setting** -- <strong>Maximum simultaneous runs</strong> under Job Staggering, default 2, up to 20. It was hard-coded at 2, which is the real ceiling on how much the scheduler gets through: however many runs are owed, they go two at a time. Changes apply straight away -- raising it starts the jobs already queued, lowering it lets the runs over the new cap finish rather than cutting them off. Each run can hold a browser and a Telegram connection, so raising it costs memory and CPU.
 - **Log size and compacting** -- the log list has a <strong>Size</strong> column for what each run costs, screenshot files included, and a total in the toolbar for whatever the filters match. One row (the compress icon), a selection (the bulk bar) or all of them (the toolbar button) can be compacted, keeping however many of the most recent screenshots you ask for, where 0 drops them all; what each step did is always kept. A new <strong>Screenshots to keep per run</strong> setting applies the same trim to future runs, and left blank they are bounded by size alone.
 
 ---

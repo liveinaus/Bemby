@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db/database";
-import { refreshScheduler, purgeOldLogs } from "../scheduler";
+import { refreshScheduler, purgeOldLogs, admitWaitingRuns } from "../scheduler";
 import { isBulkAccountManagementEnabled } from "../jobs/bulkAdd";
 import { isDataManagementEnabled } from "../db/dataStore";
 import {
@@ -149,6 +149,7 @@ export const ALLOWED_KEYS = [
   "log_retention_days",
   "log_keep_screenshots",
   "schedule_min_gap_minutes",
+  "max_concurrent_jobs",
   // Wall-clock ceiling on one run, after which its slot is taken back
   "max_run_minutes",
   "cf_solver_enabled",
@@ -455,6 +456,9 @@ router.put("/", (req, res) => {
 
   // Apply a tightened retention window straight away
   if ("log_retention_days" in updates) purgeOldLogs();
+
+  // A raised cap lets the jobs already queued start now rather than at the next release
+  if ("max_concurrent_jobs" in updates) admitWaitingRuns();
 
   // Drop the cached timings so the next job picks the new ones up without a restart
   if (CF_TUNING_KEY in updates) invalidateCfTuning();

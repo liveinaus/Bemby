@@ -92,7 +92,33 @@ export function getScheduleGapMinutes(): number {
 
 // Cap on simultaneous job executions -- colliding timers queue instead of
 // thundering the Telegram client all at once.
-const MAX_CONCURRENT_JOBS = 2;
+export const DEFAULT_MAX_CONCURRENT_JOBS = 2;
+const MAX_MAX_CONCURRENT_JOBS = 20;
+
+/**
+ * How many runs may be in flight at once. Read per acquire rather than cached, so a change
+ * in Settings applies to the next job without a restart. Every run can hold a browser and a
+ * Telegram connection, so the ceiling is there to stop a typo asking for hundreds.
+ */
+export function getMaxConcurrentJobs(): number {
+  let raw: string | undefined;
+  try {
+    raw = (
+      db
+        .prepare("SELECT value FROM settings WHERE key = 'max_concurrent_jobs'")
+        .get() as { value: string } | undefined
+    )?.value;
+  } catch {
+    // This is read on the way into every run, before the run's own error handling -- a
+    // settings read that fails must not be what stops the scheduler
+    return DEFAULT_MAX_CONCURRENT_JOBS;
+  }
+  if (raw == null || raw === "") return DEFAULT_MAX_CONCURRENT_JOBS;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return DEFAULT_MAX_CONCURRENT_JOBS;
+  return Math.min(MAX_MAX_CONCURRENT_JOBS, Math.max(1, Math.floor(n)));
+}
+
 let runningJobs = 0;
 const waitingJobs: Array<() => void> = [];
 
@@ -104,27 +130,41 @@ const waitingJobs: Array<() => void> = [];
 const SLOT_WAIT_WARN_MS = 10 * 60 * 1000;
 
 async function acquireRunSlot(jobName: string): Promise<void> {
-  if (runningJobs < MAX_CONCURRENT_JOBS) {
+  if (runningJobs < getMaxConcurrentJobs()) {
     runningJobs++;
     return;
   }
   const warn = setTimeout(() => {
     console.warn(
       `[scheduler] "${jobName}" has waited ${SLOT_WAIT_WARN_MS / 60_000} min for one of ` +
-        `${MAX_CONCURRENT_JOBS} run slot(s); ${waitingJobs.length} job(s) queued behind ` +
+        `${getMaxConcurrentJobs()} run slot(s); ${waitingJobs.length} job(s) queued behind ` +
         `run(s) ${runningLogIds().join(", ") || "(none registered)"}`,
     );
   }, SLOT_WAIT_WARN_MS);
   warn.unref?.();
-  // Slot is handed over directly by releaseRunSlot, so no counter change here
+  // The count is raised by admitWaitingRuns as it hands this one over, so it never dips
   await new Promise<void>((resolve) => waitingJobs.push(resolve));
   clearTimeout(warn);
 }
 
 function releaseRunSlot(): void {
-  const next = waitingJobs.shift();
-  if (next) next();
-  else runningJobs--;
+  runningJobs--;
+  admitWaitingRuns();
+}
+
+/**
+ * Starts as many queued runs as the cap now allows.
+ *
+ * Also called when the cap is raised in Settings, so the jobs already queued go at once
+ * instead of waiting for a run to finish. Lowering it starts nothing: the runs over the new
+ * cap are left to finish on their own rather than being cut off.
+ */
+export function admitWaitingRuns(): void {
+  const max = getMaxConcurrentJobs();
+  while (waitingJobs.length && runningJobs < max) {
+    runningJobs++;
+    waitingJobs.shift()!();
+  }
 }
 
 /** How the run slots are doing; served at GET /api/status/slots. */
@@ -136,7 +176,7 @@ export function runSlotUsage(): {
   return {
     held: runningJobs,
     waiting: waitingJobs.length,
-    max: MAX_CONCURRENT_JOBS,
+    max: getMaxConcurrentJobs(),
   };
 }
 
@@ -641,7 +681,12 @@ function armRun(
   let timer!: ReturnType<typeof setTimeout>;
   armLongTimeout(
     delayMs,
-    () => executeJob(job, account),
+    // Nothing awaits the timer, so an error escaping executeJob would be an unhandled
+    // rejection -- which on a process started with --unhandled-rejections=strict is fatal
+    () =>
+      void executeJob(job, account).catch((err: unknown) => {
+        console.error(`[scheduler] "${job.name}" run could not be started:`, err);
+      }),
     (t) => {
       timer = t;
       const entry = schedule.get(job.id);

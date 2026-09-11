@@ -1858,6 +1858,9 @@ const zh = {
     labelScheduleGap: "最小间隔（分钟）",
     scheduleGapHint:
       "自动错开各任务的运行时间，至少间隔该分钟数，避免多个任务在同一分钟并发执行。0 表示关闭，已排定的任务在下次调度时生效。",
+    labelMaxConcurrent: "同时运行上限",
+    maxConcurrentHint:
+      "同一时刻最多并行执行多少个任务，其余的排队等待，默认 2，可设 1-20。每个运行都可能占用一个浏览器和一条 Telegram 连接，调高会明显增加内存与 CPU 占用。修改立即生效：调高时正在排队的任务会马上开始，调低则等当前运行自然结束，不会中断。",
     embyDefaults: "Emby 观看默认值",
     memorySection: "内存使用",
     memoryCurrent: "当前占用 (RSS)",
@@ -4522,6 +4525,9 @@ const en: typeof zh = {
     labelScheduleGap: "Minimum gap (minutes)",
     scheduleGapHint:
       "Automatically spaces scheduled jobs at least this many minutes apart so they don't run in the same minute. 0 disables; already-scheduled jobs pick it up at their next scheduling.",
+    labelMaxConcurrent: "Maximum simultaneous runs",
+    maxConcurrentHint:
+      "How many jobs may run at the same time; the rest queue and start as slots free up. Default 2, up to 20. Each run can hold a browser and a Telegram connection, so raising this costs memory and CPU. It applies straight away: raising it starts the jobs already queued, lowering it lets the runs over the new cap finish rather than cutting them off.",
     embyDefaults: "Emby Watch Defaults",
     memorySection: "Memory Usage",
     memoryCurrent: "Current (RSS)",

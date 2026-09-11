@@ -40,7 +40,12 @@ vi.mock("../jobs/notify", () => ({
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
-import { executeJob, runSlotUsage, DEFAULT_MAX_RUN_MINUTES } from "../scheduler";
+import {
+  executeJob,
+  runSlotUsage,
+  admitWaitingRuns,
+  DEFAULT_MAX_RUN_MINUTES,
+} from "../scheduler";
 import { runJob } from "../jobs/runner";
 import type { Job } from "../types";
 
@@ -106,7 +111,7 @@ beforeEach(() => {
   releaseRun = [];
   controllers = new Map();
   vi.mocked(runJob).mockClear();
-  testDb.exec("DELETE FROM job_logs; DELETE FROM jobs;");
+  testDb.exec("DELETE FROM job_logs; DELETE FROM jobs; DELETE FROM settings;");
 });
 
 afterEach(() => {
@@ -238,5 +243,87 @@ describe("a run that never comes back", () => {
     releaseRun.forEach((release) => release());
     await drain();
     await Promise.all([p1, p2]);
+  });
+});
+
+describe("the cap is what Settings says", () => {
+  const setCap = (value: string) =>
+    testDb
+      .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('max_concurrent_jobs', ?)")
+      .run(value);
+
+  it("runs more at once when the cap is raised", async () => {
+    setCap("4");
+    const jobs = [insertJob(), insertJob(), insertJob(), insertJob(), insertJob()];
+
+    const runs = jobs.map((job) => executeJob(job, null));
+    await drain();
+
+    expect(runJob).toHaveBeenCalledTimes(4);
+    expect(runSlotUsage()).toMatchObject({ held: 4, waiting: 1, max: 4 });
+
+    releaseRun.forEach((release) => release());
+    await drain();
+    releaseRun.forEach((release) => release());
+    await drain();
+    await Promise.all(runs);
+  });
+
+  it("starts the queued jobs as soon as the cap is raised", async () => {
+    const jobs = [insertJob(), insertJob(), insertJob(), insertJob()];
+    const runs = jobs.map((job) => executeJob(job, null));
+    await drain();
+    expect(runJob).toHaveBeenCalledTimes(2);
+
+    // What the settings route does on save -- no restart, no waiting for a run to finish
+    setCap("4");
+    admitWaitingRuns();
+    await drain();
+
+    expect(runJob).toHaveBeenCalledTimes(4);
+
+    releaseRun.forEach((release) => release());
+    await drain();
+    await Promise.all(runs);
+  });
+
+  it("lets the runs over a lowered cap finish instead of cutting them off", async () => {
+    setCap("3");
+    const jobs = [insertJob(), insertJob(), insertJob(), insertJob()];
+    const runs = jobs.map((job) => executeJob(job, null));
+    await drain();
+    expect(runSlotUsage()).toMatchObject({ held: 3, waiting: 1 });
+
+    setCap("1");
+    // The three in flight keep going; releasing one does not start the queued job, because
+    // two are still over the new cap
+    releaseRun[0]();
+    await drain();
+    expect(runJob).toHaveBeenCalledTimes(3);
+    expect(runSlotUsage()).toMatchObject({ held: 2, max: 1 });
+
+    releaseRun[1]();
+    releaseRun[2]();
+    await drain();
+    expect(runJob).toHaveBeenCalledTimes(4);
+
+    releaseRun.forEach((release) => release());
+    await drain();
+    await Promise.all(runs);
+  });
+
+  it("falls back to the default when the setting is nonsense", async () => {
+    setCap("not a number");
+    const jobs = [insertJob(), insertJob(), insertJob()];
+    const runs = jobs.map((job) => executeJob(job, null));
+    await drain();
+
+    expect(runSlotUsage()).toMatchObject({ held: 2, max: 2 });
+
+    releaseRun.forEach((release) => release());
+    await drain();
+    releaseRun.forEach((release) => release());
+    await drain();
+    await Promise.all(runs);
   });
 });
