@@ -2779,6 +2779,112 @@
         </div>
       </div>
 
+      <!-- Which accounts hold a Telegram connection. A connection is several MB of state,
+           and one a finished job never let go of is what this makes visible -->
+      <div class="card">
+        <div class="card-body">
+          <div class="card-section-title">{{ t("settings.tgPoolSection") }}</div>
+
+          <div class="form-group">
+            <label class="form-label">{{ t("settings.labelTgClientMax") }}</label>
+            <input
+              v-model.number="tgClientMax"
+              class="form-input"
+              type="number"
+              min="1"
+              max="50"
+              style="max-width: 160px"
+              @change="saveTgClientMax"
+            />
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
+              {{ t("settings.tgClientMaxHint") }}
+            </p>
+          </div>
+
+          <div v-if="tgPoolLoading" style="color: var(--text-muted); font-size: 13px">
+            {{ t("common.loading") }}
+          </div>
+          <template v-else-if="tgPool">
+            <div class="mem-rows">
+              <div class="mem-row">
+                <span>{{ t("settings.tgPoolConnected") }}</span>
+                <strong>{{ tgPool.clients.length }} / {{ tgPool.max }}</strong>
+              </div>
+            </div>
+            <div
+              v-if="!tgPool.clients.length"
+              style="color: var(--text-muted); font-size: 13px; margin-top: 8px"
+            >
+              {{ t("settings.tgPoolNone") }}
+            </div>
+            <div v-else class="table-wrap" style="margin-top: 10px">
+            <table>
+              <thead>
+                <tr>
+                  <th>{{ t("settings.tgPoolAccount") }}</th>
+                  <th>{{ t("settings.tgPoolState") }}</th>
+                  <th>{{ t("settings.tgPoolHeldBy") }}</th>
+                  <th>{{ t("settings.tgPoolIdle") }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in tgPool.clients" :key="c.accountId">
+                  <td>{{ c.accountName }}</td>
+                  <td>
+                    <span :class="c.connected ? 'badge badge-green' : 'badge badge-orange'">
+                      {{ c.connected ? c.syncState : t("settings.tgPoolOffline") }}
+                    </span>
+                  </td>
+                  <td>
+                    <span v-if="c.viewers">{{
+                      t("settings.tgPoolViewers").replace("{n}", String(c.viewers))
+                    }}</span>
+                    <span v-if="c.viewers && c.leases">, </span>
+                    <!-- A lease older than any run could be is one a hung job never gave back -->
+                    <span
+                      v-if="c.leases"
+                      :style="
+                        (c.oldestLeaseSeconds ?? 0) > 3600
+                          ? { color: 'var(--warning)', fontWeight: 600 }
+                          : undefined
+                      "
+                    >
+                      {{ t("settings.tgPoolLeases").replace("{n}", String(c.leases)) }}
+                      <template v-if="c.oldestLeaseSeconds != null">
+                        ({{ formatDuration(c.oldestLeaseSeconds) }})
+                      </template>
+                    </span>
+                    <span v-if="!c.viewers && !c.leases" style="color: var(--text-muted)">
+                      {{ t("settings.tgPoolIdleHolder") }}
+                    </span>
+                  </td>
+                  <td>{{ formatDuration(c.idleSeconds) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            </div>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 8px 0 0">
+              {{
+                t("settings.tgPoolHint").replace(
+                  "{n}",
+                  String(tgPool.idleDisconnectMinutes),
+                )
+              }}
+            </p>
+          </template>
+          <div v-else class="error-msg">{{ t("settings.tgPoolUnavailable") }}</div>
+
+          <button
+            class="btn btn-ghost btn-sm"
+            style="margin-top: 10px"
+            :disabled="tgPoolLoading"
+            @click="loadTgPool"
+          >
+            <i class="fa-solid fa-rotate"></i> {{ t("common.refresh") }}
+          </button>
+        </div>
+      </div>
+
       <!-- What is running, and whether a newer build is out. Reporting only: taking the
            update is a pull and a recreate on whatever runs the container -->
       <div class="card">
@@ -3007,6 +3113,7 @@ import {
 } from "../api/client";
 import type {
   MemoryReport,
+  TgClientPool,
   ExportPayload,
   EncryptedEnvelope,
   Settings,
@@ -4319,6 +4426,48 @@ const crashText = computed(() => {
     .replace("{at}", new Date(c.at).toLocaleString());
 });
 
+const tgPool = ref<TgClientPool | null>(null);
+const tgPoolLoading = ref(true);
+const tgClientMax = ref(8);
+let tgClientMaxSaved = 8;
+
+/** Seconds as a short age, so a leaked lease reads as "3h" rather than 10800. */
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  return `${Math.round((seconds / 3600) * 10) / 10}h`;
+}
+
+async function loadTgPool() {
+  tgPoolLoading.value = true;
+  try {
+    tgPool.value = await statusApi.tgClients();
+    tgClientMax.value = tgPool.value.max;
+    tgClientMaxSaved = tgPool.value.max;
+  } catch {
+    tgPool.value = null;
+  } finally {
+    tgPoolLoading.value = false;
+  }
+}
+
+async function saveTgClientMax() {
+  const value = Math.min(
+    50,
+    Math.max(1, Math.floor(Number(tgClientMax.value) || 8)),
+  );
+  tgClientMax.value = value;
+  if (value === tgClientMaxSaved) return;
+  try {
+    await settingsApi.update({ tg_live_client_max: String(value) });
+    tgClientMaxSaved = value;
+    // Lowering it disconnects the surplus, so what the table shows has just changed
+    await loadTgPool();
+  } catch {
+    tgClientMax.value = tgClientMaxSaved;
+  }
+}
+
 async function loadMemory() {
   memoryLoading.value = true;
   try {
@@ -4429,6 +4578,7 @@ async function restartSystem() {
 
 onMounted(async () => {
   loadMemory();
+  loadTgPool();
   void loadUpdateStatus();
   void loadSecrets();
   await loadProviders();

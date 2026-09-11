@@ -221,6 +221,7 @@ import {
   subscribeToMessages,
   sweepLiveClients,
   leaseLiveClient,
+  liveClientPool,
   liveClientIdentity,
   parseMiniAppLink,
   fetchPhoto,
@@ -1437,7 +1438,8 @@ describe('sweepLiveClients', () => {
   it('never evicts a leased client, even past the idle window', async () => {
     const lease = await leaseLiveClient(700);
 
-    sweepLiveClients(Date.now() + IDLE_MS * 10);
+    // Past idle, but inside the window that treats a lease as leaked -- a separate bound
+    sweepLiveClients(Date.now() + IDLE_MS * 2);
 
     expect(mockClientInstance.destroy).not.toHaveBeenCalled();
     MockTelegramClient.mockClear();
@@ -1463,11 +1465,11 @@ describe('sweepLiveClients', () => {
     const second = await leaseLiveClient(720);
 
     first.release();
-    sweepLiveClients(Date.now() + IDLE_MS * 10);
+    sweepLiveClients(Date.now() + IDLE_MS * 2);
     expect(mockClientInstance.destroy).not.toHaveBeenCalled();
 
     second.release();
-    sweepLiveClients(Date.now() + IDLE_MS * 10);
+    sweepLiveClients(Date.now() + IDLE_MS * 2);
     expect(mockClientInstance.destroy).toHaveBeenCalledTimes(1);
   });
 
@@ -1478,10 +1480,49 @@ describe('sweepLiveClients', () => {
 
     first.release();
     first.release();
-    sweepLiveClients(Date.now() + IDLE_MS * 10);
+    sweepLiveClients(Date.now() + IDLE_MS * 2);
 
     expect(mockClientInstance.destroy).not.toHaveBeenCalled();
     second.release();
+  });
+
+  // The wedge case: a run that hangs never reaches the `finally` that releases, so the lease
+  // is held for good -- and a leased client is busy, so it is never evicted or disconnected
+  it('reclaims a lease a hung run never released', async () => {
+    await leaseLiveClient(740, 'checkin');
+    const threeHours = 3 * 60 * 60_000;
+    const held = () => liveClientPool().clients.find((c) => c.accountId === 740);
+
+    // Still inside the window: the run may simply be slow, so it is left alone
+    sweepLiveClients(Date.now() + threeHours - 60_000);
+    expect(held()).toMatchObject({ leases: 1, busy: true });
+
+    // Past it the lease is dropped, which is what makes the client evictable again -- it
+    // then goes the ordinary idle way rather than being torn down mid-sweep
+    sweepLiveClients(Date.now() + threeHours + 60_000);
+    expect(held()).toMatchObject({ leases: 0, busy: false });
+
+    sweepLiveClients(Date.now() + threeHours + IDLE_MS * 2);
+    expect(liveClientPool().clients.some((c) => c.accountId === 740)).toBe(false);
+  });
+
+  it('reports what is connected and what is holding it', async () => {
+    const lease = await leaseLiveClient(750, 'custom job');
+    // Subscribing needs the entry to exist, so the client comes first
+    await getLiveClient(751);
+    subscribeToMessages(751, () => {});
+
+    const pool = liveClientPool();
+    const leased = pool.clients.find((c) => c.accountId === 750);
+    const viewed = pool.clients.find((c) => c.accountId === 751);
+
+    expect(leased).toMatchObject({ leases: 1, busy: true });
+    expect(leased!.oldestLeaseSeconds).toBeGreaterThanOrEqual(0);
+    expect(viewed).toMatchObject({ viewers: 1, leases: 0, busy: true });
+    expect(viewed!.oldestLeaseSeconds).toBeNull();
+    expect(pool.max).toBeGreaterThan(0);
+
+    lease.release();
   });
 
   it('trims oversized caches on a live entry without evicting it', async () => {

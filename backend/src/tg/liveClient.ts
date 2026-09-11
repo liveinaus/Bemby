@@ -201,9 +201,11 @@ type LiveEntry = {
   dialogSearchCache?: { ts: number; items: TgDialogItem[] };
   // Last time this entry was requested or had subscribers -- drives idle eviction
   lastActiveAt: number;
-  // Outstanding job leases. A leased client is in the middle of a check-in or custom job,
-  // so it is never evicted underneath the job (see `leaseLiveClient`).
-  leases: number;
+  // Outstanding job leases, by lease id. A leased client is in the middle of a check-in or
+  // custom job, so it is never evicted underneath the job (see `leaseLiveClient`). Each
+  // carries when it was taken: a run that hangs never reaches its release, and a lease with
+  // no age was a leak nothing could see or recover.
+  leases: Map<number, { takenAt: number; label: string }>;
 };
 
 export type TgTypingEvent = {
@@ -234,7 +236,34 @@ const READ_OUTBOX_CACHE_MAX = 1_000;
 // A live client per account is several MB of GramJS state plus a connection, so on a
 // small host the account count, not idle time, is what runs memory out. Evict the
 // least recently used client nobody is watching once past this many.
-const LIVE_CLIENT_MAX = Number(process.env.TG_LIVE_CLIENT_MAX ?? 8);
+export const DEFAULT_LIVE_CLIENT_MAX = Number(
+  process.env.TG_LIVE_CLIENT_MAX ?? 8,
+);
+const MAX_LIVE_CLIENT_MAX = 50;
+
+/**
+ * How many accounts may hold a connection at once, from Settings.
+ *
+ * Read rather than cached so a change applies without a restart. Raising it costs memory --
+ * several MB of GramJS state per account -- and lowering it costs reconnects, because every
+ * reconnect sends an `InvokeWithLayer`, which Telegram flood-limits per exit IP.
+ */
+export function getLiveClientMax(): number {
+  let raw: string | undefined;
+  try {
+    raw = (
+      db
+        .prepare("SELECT value FROM settings WHERE key = 'tg_live_client_max'")
+        .get() as { value: string } | undefined
+    )?.value;
+  } catch {
+    return DEFAULT_LIVE_CLIENT_MAX;
+  }
+  if (raw == null || raw === "") return DEFAULT_LIVE_CLIENT_MAX;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return DEFAULT_LIVE_CLIENT_MAX;
+  return Math.min(MAX_LIVE_CLIENT_MAX, Math.max(1, Math.floor(n)));
+}
 
 // Inline media is buffered whole to serve it, so a large video would spike the heap by
 // its full size. Anything bigger is refused rather than risking the process.
@@ -255,8 +284,15 @@ function hasSubscribers(entry: LiveEntry): boolean {
  * holding a lease. Neither may be evicted, because reconnecting is the expensive part --
  * every connect costs an `InvokeWithLayer`, which is what Telegram flood-limits.
  */
+function oldestLeaseSeconds(entry: LiveEntry, now: number): number | null {
+  let oldest: number | null = null;
+  for (const { takenAt } of entry.leases.values())
+    if (oldest === null || takenAt < oldest) oldest = takenAt;
+  return oldest === null ? null : Math.round((now - oldest) / 1000);
+}
+
 function isBusy(entry: LiveEntry): boolean {
-  return entry.leases > 0 || hasSubscribers(entry);
+  return entry.leases.size > 0 || hasSubscribers(entry);
 }
 
 // Maps iterate in insertion order, so this drops the oldest entries first
@@ -287,14 +323,15 @@ function disposeEntry(accountId: number, entry: LiveEntry): void {
   entry.client.destroy().catch(() => {});
 }
 
-function evictSurplusClients(keepId?: number): void {
-  if (liveClients.size <= LIVE_CLIENT_MAX) return;
+export function evictSurplusClients(keepId?: number): void {
+  const max = getLiveClientMax();
+  if (liveClients.size <= max) return;
   const candidates = [...liveClients.entries()]
     .filter(([id, e]) => id !== keepId && !isBusy(e))
     .sort((a, b) => a[1].lastActiveAt - b[1].lastActiveAt);
 
   for (const [accountId, entry] of candidates) {
-    if (liveClients.size <= LIVE_CLIENT_MAX) return;
+    if (liveClients.size <= max) return;
     disposeEntry(accountId, entry);
     console.log(
       `[tg] Evicted idle live client for account ${accountId} (over LIVE_CLIENT_MAX)`,
@@ -302,8 +339,108 @@ function evictSurplusClients(keepId?: number): void {
   }
 }
 
+export type TgLiveClientInfo = {
+  accountId: number;
+  accountName: string;
+  connected: boolean;
+  /** A viewer is watching this account, or a job holds a lease -- either keeps it from eviction. */
+  busy: boolean;
+  viewers: number;
+  leases: number;
+  /** Age of the longest-held lease, or null when none. A large value is a leaked lease. */
+  oldestLeaseSeconds: number | null;
+  syncState: TgSyncState;
+  idleSeconds: number;
+};
+
+/** What is connected right now, newest activity first; served at GET /api/status/tg-clients. */
+export function liveClientPool(): {
+  clients: TgLiveClientInfo[];
+  max: number;
+  idleDisconnectMinutes: number;
+} {
+  const now = Date.now();
+  const names = new Map<number, string>();
+  try {
+    for (const row of db
+      .prepare("SELECT id, name FROM tg_accounts")
+      .all() as Array<{ id: number; name: string }>)
+      names.set(row.id, row.name);
+  } catch {
+    // The list is still useful without names
+  }
+  const clients = [...liveClients.entries()]
+    .map(([accountId, entry]) => ({
+      accountId,
+      accountName: names.get(accountId) ?? `#${accountId}`,
+      connected: Boolean(entry.client.connected),
+      busy: isBusy(entry),
+      viewers:
+        entry.subscribers.size +
+        entry.dialogSubscribers.size +
+        entry.readSubscribers.size +
+        entry.typingSubscribers.size +
+        entry.eventSubscribers.size,
+      leases: entry.leases.size,
+      oldestLeaseSeconds: oldestLeaseSeconds(entry, now),
+      syncState: entry.syncState,
+      idleSeconds: Math.max(0, Math.round((now - entry.lastActiveAt) / 1000)),
+    }))
+    .sort((a, b) => a.idleSeconds - b.idleSeconds);
+  return {
+    clients,
+    max: getLiveClientMax(),
+    idleDisconnectMinutes: Math.round(IDLE_DISCONNECT_MS / 60_000),
+  };
+}
+
+/**
+ * How long a lease may be held before it is taken to be leaked.
+ *
+ * A job releases in a `finally`, which does not run if the run hangs inside the try -- the
+ * scheduler abandons such a run to get its slot back, but the pending promise still holds
+ * the lease. A leased client counts as busy, so the leak is permanent: it is never evicted,
+ * never idle-disconnected, and the account keeps a connection nothing is using.
+ *
+ * Derived from the scheduler's own ceiling on a run, with an hour of headroom, so raising
+ * that never makes this reclaim a lease a run is still legitimately using. Read here rather
+ * than imported: the scheduler reaches this module through the job runner, so importing it
+ * back would close a cycle.
+ */
+const LEASE_LEAK_FLOOR_MS = 3 * 60 * 60_000;
+
+function leaseLeakMs(): number {
+  let minutes = 120; // the scheduler's own default
+  try {
+    const raw = (
+      db
+        .prepare("SELECT value FROM settings WHERE key = 'max_run_minutes'")
+        .get() as { value: string } | undefined
+    )?.value;
+    const n = Number(raw);
+    if (raw != null && raw !== "" && Number.isFinite(n) && n > 0) minutes = n;
+  } catch {
+    // Fall through to the default: a settings read must not stop the sweep
+  }
+  return Math.max(LEASE_LEAK_FLOOR_MS, minutes * 60_000 + 60 * 60_000);
+}
+
+function dropLeakedLeases(entry: LiveEntry, accountId: number, now: number): void {
+  const leakMs = leaseLeakMs();
+  for (const [leaseId, lease] of entry.leases) {
+    if (now - lease.takenAt < leakMs) continue;
+    entry.leases.delete(leaseId);
+    console.warn(
+      `[tg] Released a ${lease.label} lease held for ` +
+        `${Math.round((now - lease.takenAt) / 60_000)} min on account ${accountId}; ` +
+        `its run never finished`,
+    );
+  }
+}
+
 export function sweepLiveClients(now = Date.now()): void {
   for (const [accountId, entry] of liveClients) {
+    dropLeakedLeases(entry, accountId, now);
     if (isBusy(entry)) entry.lastActiveAt = now;
 
     if (now - entry.lastActiveAt >= IDLE_DISCONNECT_MS) {
@@ -851,19 +988,21 @@ export function liveClientIdentity(
  * the connection warm for the next job. The lease itself keeps eviction and the idle sweep
  * off the client until the job is done.
  */
+let nextLeaseId = 1;
+
 export async function leaseLiveClient(
   accountId: number,
+  label = "job",
 ): Promise<{ client: TelegramClient; release: () => void }> {
   const entry = await getLiveClient(accountId);
-  entry.leases++;
-  let released = false;
+  const leaseId = nextLeaseId++;
+  entry.leases.set(leaseId, { takenAt: Date.now(), label });
   return {
     client: entry.client,
+    // Deleting by id is idempotent, so a double release cannot drop someone else's lease
+    // and let the sweep evict a client still in use
     release: () => {
-      // Guarded: a double release would let the sweep evict a client still in use
-      if (released) return;
-      released = true;
-      entry.leases = Math.max(0, entry.leases - 1);
+      entry.leases.delete(leaseId);
       entry.lastActiveAt = Date.now();
     },
   };
@@ -937,7 +1076,7 @@ async function connectLiveClient(accountId: number): Promise<LiveEntry> {
     eventSubscribers: new Set(),
     syncState: "live",
     lastActiveAt: Date.now(),
-    leases: 0,
+    leases: new Map(),
   };
   liveClients.set(accountId, entry);
   evictSurplusClients(accountId);

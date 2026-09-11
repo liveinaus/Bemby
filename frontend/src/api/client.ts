@@ -2030,6 +2030,8 @@ export const statusApi = {
       .post<{ ok: boolean; nextRun?: string }>(`/status/skip/${jobId}`)
       .then((r) => r.data),
   memory: () => api.get<MemoryReport>("/status/memory").then((r) => r.data),
+  tgClients: () =>
+    api.get<TgClientPool>("/status/tg-clients").then((r) => r.data),
   /** The container log as the process saw it; `since` returns only what printed after. */
   systemLog: (params?: {
     since?: number;
@@ -2175,6 +2177,7 @@ export type Settings = {
   /** Minimum minutes between scheduled runs; "0" disables staggering. */
   schedule_min_gap_minutes?: string;
   max_concurrent_jobs?: string;
+  tg_live_client_max?: string;
   /** "true" once the user has enabled the on-demand Cloudflare solver. */
   cf_solver_enabled?: string;
   /** Server-computed: "true" when the Cloudflare-solver browser is installed. */
@@ -3038,6 +3041,24 @@ export type TgFolder = {
   excludedChatIds: string[];
 };
 
+export type TgLiveClientInfo = {
+  accountId: number;
+  accountName: string;
+  connected: boolean;
+  busy: boolean;
+  viewers: number;
+  leases: number;
+  oldestLeaseSeconds: number | null;
+  syncState: "live" | "catchingUp" | "reconnecting";
+  idleSeconds: number;
+};
+
+export type TgClientPool = {
+  clients: TgLiveClientInfo[];
+  max: number;
+  idleDisconnectMinutes: number;
+};
+
 export const tgClientApi = {
   dialogs: (
     accountId: number,
@@ -3045,7 +3066,13 @@ export const tgClientApi = {
     signal?: AbortSignal,
   ) =>
     api
-      .get<TgDialog[]>(`/tg-client/${accountId}/dialogs`, { params, signal })
+      .get<TgDialog[]>(`/tg-client/${accountId}/dialogs`, {
+        params,
+        signal,
+        // Backstop only: the server bounds this itself and its message is the useful one.
+        // Set past that bound so this fires solely when the response never arrives at all.
+        timeout: 150_000,
+      })
       .then((r) => r.data),
 
   messages: (

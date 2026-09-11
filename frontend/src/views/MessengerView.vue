@@ -4972,13 +4972,14 @@ async function loadDialogs() {
     if (selectedAccountId.value !== accountId) return;
     dialogs.value = firstBatch;
     tgFolders.value = folders;
-    loadingDialogs.value = false;
-
   } catch (e: any) {
+    if (selectedAccountId.value !== accountId) return;
     const raw =
       e?.response?.data?.error ?? e?.message ?? "Failed to load chats";
     dialogError.value = friendlyTgError(raw);
-    loadingDialogs.value = false;
+  } finally {
+    // In a finally, or switching account mid-load leaves the spinner up for good
+    if (selectedAccountId.value === accountId) loadingDialogs.value = false;
   }
 }
 

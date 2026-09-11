@@ -1,4 +1,5 @@
 import { Router, raw } from "express";
+import { OP_TIMEOUT_MS } from "../tg/clientTimeout";
 import { assertPublicUrl, isFrameable } from "../tg/safeFetch";
 import {
   issueWebviewTicket,
@@ -78,10 +79,43 @@ import { requireMediaAuth } from "../middleware/auth";
 // Centralised error response: marks session expired for auth errors automatically.
 function tgError(err: any, accountId: number, res: Response): void {
   if (isAuthError(err?.message ?? "")) markSessionExpired(accountId);
+  // The deadline below may already have answered for this request; the session is still
+  // worth marking, but there is no second response to send
+  if (res.headersSent) return;
   res.status(500).json({ error: err?.message ?? "Unknown error" });
 }
 
 const router = Router();
+
+/**
+ * Wall-clock bound on a request to Telegram.
+ *
+ * Connecting is bounded, but the RPC that follows is not: GramJS limits how many times it
+ * redials, not how long a call may sit unanswered, so a client that is connected to a DC
+ * that has stopped answering leaves `getDialogs` (or any other call) pending for good. The
+ * request then never responds and the page waits on a spinner with nothing to show and
+ * nothing to retry. Jobs already have this bound via `withJobClient`; these routes did not.
+ *
+ * Only the wait for the first byte is bounded -- a media response that has started
+ * streaming is left alone, however long the file takes.
+ */
+router.use((req, res, next) => {
+  const timer = setTimeout(() => {
+    if (res.headersSent) return;
+    console.warn(
+      `[tg] ${req.method} ${req.originalUrl} gave no response within ` +
+        `${OP_TIMEOUT_MS / 1000}s; failing the request`,
+    );
+    res.status(504).json({
+      error:
+        "Telegram did not respond in time. The account's connection may be stalled -- " +
+        "try again, or reconnect the account.",
+    });
+  }, OP_TIMEOUT_MS);
+  timer.unref?.();
+  res.on("close", () => clearTimeout(timer));
+  next();
+});
 
 /**
  * Routes a browser loads by address rather than by fetch, so they authenticate with a media

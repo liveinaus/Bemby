@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getSchedulerStatus, skipNextRun, runSlotUsage } from '../scheduler';
 import { memoryReport } from '../monitor/memory';
+import { liveClientPool } from '../tg/liveClient';
 import {
   readSystemLog,
   clearSystemLog,
@@ -38,6 +39,11 @@ router.get('/memory', (req, res) => {
 // like from outside -- worth being able to read without going through the log
 router.get('/slots', (req, res) => {
   res.json(runSlotUsage());
+});
+
+// Which accounts are holding a Telegram connection, and what is keeping each one alive
+router.get('/tg-clients', (req, res) => {
+  res.json(liveClientPool());
 });
 
 const LOG_LEVELS = ['debug', 'log', 'info', 'warn', 'error'] as const;
