@@ -1347,6 +1347,46 @@ describe('liveClientIdentity', () => {
   });
 });
 
+describe('a pooled client that will not reconnect', () => {
+  // The reported symptom: one account stuck "disconnected" in the pool, retrying it did
+  // nothing, and it stayed that way until the process restarted.
+  it('rebuilds the client when connect comes back still disconnected', async () => {
+    const entry = await getLiveClient(760);
+    expect(entry.client.connected).toBe(true);
+
+    // The dead state: connect() resolves but leaves the client unusable
+    mockClientInstance.connected = false;
+    MockTelegramClient.mockClear();
+    try {
+      await getLiveClient(760);
+    } catch {
+      // The rebuild connects a fresh client, which this mock leaves disconnected too
+    }
+
+    // A fresh client was built rather than the corpse being handed back again
+    expect(MockTelegramClient).toHaveBeenCalled();
+    mockClientInstance.connected = true;
+  });
+
+  // The dead entry itself must go; keeping it is what made the account stay stuck
+  it('discards the dead entry rather than handing it back', async () => {
+    const original = await getLiveClient(761);
+    mockClientInstance.connected = false;
+    mockClientInstance.destroy.mockClear();
+
+    let handedBack: unknown;
+    try {
+      handedBack = await getLiveClient(761);
+    } catch {
+      /* a rebuild that also fails to connect still must not return the old entry */
+    }
+    mockClientInstance.connected = true;
+
+    expect(handedBack).not.toBe(original);
+    expect(mockClientInstance.destroy).toHaveBeenCalled();
+  });
+});
+
 describe('sweepLiveClients', () => {
   const IDLE_MS = 30 * 60_000;
 

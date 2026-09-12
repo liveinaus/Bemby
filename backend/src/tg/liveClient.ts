@@ -375,12 +375,15 @@ export function liveClientPool(): {
       accountName: names.get(accountId) ?? `#${accountId}`,
       connected: Boolean(entry.client.connected),
       busy: isBusy(entry),
-      viewers:
-        entry.subscribers.size +
-        entry.dialogSubscribers.size +
-        entry.readSubscribers.size +
-        entry.typingSubscribers.size +
+      // One socket subscribes to all five streams, so the largest set is the viewer count --
+      // summing them multiplies every viewer by five
+      viewers: Math.max(
+        entry.subscribers.size,
+        entry.dialogSubscribers.size,
+        entry.readSubscribers.size,
+        entry.typingSubscribers.size,
         entry.eventSubscribers.size,
+      ),
       leases: entry.leases.size,
       oldestLeaseSeconds: oldestLeaseSeconds(entry, now),
       syncState: entry.syncState,
@@ -936,9 +939,34 @@ async function connectWithTimeout(client: TelegramClient): Promise<void> {
 export async function getLiveClient(accountId: number): Promise<LiveEntry> {
   const existing = liveClients.get(accountId);
   if (existing) {
-    existing.lastActiveAt = Date.now();
-    if (!existing.client.connected) await connectWithTimeout(existing.client);
-    return existing;
+    if (existing.client.connected) {
+      existing.lastActiveAt = Date.now();
+      return existing;
+    }
+    // One reconnect on the same client first: it keeps the session's auth key, where a
+    // rebuild spends another InvokeWithLayer -- the request Telegram flood-limits per exit IP
+    try {
+      await connectWithTimeout(existing.client);
+    } catch (err) {
+      console.warn(
+        `[tg] Account ${accountId} would not reconnect (${
+          err instanceof Error ? err.message : String(err)
+        }); rebuilding its client`,
+      );
+    }
+    if (existing.client.connected) {
+      existing.lastActiveAt = Date.now();
+      return existing;
+    }
+    // connect() can come back without leaving the client usable -- a sender that was torn
+    // down, a session the DC no longer accepts. Handing that entry back gave every later
+    // call a socket that never answers: no error, no response, just a spinner. And because
+    // the attempt refreshed lastActiveAt, the entry was never idle-swept either, so retrying
+    // was what kept it alive. Drop it and build a fresh one.
+    console.warn(
+      `[tg] Account ${accountId} did not come back after a reconnect; rebuilding its client`,
+    );
+    disposeEntry(accountId, existing);
   }
 
   const inFlight = connecting.get(accountId);
