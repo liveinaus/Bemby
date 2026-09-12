@@ -348,7 +348,7 @@ export type SessionInfo = {
 };
 
 export type TgSpamStatus = {
-  spamStatus: "free" | "limited" | "blocked" | "frozen" | "unknown";
+  spamStatus: "free" | "lowLimited" | "limited" | "blocked" | "frozen" | "unknown";
   rawMessage: string;
   /** Reply-keyboard labels SpamBot offered; the shape is the same in every language. */
   buttons?: string[];

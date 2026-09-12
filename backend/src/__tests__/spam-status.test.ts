@@ -22,6 +22,9 @@ const LIMITED_EN =
   "Hello Scott!\n\nI’m very sorry that you had to contact me. Unfortunately, some actions can trigger a harsh response from our anti-spam systems. If you think your account was limited by mistake, you can submit a complaint to our moderators.";
 const LIMITED_ES =
   "¡Hola, Sahil!\n\nSiento mucho que hayas tenido que contactarme. Lamentablemente, algunas acciones pueden generar una dura respuesta de nuestros sistemas antispam.";
+// The middle standing: a per-count limit from the phone number, with no ban and no date.
+const LOW_LIMITED_EN =
+  "Unfortunately, some phone numbers may trigger a harsh response from our anti-spam systems. If you think this is the case with you, you can submit a complaint to our moderators or subscribe to Telegram Premium to get less strict limits.";
 const SERVICE_ERROR =
   "Sorry, an error has occurred during your request. Please try again later. (Code 628117466)";
 const BLOCKED_EN =
@@ -46,6 +49,18 @@ describe("classifySpamReply", () => {
     expect(
       classifySpamReply({ text: "unbekannter text", buttons: ["OK", "Was ist Spam?", "Ich hatte unrecht", "Das ist ein Fehler"] }),
     ).toEqual({ status: "limited", source: "buttons" });
+  });
+
+  it("reads the low-limited reply as its own standing, not as limited", () => {
+    expect(classifySpamReply({ text: LOW_LIMITED_EN, buttons: ["Submit a complaint", "OK"] }))
+      .toEqual({ status: "lowLimited", source: "signature" });
+    // Same verdict from the wording alone, with no keyboard to lean on
+    expect(classifySpamReply({ text: LOW_LIMITED_EN, buttons: [] }))
+      .toEqual({ status: "lowLimited", source: "text" });
+  });
+
+  it("keeps a limited reply limited even though it shares the anti-spam paragraph", () => {
+    expect(classifySpamReply({ text: LIMITED_EN, buttons: [] }).status).toBe("limited");
   });
 
   it("reads the blocked keyboard, which shares the free keyboard's button count", () => {
@@ -100,8 +115,15 @@ describe("parseAiSpamAnswer", () => {
     expect(parseAiSpamAnswer("The reply mentions moderators.\nblocked")).toBe("blocked");
   });
 
+  it("reads low-limited without the trailing 'limited' stealing the answer", () => {
+    expect(parseAiSpamAnswer("low-limited")).toBe("lowLimited");
+    expect(parseAiSpamAnswer("Low limited\n")).toBe("lowLimited");
+    expect(parseAiSpamAnswer("low_limited")).toBe("lowLimited");
+  });
+
   it("refuses an answer line naming more than one status", () => {
     expect(parseAiSpamAnswer("not limited, so free")).toBe("unknown");
+    expect(parseAiSpamAnswer("low-limited or limited")).toBe("unknown");
     expect(parseAiSpamAnswer("I cannot tell")).toBe("unknown");
   });
 });

@@ -3794,6 +3794,7 @@ const spamStatuses = reactive(new Map<number, TgSpamStatus>());
 function spamBadgeClass(status: TgSpamStatus["spamStatus"]) {
   const map: Record<string, string> = {
     free: "badge-green",
+    lowLimited: "badge-purple",
     limited: "badge-orange",
     blocked: "badge-red",
     frozen: "badge-blue",
@@ -3812,8 +3813,7 @@ function mirrorSpamAttrs(
 ): Record<string, unknown> {
   const attrs = { ...(current ?? {}) };
   delete attrs.spamUnknownReply;
-  if (status === "free") delete attrs.restriction;
-  else if (status !== "unknown") attrs.restriction = status;
+  if (status !== "unknown") attrs.restriction = status;
   else attrs.spamUnknownReply = { text: rawMessage ?? "", buttons: buttons ?? [] };
   return attrs;
 }
@@ -3990,16 +3990,23 @@ function accountExtraInfo(a: Account): ExtraBadge[] {
     });
   else if (attrs.hasEmail === true)
     badges.push({ label: t("accounts.attrEmail"), cls: "badge-blue" });
-  // Restriction: coloured status badge reusing the spam status labels/colours.
+  // Spam standing: coloured badge reusing the spam status labels/colours. "Unlimited"
+  // stands on its own; the rest read as what they restrict.
   if (typeof attrs.restriction === "string") {
     const colour: Record<string, string> = {
+      free: "badge-green",
+      lowLimited: "badge-purple",
       limited: "badge-orange",
       blocked: "badge-red",
       frozen: "badge-blue",
     };
+    const label = t(`accounts.spam.${attrs.restriction}`);
     badges.push({
-      label: `${t("accounts.attrRestriction")}: ${t(`accounts.spam.${attrs.restriction}`)}`,
+      label: attrs.restriction === "free" ? label : `${t("accounts.attrRestriction")}: ${label}`,
       cls: colour[attrs.restriction] ?? "badge-grey",
+      ...(attrs.restriction === "lowLimited"
+        ? { title: t("accounts.attrLowLimitedHint") }
+        : {}),
     });
   }
   // A SpamBot reply no rule could classify: the wording and keyboard go in the tooltip,

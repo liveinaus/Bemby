@@ -254,6 +254,7 @@ const zh = {
     attrBembyEmail: "Bemby 邮箱",
     attrBembyEmailReveal: "点击显示 Bemby 设置的登录邮箱",
     attrRestriction: "限制状态",
+    attrLowLimitedHint: "号码触发了较严格的发送数量限制，但仍可给非联系人发消息，可正常使用。",
     attrSpamUnknown: "无法识别的回复",
     setNotesSelected: "设置备注",
     labelNotes: "备注",
@@ -652,7 +653,8 @@ const zh = {
     passkeyVerifyFailed: "验证失败：登录未返回用户。",
 
     spam: {
-      free: "正常",
+      free: "无限制",
+      lowLimited: "轻度限制",
       limited: "受限",
       blocked: "已封禁",
       frozen: "已冻结",
@@ -2888,6 +2890,8 @@ const en: typeof zh = {
     attrBembyEmail: "Bemby Email",
     attrBembyEmailReveal: "Show the login email Bemby set",
     attrRestriction: "Restriction",
+    attrLowLimitedHint:
+      "The phone number draws a stricter per-count limit, but the account can still message non-contacts and stays usable.",
     attrSpamUnknown: "Unrecognised Reply",
     setNotesSelected: "Set Notes",
     labelNotes: "Notes",
@@ -3302,7 +3306,8 @@ const en: typeof zh = {
       "Verified: Telegram accepted the passkey. This account has 2FA, so a full login also needs the cloud password (no login session was created).",
     passkeyVerifyFailed: "Verification failed: login returned no user.",
     spam: {
-      free: "Free",
+      free: "Unlimited",
+      lowLimited: "Low limited",
       limited: "Limited",
       blocked: "Blocked",
       frozen: "Frozen",

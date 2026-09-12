@@ -228,11 +228,9 @@ export async function checkSpamForAccount(
       ctx.deviceParams,
       { id: accountId, proxyId: ctx.account.proxy_id ?? null },
     );
-    // Store the status while restricted, clear it once confirmed free, and leave
-    // an existing value alone on an unknown result.
-    if (result.spamStatus === "free") {
-      patchAttributes(accountId, { restriction: undefined, spamUnknownReply: undefined });
-    } else if (result.spamStatus !== "unknown") {
+    // Store every decided status, "free" included -- the column shows the standing, not
+    // only the bad news -- and leave an existing value alone on an unknown result.
+    if (result.spamStatus !== "unknown") {
       patchAttributes(accountId, { restriction: result.spamStatus, spamUnknownReply: undefined });
     } else {
       // Keep the reply that defeated every rule, so the wording and the keyboard

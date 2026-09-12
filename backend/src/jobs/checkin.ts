@@ -850,7 +850,11 @@ export function waitForNewBotMessage(
   });
 }
 
-export type SpamStatus = "free" | "limited" | "blocked" | "frozen" | "unknown";
+/**
+ * `lowLimited` is the middle standing: SpamBot applies a per-count limit because of the
+ * phone number, but the account can still message non-contacts, so it stays usable.
+ */
+export type SpamStatus = "free" | "lowLimited" | "limited" | "blocked" | "frozen" | "unknown";
 
 /** How a spam status was decided, kept for diagnostics and for the unknown-reply record. */
 export type SpamSource = "signature" | "buttons" | "text" | "ai" | "unknown";
@@ -878,6 +882,7 @@ const SEEDED_SIGNATURES: Record<string, SpamStatus> = {
   [buttonSignature(["I won't do it again", "My account was hacked"])]: "blocked",
   [buttonSignature(["OK", "What is spam?", "I was wrong, please release me", "This is a mistake"])]: "limited",
   [buttonSignature(["OK", "¿Qué es el spam?", "Me equivoqué. Por favor, libérame", "Esto es un error"])]: "limited",
+  [buttonSignature(["Submit a complaint", "OK"])]: "lowLimited",
 };
 
 const SIGNATURE_SETTING = "spam_button_signatures";
@@ -919,6 +924,9 @@ function parseSpamStatus(text: string): SpamStatus {
   // SpamBot says "blocked" for frozen accounts (temporary restriction, not a permanent ban)
   if (lower.includes("frozen") || lower.includes("blocked")) return "frozen";
   if (lower.includes("limited")) return "limited";
+  // The phone-number paragraph on its own: a per-count limit, not a messaging ban. It is
+  // tested after the outright wordings above, because SpamBot also appends it to those.
+  if (lower.includes("harsh response") || lower.includes("less strict limits")) return "lowLimited";
   // Confirmed non-English wordings; full phrases, since the roots for "limited" and
   // "no limits" are shared and a substring match picks the wrong one.
   if (lower.includes("свободен от каких-либо ограничений")) return "free";
@@ -946,7 +954,9 @@ export function isSpamServiceError(text: string): boolean {
 function classifyByButtons(buttons: string[]): SpamStatus {
   if (!buttons.length) return "unknown";
   const signature = buttonSignature(buttons);
-  const hit = learnedSignatures()[signature]?.status ?? SEEDED_SIGNATURES[signature];
+  // Seeded first: those are hand-confirmed, a learned one is only the AI's verdict, so
+  // seeding a keyboard here also corrects one that was cached under the wrong status.
+  const hit = SEEDED_SIGNATURES[signature] ?? learnedSignatures()[signature]?.status;
   if (hit) return hit;
   // Four buttons is the limited keyboard (OK / what is spam / release me / mistake); the
   // free and blocked keyboards both have two, so a count of two decides nothing.
@@ -956,6 +966,7 @@ function classifyByButtons(buttons: string[]): SpamStatus {
 const SPAM_AI_PROMPT = `A Telegram user sent /start to @SpamBot and got the reply below, which may be in any language.
 Classify the account's standing as exactly one of these words:
 free - no limits apply to the account
+low-limited - the account can still message non-contacts, but its phone number draws a stricter per-count limit (no ban, no date)
 limited - the account is restricted from messaging non-contacts, permanently or until a date
 blocked - the account was blocked or banned for violating the Terms of Service
 frozen - the account is frozen and under review
@@ -980,8 +991,12 @@ async function classifySpamWithAi(reply: SpamReply): Promise<SpamStatus> {
  */
 export function parseAiSpamAnswer(response: string): SpamStatus {
   const last = response.trim().split("\n").filter((l) => l.trim()).pop() ?? "";
-  const words = last.toLowerCase().match(/free|limited|blocked|frozen/g) ?? [];
-  return words.length === 1 ? (words[0] as SpamStatus) : "unknown";
+  const lower = last.toLowerCase();
+  // "low-limited" contains "limited", so it is taken out before the single-word pass.
+  const low = (lower.match(/low[\s_-]?limited/g) ?? []).length;
+  const words = lower.replace(/low[\s_-]?limited/g, " ").match(/free|limited|blocked|frozen/g) ?? [];
+  if (low === 1 && !words.length) return "lowLimited";
+  return !low && words.length === 1 ? (words[0] as SpamStatus) : "unknown";
 }
 
 /**

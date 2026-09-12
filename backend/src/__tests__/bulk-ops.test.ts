@@ -350,7 +350,7 @@ describe("target selection", () => {
 // ── Spam check ───────────────────────────────────────────────────────────────
 
 describe("bulk spam check", () => {
-  it("persists a restriction and clears it once the account reads free", async () => {
+  it("persists every decided standing, free included", async () => {
     const limited = addAccount("A_1");
     const free = addAccount("A_2");
     checkSpamStatus
@@ -360,7 +360,7 @@ describe("bulk spam check", () => {
     const done = await settle(task(startBulkSpamCheck([limited, free], 0)));
     expect(done.items.map((i) => i.data?.spamStatus)).toEqual(["limited", "free"]);
     expect(attributes(limited).restriction).toBe("limited");
-    expect(attributes(free).restriction).toBeUndefined();
+    expect(attributes(free).restriction).toBe("free");
   });
 
   it("leaves an existing restriction alone on an unknown result", async () => {
