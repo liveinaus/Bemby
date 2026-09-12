@@ -1872,6 +1872,10 @@ export type AvailableAccount = {
   phoneNumber: string;
   authStatus: AuthStatus;
   tgDisplayName: string | null;
+  /** Already has a live job for this template. */
+  linked: boolean;
+  /** Last spam check verdict, null when the account has never been checked. */
+  restriction: TgSpamStatus["spamStatus"] | null;
 };
 
 // Custom job icons come back as data URLs: the API sits behind a bearer-token guard and

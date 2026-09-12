@@ -385,20 +385,24 @@ router.put('/:id/jobs/enabled', (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Candidate accounts (no existing job for this template) ───────────────────
+// ── Candidate accounts ───────────────────────────────────────────────────────
 
+// Every enabled account, each carrying what the picker filters on: whether it already has
+// a job for this template, and its last known spam standing. Filtering happens in the
+// dialog rather than here, so toggling a filter costs no round trip.
 router.get('/:id/available-accounts', (req, res) => {
   const rows = db.prepare(`
-    SELECT id, name, phone_number, auth_status, disabled, tg_display_name
-    FROM tg_accounts
-    WHERE (disabled = 0 OR disabled IS NULL)
-      AND id NOT IN (
-        SELECT account_id FROM jobs
-        WHERE template_id = ? AND account_id IS NOT NULL AND retired IS NULL
-      )
-    ORDER BY name COLLATE NOCASE
+    SELECT a.id, a.name, a.phone_number, a.auth_status, a.tg_display_name, a.additional_attributes,
+      EXISTS (
+        SELECT 1 FROM jobs j
+        WHERE j.template_id = ? AND j.account_id = a.id AND j.retired IS NULL
+      ) AS linked
+    FROM tg_accounts a
+    WHERE (a.disabled = 0 OR a.disabled IS NULL)
+    ORDER BY a.name COLLATE NOCASE
   `).all(req.params.id) as Array<{
-    id: number; name: string; phone_number: string; auth_status: string; disabled: number; tg_display_name: string | null;
+    id: number; name: string; phone_number: string; auth_status: string;
+    tg_display_name: string | null; additional_attributes: string | null; linked: number;
   }>;
 
   res.json(rows.map(r => ({
@@ -407,8 +411,21 @@ router.get('/:id/available-accounts', (req, res) => {
     phoneNumber: r.phone_number,
     authStatus: r.auth_status,
     tgDisplayName: r.tg_display_name ?? null,
+    linked: r.linked === 1,
+    restriction: readRestriction(r.additional_attributes),
   })));
 });
+
+/** The spam standing off the attributes bag; anything unparseable reads as never checked. */
+function readRestriction(attributes: string | null): string | null {
+  try {
+    const parsed = attributes ? JSON.parse(attributes) : null;
+    const value = parsed?.restriction;
+    return typeof value === 'string' ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 // ── Bulk create jobs from template ───────────────────────────────────────────
 

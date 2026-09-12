@@ -159,10 +159,37 @@
             </div>
           </div>
 
+          <!-- Account filters -->
+          <div class="form-group create-jobs-filters">
+            <label class="create-jobs-filter-check">
+              <input type="checkbox" v-model="filterExcludeLinked" />
+              {{ t('templates.filterExcludeLinked') }}
+            </label>
+            <label class="create-jobs-filter-check">
+              <input type="checkbox" v-model="filterExcludeRestricted" />
+              {{ t('templates.filterExcludeRestricted') }}
+            </label>
+            <div class="form-row" style="margin-bottom:0">
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label" style="font-size:11px">{{ t('templates.filterInclude') }}</label>
+                <input v-model="filterInclude" class="form-input" style="font-size:12px" :placeholder="t('templates.filterKeywordPlaceholder')" />
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label" style="font-size:11px">{{ t('templates.filterExclude') }}</label>
+                <input v-model="filterExclude" class="form-input" style="font-size:12px" :placeholder="t('templates.filterKeywordPlaceholder')" />
+              </div>
+            </div>
+          </div>
+
           <!-- Account list -->
           <div class="form-group">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-              <label class="form-label" style="margin-bottom:0">{{ t('templates.createJobsAvailableAccounts') }}</label>
+              <label class="form-label" style="margin-bottom:0">
+                {{ t('templates.createJobsAvailableAccounts') }}
+                <span style="font-weight:400;color:var(--text-faint)">
+                  {{ createJobsVisibleRows.length }} / {{ createJobsRows.length }}
+                </span>
+              </label>
               <div style="display:flex;gap:6px">
                 <button type="button" class="btn btn-ghost btn-sm" @click="createJobsSelectAll">{{ t('templates.createJobsSelectAll') }}</button>
                 <button type="button" class="btn btn-ghost btn-sm" @click="createJobsDeselectAll">{{ t('templates.createJobsDeselectAll') }}</button>
@@ -171,11 +198,11 @@
             <div v-if="createJobsLoading" style="text-align:center;padding:16px;color:var(--text-muted)">
               <i class="fa-solid fa-spinner fa-spin"></i>
             </div>
-            <div v-else-if="createJobsRows.length === 0" style="padding:12px;color:var(--text-muted);font-size:13px">
-              {{ t('templates.createJobsNoAccounts') }}
+            <div v-else-if="createJobsVisibleRows.length === 0" style="padding:12px;color:var(--text-muted);font-size:13px">
+              {{ createJobsRows.length ? t('templates.createJobsNoMatch') : t('templates.createJobsNoAccounts') }}
             </div>
             <div v-else class="create-jobs-list">
-              <div v-for="row in createJobsRows" :key="row.account.id" class="create-job-row">
+              <div v-for="row in createJobsVisibleRows" :key="row.account.id" class="create-job-row">
                 <div class="create-job-header">
                   <input
                     type="checkbox"
@@ -187,6 +214,16 @@
                   <span style="font-size:11px;color:var(--text-faint)">{{ row.account.phoneNumber }}</span>
                   <span v-if="row.account.authStatus !== 'authenticated'" class="badge badge-grey" style="font-size:10px">
                     {{ t('templates.createJobsNotAuth') }}
+                  </span>
+                  <span v-if="row.account.linked" class="badge badge-blue" style="font-size:10px">
+                    {{ t('templates.createJobsLinked') }}
+                  </span>
+                  <span
+                    v-if="row.account.restriction && row.account.restriction !== 'free'"
+                    :class="['badge', restrictionBadgeClass(row.account.restriction)]"
+                    style="font-size:10px"
+                  >
+                    {{ t(`accounts.spam.${row.account.restriction}`) }}
                   </span>
                 </div>
                 <template v-if="row.selected">
@@ -378,6 +415,54 @@ type CreateJobRow = {
 };
 const createJobsRows = ref<CreateJobRow[]>([]);
 
+// ── Account filters ──────────────────────────────────────────────────────────
+// The list holds every enabled account; these narrow what is offered. Excluding the
+// already-linked ones is what the picker used to do on its own, so it stays the default.
+const filterExcludeLinked = ref(true);
+const filterExcludeRestricted = ref(false);
+const filterInclude = ref('');
+const filterExclude = ref('');
+
+/** Comma- or space-separated terms, lowercased; an empty box matches nothing to do. */
+function filterTerms(raw: string): string[] {
+  return raw.split(/[,\s]+/).map(t => t.trim().toLowerCase()).filter(Boolean);
+}
+
+/** Keyword filters read both names, since an account is known by either. */
+function accountHaystack(a: AvailableAccount): string {
+  return `${a.name} ${a.tgDisplayName ?? ''}`.toLowerCase();
+}
+
+// Only lowLimited survives: it is limited by count but can still message, so it stays usable.
+const BLOCKED_RESTRICTIONS = new Set(['limited', 'blocked', 'frozen']);
+
+function restrictionBadgeClass(restriction: string): string {
+  const map: Record<string, string> = {
+    lowLimited: 'badge-purple',
+    limited: 'badge-orange',
+    blocked: 'badge-red',
+    frozen: 'badge-blue',
+  };
+  return map[restriction] ?? 'badge-grey';
+}
+
+const createJobsVisibleRows = computed(() => {
+  const include = filterTerms(filterInclude.value);
+  const exclude = filterTerms(filterExclude.value);
+  return createJobsRows.value.filter(row => {
+    const a = row.account;
+    if (filterExcludeLinked.value && a.linked) return false;
+    if (filterExcludeRestricted.value && a.restriction && BLOCKED_RESTRICTIONS.has(a.restriction)) return false;
+    const haystack = accountHaystack(a);
+    if (include.length && !include.some(term => haystack.includes(term))) return false;
+    if (exclude.some(term => haystack.includes(term))) return false;
+    return true;
+  });
+});
+
+/** A hidden row is never created, however it was left selected before the filter changed. */
+const createJobsSelectedRows = computed(() => createJobsVisibleRows.value.filter(r => r.selected));
+
 const selectedIds = ref<number[]>([]);
 const sharedMulti = ref(false);
 const allSelected = computed(() => templates.value.length > 0 && templates.value.every(t => selectedIds.value.includes(t.id)));
@@ -531,6 +616,10 @@ async function setLinkedJobsEnabled(tpl: JobTemplate, enabled: boolean) {
 async function openCreateJobs(tpl: JobTemplate) {
   createJobsTpl.value = tpl;
   createJobsError.value = '';
+  filterExcludeLinked.value = true;
+  filterExcludeRestricted.value = false;
+  filterInclude.value = '';
+  filterExclude.value = '';
   createJobsLoading.value = true;
   createJobsRows.value = [];
   showCreateJobs.value = true;
@@ -538,7 +627,9 @@ async function openCreateJobs(tpl: JobTemplate) {
     createJobsAccounts.value = await templatesApi.availableAccounts(tpl.id);
     createJobsRows.value = createJobsAccounts.value.map(a => ({
       account: a,
-      selected: a.authStatus === 'authenticated',
+      // An account that already has a job for this template starts unticked even when the
+      // filter is turned off, so showing them never quietly queues a duplicate.
+      selected: a.authStatus === 'authenticated' && !a.linked,
       name: `${tpl.name} - ${a.name}`,
       embyUsername: '',
       embyPassword: '',
@@ -550,19 +641,19 @@ async function openCreateJobs(tpl: JobTemplate) {
   }
 }
 
-const createJobsSelectedCount = computed(() => createJobsRows.value.filter(r => r.selected).length);
+const createJobsSelectedCount = computed(() => createJobsSelectedRows.value.length);
 
 function createJobsSelectAll() {
-  createJobsRows.value.forEach(r => { if (r.account.authStatus === 'authenticated') r.selected = true; });
+  createJobsVisibleRows.value.forEach(r => { if (r.account.authStatus === 'authenticated') r.selected = true; });
 }
 
 function createJobsDeselectAll() {
-  createJobsRows.value.forEach(r => { r.selected = false; });
+  createJobsVisibleRows.value.forEach(r => { r.selected = false; });
 }
 
 async function doCreateJobs() {
   if (!createJobsTpl.value) return;
-  const selected = createJobsRows.value.filter(r => r.selected);
+  const selected = createJobsSelectedRows.value;
   if (!selected.length) return;
 
   // Validate embywatch credentials
@@ -925,6 +1016,25 @@ tbody tr:nth-child(even):not(.row-selected) td {
   font-weight: 500;
 }
 
+.create-jobs-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+
+.create-jobs-filter-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
 .create-jobs-list {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -943,6 +1053,7 @@ tbody tr:nth-child(even):not(.row-selected) td {
 .create-job-header {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 

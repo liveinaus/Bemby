@@ -30,6 +30,7 @@ const SCHEMA = `
     auth_status    TEXT    NOT NULL DEFAULT 'unauthenticated',
     proxy_id       TEXT,
     disabled       INTEGER NOT NULL DEFAULT 0,
+    additional_attributes TEXT,
     created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -74,16 +75,17 @@ const SCHEMA = `
 // ---------------------------------------------------------------------------
 
 function insertAccount(fields: Partial<{
-  name: string; phoneNumber: string; authStatus: string; disabled: number;
+  name: string; phoneNumber: string; authStatus: string; disabled: number; attributes: string;
 }> = {}) {
   const { lastInsertRowid } = testDb.prepare(`
-    INSERT INTO tg_accounts (name, phone_number, auth_status, disabled)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO tg_accounts (name, phone_number, auth_status, disabled, additional_attributes)
+    VALUES (?, ?, ?, ?, ?)
   `).run(
     fields.name ?? 'Acct',
     fields.phoneNumber ?? '+61400000000',
     fields.authStatus ?? 'authenticated',
     fields.disabled ?? 0,
+    fields.attributes ?? null,
   );
   return testDb.prepare('SELECT * FROM tg_accounts WHERE id = ?').get(lastInsertRowid) as any;
 }
@@ -149,18 +151,24 @@ function setLinkedJobsEnabled(templateId: number, enabled: boolean) {
   testDb.prepare('UPDATE jobs SET enabled = ? WHERE template_id = ?').run(enabled ? 1 : 0, templateId);
 }
 
-// Mirrors the route logic for GET /:id/available-accounts
+// Mirrors the route logic for GET /:id/available-accounts. Every enabled account comes
+// back; the linked flag is what the dialog's filter acts on, so it is what is asserted.
 function getAvailableAccounts(templateId: number) {
   return testDb.prepare(`
-    SELECT id, name, phone_number, auth_status, disabled
-    FROM tg_accounts
-    WHERE (disabled = 0 OR disabled IS NULL)
-      AND id NOT IN (
-        SELECT account_id FROM jobs
-        WHERE template_id = ? AND account_id IS NOT NULL AND retired IS NULL
-      )
-    ORDER BY name COLLATE NOCASE
+    SELECT a.id, a.name, a.phone_number, a.auth_status, a.additional_attributes,
+      EXISTS (
+        SELECT 1 FROM jobs j
+        WHERE j.template_id = ? AND j.account_id = a.id AND j.retired IS NULL
+      ) AS linked
+    FROM tg_accounts a
+    WHERE (a.disabled = 0 OR a.disabled IS NULL)
+    ORDER BY a.name COLLATE NOCASE
   `).all(templateId) as any[];
+}
+
+/** The linked flag for one account, or undefined when the row is not returned at all. */
+function linkedFlag(rows: any[], id: number): number | undefined {
+  return rows.find(r => r.id === id)?.linked;
 }
 
 // Mirrors the route logic for POST /:id/create-jobs
@@ -282,7 +290,7 @@ describe('getAvailableAccounts', () => {
     );
   });
 
-  it('excludes accounts that already have a job for this template', () => {
+  it('flags an account that already has a job for this template as linked', () => {
     const t  = insertTemplate();
     const a1 = insertAccount({ name: 'Alice' });
     const a2 = insertAccount({ name: 'Bob' });
@@ -290,12 +298,11 @@ describe('getAvailableAccounts', () => {
 
     const result = getAvailableAccounts(t.id);
 
-    const ids = result.map((r: any) => r.id);
-    expect(ids).not.toContain(a1.id);
-    expect(ids).toContain(a2.id);
+    expect(linkedFlag(result, a1.id)).toBe(1);
+    expect(linkedFlag(result, a2.id)).toBe(0);
   });
 
-  it('does not exclude an account whose only job for this template is retired', () => {
+  it('does not count a retired job as a link', () => {
     const t  = insertTemplate();
     const a1 = insertAccount({ name: 'Alice' });
     const a2 = insertAccount({ name: 'Bob' });
@@ -304,30 +311,39 @@ describe('getAvailableAccounts', () => {
 
     const result = getAvailableAccounts(t.id);
 
-    const ids = result.map((r: any) => r.id);
-    expect(ids).toContain(a1.id);
-    expect(ids).not.toContain(a2.id);
+    expect(linkedFlag(result, a1.id)).toBe(0);
+    expect(linkedFlag(result, a2.id)).toBe(1);
   });
 
-  it('still excludes an account with both a retired and an active job for this template', () => {
+  it('counts an account with both a retired and an active job as linked', () => {
     const t = insertTemplate();
     const a = insertAccount({ name: 'Alice' });
     insertJob({ templateId: t.id, accountId: a.id, retired: '2026-07-08 00:00:00' });
     insertJob({ templateId: t.id, accountId: a.id });
 
-    expect(getAvailableAccounts(t.id).map((r: any) => r.id)).not.toContain(a.id);
+    expect(linkedFlag(getAvailableAccounts(t.id), a.id)).toBe(1);
   });
 
-  it('does not exclude an account linked to a different template', () => {
+  it('does not flag an account linked to a different template', () => {
     const t1 = insertTemplate();
     const t2 = insertTemplate();
     const a  = insertAccount({ name: 'Carol' });
     // Account is linked to t1, not t2
     insertJob({ templateId: t1.id, accountId: a.id });
 
-    const result = getAvailableAccounts(t2.id);
+    expect(linkedFlag(getAvailableAccounts(t2.id), a.id)).toBe(0);
+  });
 
-    expect(result.map((r: any) => r.id)).toContain(a.id);
+  it('returns the stored spam standing, which the restriction filter reads', () => {
+    const t = insertTemplate();
+    const limited = insertAccount({ name: 'Alice', attributes: '{"restriction":"limited"}' });
+    const never = insertAccount({ name: 'Bob' });
+
+    const result = getAvailableAccounts(t.id);
+
+    expect(JSON.parse(result.find((r: any) => r.id === limited.id).additional_attributes).restriction)
+      .toBe('limited');
+    expect(result.find((r: any) => r.id === never.id).additional_attributes).toBeNull();
   });
 
   it('excludes disabled accounts', () => {
@@ -354,14 +370,15 @@ describe('getAvailableAccounts', () => {
     expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })));
   });
 
-  it('returns empty list when all accounts already have a job for this template', () => {
+  it('still returns an account that already has a job, marked linked', () => {
     const t = insertTemplate();
     const a = insertAccount();
     insertJob({ templateId: t.id, accountId: a.id });
 
     const result = getAvailableAccounts(t.id);
 
-    expect(result).toHaveLength(0);
+    expect(result).toHaveLength(1);
+    expect(linkedFlag(result, a.id)).toBe(1);
   });
 });
 
