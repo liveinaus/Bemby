@@ -117,6 +117,9 @@ export const ALLOWED_KEYS = [
   "ai_model",
   "ai_default_model_id",
   "ai_fallback_enabled",
+  "ai_variation_enabled",
+  "ai_answer_temperature",
+  "ai_answer_top_p",
   // Deprecated: target for the account-session sender, kept until that sender is removed
   "notify_tg_username",
   "notify_tg_events",

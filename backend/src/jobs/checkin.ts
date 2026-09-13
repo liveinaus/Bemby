@@ -134,6 +134,21 @@ export function parseAiBtnHint(val: string): string | undefined {
 
 type AICreds = { modelId: string; apiKey: string; baseUrl: string; timeoutMs: number };
 
+/**
+ * Sampling knobs sent alongside the prompt, in OpenAI-compatible spelling.
+ *
+ * Left off entirely for the reading tasks (captcha, button pick, status), where the
+ * provider's own default is wanted and a repeat answer is the right answer. Only the
+ * free-text path sets them, and only to stop every account sending the same words.
+ */
+export type AISampling = {
+  temperature?: number;
+  top_p?: number;
+  seed?: number;
+  presence_penalty?: number;
+  frequency_penalty?: number;
+};
+
 // The answer itself (captcha chars / button text) is tiny, but reasoning models
 // burn the budget on chain-of-thought first; too small and content comes back
 // empty. Generous cap — non-reasoning models still stop early once done.
@@ -200,6 +215,7 @@ async function callAIWithCreds(
   prompt: string,
   maxTokens: number,
   creds: AICreds,
+  sampling?: AISampling,
 ): Promise<{ response: string }> {
   if (!creds.apiKey) throw new Error('AI API key not configured — set it in Settings');
 
@@ -210,7 +226,12 @@ async function callAIWithCreds(
   const res = await fetch(`${creds.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${creds.apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: creds.modelId, messages: [{ role: 'user', content }], max_tokens: maxTokens }),
+    body: JSON.stringify({
+      model: creds.modelId,
+      messages: [{ role: 'user', content }],
+      max_tokens: maxTokens,
+      ...(sampling ?? {}),
+    }),
     signal: AbortSignal.timeout(creds.timeoutMs),
   });
 
@@ -276,11 +297,12 @@ export async function callAI(
   prompt: string,
   maxTokens = 200,
   modelOverride?: string,
+  sampling?: AISampling,
 ): Promise<{ response: string }> {
   const creds = resolveAICreds(modelOverride);
   for (let attempt = 0; ; attempt++) {
     try {
-      return await callAIWithCreds(images, prompt, maxTokens, creds);
+      return await callAIWithCreds(images, prompt, maxTokens, creds, sampling);
     } catch (err: any) {
       if (attempt >= RATE_LIMIT_WAITS_MS.length || !isRateLimit(err)) throw err;
       const wait = RATE_LIMIT_WAITS_MS[attempt];
@@ -298,6 +320,7 @@ async function callAIWithFallback(
   images: string[],
   prompt: string,
   maxTokens: number,
+  sampling?: AISampling,
 ): Promise<{ response: string }> {
   const primary = resolveAICreds();
   const fallbackEnabled = getAiSetting('ai_fallback_enabled', '', 'true') === 'true';
@@ -319,7 +342,7 @@ async function callAIWithFallback(
   for (const creds of candidates) {
     if (!creds.apiKey) continue;
     try {
-      return await callAIWithCreds(images, prompt, maxTokens, creds);
+      return await callAIWithCreds(images, prompt, maxTokens, creds, sampling);
     } catch (err: any) {
       lastError = err;
     }
@@ -422,16 +445,106 @@ export async function recognizeCaptchaWithAI(
   return { text: recognized, prompt, response: recognized };
 }
 
+// ── Answer variation ─────────────────────────────────────────────────────────
+//
+// A hinted answer is built from the hint and the incoming message and nothing else, so
+// every account running the same step sends the model the same bytes -- and a model given
+// the same bytes writes the same words back, however much the hint asks for "a different
+// tone each time". Telling it to be random is not randomness; the randomness has to be in
+// the request. So each call draws a style and carries its own variation key, and the
+// sampling knobs go out with it for the providers that honour them.
+
+const AI_VOICES = [
+  "someone who writes in short, clipped sentences",
+  "someone who writes long, flowing sentences",
+  "a non-native English speaker using simple, clear phrasing",
+  "a careful writer who hedges before stating anything",
+  "someone typing quickly on a phone",
+  "an older user who is not very technical",
+  "someone used to writing support tickets",
+  "a student who is a bit embarrassed to be asking",
+] as const;
+
+const AI_TONES = [
+  "plain and matter-of-fact",
+  "warm and apologetic",
+  "formal and businesslike",
+  "weary but polite",
+  "earnest and slightly anxious",
+  "brisk and practical",
+  "friendly and conversational",
+  "calm and reasoned",
+  "respectful and deferential",
+  "direct, with no filler",
+] as const;
+
+const AI_SHAPES = [
+  "one unbroken paragraph",
+  "two paragraphs",
+  "three short paragraphs",
+  "a short opening line followed by a longer body",
+  "a body followed by a one-line closing request",
+] as const;
+
+const AI_OPENINGS = [
+  "open by answering the question that was actually asked",
+  "open with what the account was being used for",
+  "open by thanking them for looking into it",
+  "open by saying when the problem was noticed",
+  "open by admitting you do not know what triggered it",
+] as const;
+
+const pickOne = <T>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)];
+
+/** One drawn style, plus the sampling that goes out with it. */
+export type AiVariation = { directive: string; sampling: AISampling };
+
+/**
+ * Draws the style for one hinted answer, or nothing when `ai_variation_enabled` is off --
+ * which is the escape hatch for a supplier that rejects the sampling fields.
+ */
+export function newAiVariation(): AiVariation | undefined {
+  if (getAiSetting("ai_variation_enabled", "AI_VARIATION_ENABLED", "true") !== "true")
+    return undefined;
+
+  const temperature = Number(
+    getAiSetting("ai_answer_temperature", "AI_ANSWER_TEMPERATURE", "1.1"),
+  );
+  const topP = Number(getAiSetting("ai_answer_top_p", "AI_ANSWER_TOP_P", "0.95"));
+  const key = Math.random().toString(36).slice(2, 10);
+
+  return {
+    directive:
+      `Write this one as ${pickOne(AI_VOICES)}, in a tone that is ${pickOne(AI_TONES)}. ` +
+      `Shape it as ${pickOne(AI_SHAPES)}, and ${pickOne(AI_OPENINGS)}. ` +
+      `Do not reuse stock openings, stock sign-offs, or phrasing from any earlier reply, ` +
+      `and never mention these style instructions. ` +
+      `Variation key ${key} -- it carries no meaning and exists only to make this request ` +
+      `unlike the last one.`,
+    sampling: {
+      ...(Number.isFinite(temperature) ? { temperature } : {}),
+      ...(Number.isFinite(topP) ? { top_p: topP } : {}),
+      // A drawn seed is what stops a provider that decodes greedily from returning the
+      // same completion for the same prompt; providers that ignore it are no worse off
+      seed: Math.floor(Math.random() * 2_147_483_647),
+      presence_penalty: 0.6,
+      frequency_penalty: 0.4,
+    },
+  };
+}
+
 /** The prompt behind `{aiInputWithCustomHint:...}`, so a caller can log it before the fetch. */
 export function buildAiInputPrompt(
   spec: AiInputHint,
   text: string,
   hasImages: boolean,
+  variation?: string,
 ): string {
   const rule = aiInputLengthRule(spec);
   return (
     `Task: "${spec.hint}".\n\nThe message:\n${text}\n\n` +
     (hasImages ? "The image(s) attached to it are included.\n\n" : "") +
+    (variation ? `${variation}\n\n` : "") +
     `Write the reply to send back, following the task.` +
     (rule ? ` The reply must be ${rule}.` : "") +
     ` You MUST reply with ONLY the text to send, nothing else -- no quotes, no ` +
@@ -448,14 +561,25 @@ export async function answerWithAI(
   images: string[],
   html: string,
   spec: AiInputHint,
+  variation?: AiVariation,
 ): Promise<AiInputResult> {
   if (!resolveAICreds().apiKey)
     throw new Error(
       '{aiInputWithCustomHint} requires an AI API key -- configure it in Settings',
     );
 
-  const prompt = buildAiInputPrompt(spec, htmlToText(html), images.length > 0);
-  const { response } = await callAIWithFallback(images, prompt, AI_ANSWER_MAX_TOKENS);
+  const prompt = buildAiInputPrompt(
+    spec,
+    htmlToText(html),
+    images.length > 0,
+    variation?.directive,
+  );
+  const { response } = await callAIWithFallback(
+    images,
+    prompt,
+    AI_ANSWER_MAX_TOKENS,
+    variation?.sampling,
+  );
   const text = response?.trim() ?? "";
   if (!text) throw new Error("AI returned an empty answer for {aiInputWithCustomHint}");
   return { text, prompt, response };

@@ -2157,6 +2157,13 @@ const zh = {
     aiHint: "用于 AI 辅助功能，包括 {aiBtn}（自动识别签到按钮）及验证码识别等。",
     aiFallbackLabel: "API 报错时自动切换至其他服务商",
     aiFallbackHint: "启用后，若默认模型返回限速或其他 API 错误，系统将自动尝试其他已配置的服务商。",
+    aiVariationLabel: "每次生成的 AI 回复内容各不相同",
+    aiVariationHint:
+      "为每次 {aiInputWithCustomHint} 回复随机选取语气、人称与段落结构，并附带随机采样参数，避免所有账户发出完全相同的文本。若服务商拒绝这些采样参数，请关闭此项。",
+    aiTemperatureLabel: "Temperature（随机度）",
+    aiTemperatureHint: "数值越高变化越大。0 表示每次都返回相同内容，默认 1.1。",
+    aiTopPLabel: "Top P",
+    aiTopPHint: "模型可采样的概率质量比例，默认 0.95。",
     aiProvidersSection: "AI 服务商",
     addProvider: "添加服务商",
     supplierName: "名称",
@@ -4864,6 +4871,13 @@ const en: typeof zh = {
     aiFallbackLabel: "Auto-fallback to other providers on error",
     aiFallbackHint:
       "When enabled, if the default model returns a rate-limit or other API error, the system will automatically retry with other configured providers.",
+    aiVariationLabel: "Vary AI-written replies between runs",
+    aiVariationHint:
+      "Draws a different voice, tone and structure for each {aiInputWithCustomHint} answer and sends randomised sampling with it, so the same step does not send identical text from every account. Turn off if a provider rejects the sampling fields.",
+    aiTemperatureLabel: "Temperature",
+    aiTemperatureHint: "Higher is more varied. 0 repeats the same answer; 1.1 is the default.",
+    aiTopPLabel: "Top P",
+    aiTopPHint: "Share of the probability mass the model may sample from. 0.95 is the default.",
     aiProvidersSection: "AI Providers",
     addProvider: "Add Provider",
     supplierName: "Name",

@@ -2098,6 +2098,9 @@ export type Settings = {
   /** ai_models row id pinning the default model to an exact supplier. */
   ai_default_model_id?: string;
   ai_fallback_enabled?: string;
+  ai_variation_enabled?: string;
+  ai_answer_temperature?: string;
+  ai_answer_top_p?: string;
   /**
    * Target for the account-session sender, used only when no bot token is set.
    * @deprecated That sender is due for removal; use notify_bot_token + notify_bot_target.

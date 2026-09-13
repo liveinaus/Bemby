@@ -23,6 +23,7 @@ import {
   recognizeCaptchaWithAI,
   answerWithAI,
   buildAiInputPrompt,
+  newAiVariation,
   htmlToText,
   buildCaptchaPrompt,
   findUrlButton,
@@ -467,14 +468,22 @@ async function fillAiInput(
   // The wording is what a hinted answer is worked out from, so the log keeps it
   if (spec && parsed.html) step.preClickHtml = parsed.html;
 
+  // Drawn once and used for both the log and the call, so the prompt shown is the prompt sent
+  const variation = spec ? newAiVariation() : undefined;
+
   // Logged before the call, so a run that fails on the AI still shows what it was asked
   step.aiPrompt = spec
-    ? buildAiInputPrompt(spec, htmlToText(parsed.html ?? ""), parsed.images.length > 0)
+    ? buildAiInputPrompt(
+        spec,
+        htmlToText(parsed.html ?? ""),
+        parsed.images.length > 0,
+        variation?.directive,
+      )
     : buildCaptchaPrompt(length);
 
   const aiStart = Date.now();
   const answer = await (spec
-    ? answerWithAI(parsed.images, parsed.html ?? "", spec)
+    ? answerWithAI(parsed.images, parsed.html ?? "", spec, variation)
     : recognizeCaptchaWithAI(parsed.images, length))
     .then((r) => {
       step.aiResponse = r.response;

@@ -2437,6 +2437,50 @@
           </p>
         </div>
 
+        <!-- Answer variation. A hinted answer is built from the same hint and the same bot
+             message on every account, so without this every run sends identical text. -->
+        <div class="form-group">
+          <label class="form-check">
+            <input v-model="form.ai_variation_enabled" type="checkbox" @change="saveAiVariation" />
+            <span>{{ t("settings.aiVariationLabel") }}</span>
+          </label>
+          <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
+            {{ t("settings.aiVariationHint") }}
+          </p>
+          <div v-if="form.ai_variation_enabled" style="display: flex; gap: 16px; margin: 10px 0 0 24px">
+            <div style="flex: 1; max-width: 180px">
+              <label class="form-label">{{ t("settings.aiTemperatureLabel") }}</label>
+              <input
+                v-model.number="form.ai_answer_temperature"
+                class="form-input"
+                type="number"
+                min="0"
+                max="2"
+                step="0.1"
+                @change="saveAiVariation"
+              />
+              <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
+                {{ t("settings.aiTemperatureHint") }}
+              </p>
+            </div>
+            <div style="flex: 1; max-width: 180px">
+              <label class="form-label">{{ t("settings.aiTopPLabel") }}</label>
+              <input
+                v-model.number="form.ai_answer_top_p"
+                class="form-input"
+                type="number"
+                min="0"
+                max="1"
+                step="0.05"
+                @change="saveAiVariation"
+              />
+              <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0">
+                {{ t("settings.aiTopPHint") }}
+              </p>
+            </div>
+          </div>
+        </div>
+
         <!-- Providers list -->
         <div
           style="
@@ -3191,6 +3235,9 @@ const form = reactive({
   ai_model: "",
   ai_default_model_id: "",
   ai_fallback_enabled: true,
+  ai_variation_enabled: true,
+  ai_answer_temperature: 1.1,
+  ai_answer_top_p: 0.95,
 });
 const saving = ref(false);
 const saveMsg = ref("");
@@ -4646,6 +4693,14 @@ onMounted(async () => {
     form.ai_model = s.ai_model ?? "";
     form.ai_default_model_id = s.ai_default_model_id ?? "";
     form.ai_fallback_enabled = s.ai_fallback_enabled !== "false";
+    form.ai_variation_enabled = s.ai_variation_enabled !== "false";
+    form.ai_answer_temperature = Number(s.ai_answer_temperature ?? 1.1);
+    form.ai_answer_top_p = Number(s.ai_answer_top_p ?? 0.95);
+    aiVariationSaved = {
+      enabled: form.ai_variation_enabled,
+      temperature: form.ai_answer_temperature,
+      topP: form.ai_answer_top_p,
+    };
     cfChromiumInstalled.value = s.cf_chromium_installed === "true";
     cfChromiumVersion.value = s.cf_chromium_version ?? "";
     cfChromiumTier.value = s.cf_chromium_tier ?? "";
@@ -5103,6 +5158,29 @@ async function saveFallbackEnabled() {
   } catch {
     // revert on failure
     form.ai_fallback_enabled = !form.ai_fallback_enabled;
+  }
+}
+
+// Last persisted variation settings, so a failed save can be put back
+let aiVariationSaved = { enabled: true, temperature: 1.1, topP: 0.95 };
+
+async function saveAiVariation() {
+  // Clamped here as well: a number input accepts a typed value outside its own min/max
+  const temperature = Math.min(2, Math.max(0, Number(form.ai_answer_temperature) || 0));
+  const topP = Math.min(1, Math.max(0, Number(form.ai_answer_top_p) || 0));
+  form.ai_answer_temperature = temperature;
+  form.ai_answer_top_p = topP;
+  try {
+    await settingsApi.update({
+      ai_variation_enabled: String(form.ai_variation_enabled),
+      ai_answer_temperature: String(temperature),
+      ai_answer_top_p: String(topP),
+    });
+    aiVariationSaved = { enabled: form.ai_variation_enabled, temperature, topP };
+  } catch {
+    form.ai_variation_enabled = aiVariationSaved.enabled;
+    form.ai_answer_temperature = aiVariationSaved.temperature;
+    form.ai_answer_top_p = aiVariationSaved.topP;
   }
 }
 
