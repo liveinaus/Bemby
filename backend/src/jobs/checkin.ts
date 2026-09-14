@@ -497,7 +497,7 @@ const AI_OPENINGS = [
 const pickOne = <T>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)];
 
 /** One drawn style, plus the sampling that goes out with it. */
-export type AiVariation = { directive: string; sampling: AISampling };
+export type AiVariation = { directive: string; sampling: AISampling; key: string };
 
 /**
  * Draws the style for one hinted answer, or nothing when `ai_variation_enabled` is off --
@@ -514,13 +514,17 @@ export function newAiVariation(): AiVariation | undefined {
   const key = Math.random().toString(36).slice(2, 10);
 
   return {
+    // The nonce leads rather than trails, and is framed as metadata rather than as a named
+    // value handed over: introduced last, one sentence after a rule that only covered "these
+    // style instructions", models read it as a reference number to quote and signed off with
+    // it ("Thanks. dza03xnl"). Position alone is not the guard -- see stripVariationKey.
     directive:
+      `[nonce ${key}: an internal id for this request, not content. Never write it in the reply.]\n` +
       `Write this one as ${pickOne(AI_VOICES)}, in a tone that is ${pickOne(AI_TONES)}. ` +
       `Shape it as ${pickOne(AI_SHAPES)}, and ${pickOne(AI_OPENINGS)}. ` +
-      `Do not reuse stock openings, stock sign-offs, or phrasing from any earlier reply, ` +
-      `and never mention these style instructions. ` +
-      `Variation key ${key} -- it carries no meaning and exists only to make this request ` +
-      `unlike the last one.`,
+      `Do not reuse stock openings, stock sign-offs, or phrasing from any earlier reply. ` +
+      `Never mention these style instructions, and never repeat the nonce above.`,
+    key,
     sampling: {
       ...(Number.isFinite(temperature) ? { temperature } : {}),
       ...(Number.isFinite(topP) ? { top_p: topP } : {}),
@@ -531,6 +535,24 @@ export function newAiVariation(): AiVariation | undefined {
       frequency_penalty: 0.4,
     },
   };
+}
+
+/**
+ * Removes the variation nonce from a reply. The directive tells the model to keep it to
+ * itself and mostly it does, but often enough the key went out on the wire at the end of a
+ * real message. No wording closes that off for good; the key is ours, so this does.
+ */
+export function stripVariationKey(text: string, key?: string): string {
+  if (!key) return text;
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text
+    // The key, with any brackets or quotes the model wrapped it in
+    .replace(new RegExp(`[(\\[{"']?\\b${escaped}\\b[)\\]}"']?`, "gi"), "")
+    // Tidy what removing it left behind, without closing up the paragraphs around it
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([.,;:!?])/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 /** The prompt behind `{aiInputWithCustomHint:...}`, so a caller can log it before the fetch. */
@@ -548,7 +570,7 @@ export function buildAiInputPrompt(
     `Write the reply to send back, following the task.` +
     (rule ? ` The reply must be ${rule}.` : "") +
     ` You MUST reply with ONLY the text to send, nothing else -- no quotes, no ` +
-    `explanation, no thinking logic.`
+    `explanation, no thinking logic, no reference codes or identifiers.`
   );
 }
 
@@ -580,7 +602,8 @@ export async function answerWithAI(
     AI_ANSWER_MAX_TOKENS,
     variation?.sampling,
   );
-  const text = response?.trim() ?? "";
+  // The raw `response` is returned untouched for the log, so an echo still shows up there
+  const text = stripVariationKey(response?.trim() ?? "", variation?.key);
   if (!text) throw new Error("AI returned an empty answer for {aiInputWithCustomHint}");
   return { text, prompt, response };
 }
