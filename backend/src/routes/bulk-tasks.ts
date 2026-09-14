@@ -29,6 +29,7 @@ import {
   startBulkPasskey,
   startBulkPrivacy,
   startBulkSpamCheck,
+  startBulkTakeOwnership,
   type BulkExtractInput,
 } from "../jobs/bulkOps";
 import {
@@ -255,6 +256,46 @@ router.post("/credentials", bulkMgmtGuard, (req, res) => {
 router.post("/passkey", bulkMgmtGuard, (req, res) => {
   const { ids, gapSeconds } = req.body as { ids?: number[]; gapSeconds?: number };
   respond(res, startBulkPasskey(numberList(ids), optionalSeconds(gapSeconds)));
+});
+
+// POST /take-ownership -- lock imported (card) accounts to the operator: rotate 2FA using each
+// account's own stored password, terminate other sessions, strip foreign passkeys.
+router.post("/take-ownership", bulkMgmtGuard, (req, res) => {
+  const {
+    ids,
+    newPassword,
+    randomisePasswords,
+    hint,
+    removeOtherPasskeys,
+    addPasskey,
+    notesAppend,
+    gapSeconds,
+  } = req.body as {
+    ids?: number[];
+    newPassword?: string;
+    randomisePasswords?: boolean;
+    hint?: string;
+    removeOtherPasskeys?: boolean;
+    addPasskey?: boolean;
+    notesAppend?: string;
+    gapSeconds?: number;
+  };
+  respond(
+    res,
+    startBulkTakeOwnership(
+      numberList(ids),
+      {
+        newPassword,
+        randomisePasswords: Boolean(randomisePasswords),
+        hint,
+        removeOtherPasskeys:
+          removeOtherPasskeys === undefined ? true : Boolean(removeOtherPasskeys),
+        addPasskey: Boolean(addPasskey),
+        notesAppend,
+      },
+      optionalSeconds(gapSeconds),
+    ),
+  );
 });
 
 // POST /privacy -- write the chosen level (nobody / contacts / everybody) for each privacy key.

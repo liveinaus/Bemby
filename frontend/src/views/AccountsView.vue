@@ -77,6 +77,10 @@
                 <i class="fa-solid fa-user-lock"></i>
                 {{ t("accounts.bulkCred.btn") }}
               </button>
+              <button class="bulk-menu-item" @click="runBulk(openTakeOwnership)">
+                <i class="fa-solid fa-shield-halved"></i>
+                {{ t("accounts.takeOwnership.btn") }}
+              </button>
               <button class="bulk-menu-item" @click="runBulk(openBulkEmail)">
                 <i class="fa-solid fa-envelope"></i>
                 {{ t("accounts.bulkEmail.btn") }}
@@ -2761,6 +2765,144 @@
       </div>
     </div>
 
+    <!-- Take ownership modal (imported card accounts) -->
+    <div v-if="showTakeOwnership" class="modal-backdrop">
+      <div class="modal modal-lg">
+        <h3 class="modal-title">
+          <i class="fa-solid fa-shield-halved" style="margin-right: 8px"></i>
+          {{ t("accounts.takeOwnership.title") }}
+        </h3>
+
+        <!-- Config step -->
+        <template v-if="!takeOwnershipTask">
+          <div v-if="!takeOwnershipTargets.length" class="warn-box">
+            {{ t("accounts.takeOwnership.noTargets") }}
+          </div>
+          <template v-else>
+            <p class="bulk-add-hint">
+              {{
+                t("accounts.takeOwnership.intro").replace(
+                  "{n}",
+                  String(takeOwnershipTargets.length),
+                )
+              }}
+            </p>
+            <div v-if="takeOwnershipSkipped" class="form-hint" style="margin-bottom: 10px">
+              {{
+                t("accounts.takeOwnership.skippedHint").replace(
+                  "{n}",
+                  String(takeOwnershipSkipped),
+                )
+              }}
+            </div>
+            <div v-if="takeOwnershipError" class="error-msg">
+              {{ takeOwnershipError }}
+            </div>
+
+            <label class="form-check">
+              <input type="checkbox" v-model="takeOwnershipForm.randomise" />
+              <span>{{ t("accounts.takeOwnership.randomiseLabel") }}</span>
+            </label>
+            <div class="form-hint" style="margin-bottom: 10px">
+              {{ t("accounts.takeOwnership.randomiseHint") }}
+            </div>
+
+            <template v-if="!takeOwnershipForm.randomise">
+              <div class="bulk-add-options-row">
+                <div class="form-group">
+                  <label class="form-label">{{
+                    t("accounts.takeOwnership.newPassword")
+                  }}</label>
+                  <input
+                    v-model="takeOwnershipForm.newPassword"
+                    type="password"
+                    class="form-input"
+                    autocomplete="new-password"
+                  />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">{{
+                    t("accounts.takeOwnership.repeatPassword")
+                  }}</label>
+                  <input
+                    v-model="takeOwnershipForm.repeatPassword"
+                    type="password"
+                    class="form-input"
+                    autocomplete="new-password"
+                  />
+                </div>
+              </div>
+            </template>
+
+            <label class="form-check" style="margin-top: 4px">
+              <input type="checkbox" v-model="takeOwnershipForm.removeOtherPasskeys" />
+              <span>{{ t("accounts.takeOwnership.removePasskeys") }}</span>
+            </label>
+            <label class="form-check" style="margin-top: 10px">
+              <input type="checkbox" v-model="takeOwnershipForm.addPasskey" />
+              <span>{{ t("accounts.takeOwnership.addPasskey") }}</span>
+            </label>
+
+            <div class="form-group" style="margin-top: 14px">
+              <label class="form-label">{{
+                t("accounts.bulkCred.notesAppend")
+              }}</label>
+              <input
+                v-model="takeOwnershipForm.notesAppend"
+                class="form-input"
+                :placeholder="t('accounts.takeOwnership.notesPlaceholder')"
+              />
+            </div>
+            <div class="form-group">
+              <label class="form-label">{{ t("accounts.bulkGap.label") }}</label>
+              <input
+                v-model.number="takeOwnershipForm.gapSeconds"
+                type="number"
+                min="0"
+                class="form-input"
+              />
+              <div class="form-hint">{{ t("accounts.bulkGap.hint") }}</div>
+            </div>
+
+            <div class="warn-box" style="margin-top: 6px">
+              {{ t("accounts.takeOwnership.warning") }}
+            </div>
+
+            <div class="bulk-clean-accounts">
+              <div
+                v-for="a in takeOwnershipTargets"
+                :key="a.id"
+                class="bulk-clean-account"
+              >
+                <strong>{{ a.name }}</strong>
+                <span class="bulk-add-phone">{{ a.phoneNumber }}</span>
+              </div>
+            </div>
+          </template>
+          <div class="modal-footer">
+            <button class="btn btn-ghost" @click="closeTakeOwnership">
+              <i class="fa-solid fa-xmark"></i> {{ t("common.cancel") }}
+            </button>
+            <button
+              v-if="takeOwnershipTargets.length"
+              class="btn btn-primary"
+              @click="startTakeOwnership"
+            >
+              <i class="fa-solid fa-shield-halved"></i>
+              {{ t("accounts.takeOwnership.start") }}
+            </button>
+          </div>
+        </template>
+
+        <!-- Progress step -- rendered from the server-side task -->
+        <BulkTaskProgress
+          v-else
+          :task="takeOwnershipTask"
+          @close="closeTakeOwnership"
+        />
+      </div>
+    </div>
+
     <!-- Bulk add passkey modal -->
     <div v-if="showBulkPasskey" class="modal-backdrop">
       <div class="modal modal-lg">
@@ -5434,6 +5576,88 @@ async function startBulkCred() {
     bulkCredTaskId.value = task.id;
   } catch (e: any) {
     bulkCredError.value = e.response?.data?.error ?? t("bulkTasks.startFailed");
+  }
+}
+
+// ── Take ownership state (imported card accounts) ─────────────────────────────
+// Only accounts imported as session cards are eligible -- they carry their own seller 2FA,
+// which the backend uses as the current password. Non-imported selections are counted as
+// skipped so the operator sees why they were left out.
+const showTakeOwnership = ref(false);
+const takeOwnershipError = ref("");
+const takeOwnershipTargets = ref<Account[]>([]);
+const takeOwnershipSkipped = ref(0);
+const takeOwnershipTaskId = ref<string | null>(null);
+const takeOwnershipTask = computed(() => taskById(takeOwnershipTaskId.value));
+const takeOwnershipForm = reactive({
+  randomise: false,
+  newPassword: "",
+  repeatPassword: "",
+  removeOtherPasskeys: true,
+  addPasskey: false,
+  notesAppend: "",
+  gapSeconds: 30,
+});
+
+function isImportedAccount(a: Account): boolean {
+  return (a.attributes?.sessionSource ?? "") === "imported";
+}
+
+function openTakeOwnership() {
+  const selected = accounts.value.filter(
+    (a) => selectedIds.value.has(a.id) && a.authStatus === "authenticated",
+  );
+  takeOwnershipTargets.value = selected.filter(isImportedAccount);
+  takeOwnershipSkipped.value = selected.length - takeOwnershipTargets.value.length;
+  takeOwnershipError.value = "";
+  takeOwnershipForm.randomise = false;
+  takeOwnershipForm.newPassword = "";
+  takeOwnershipForm.repeatPassword = "";
+  takeOwnershipForm.removeOtherPasskeys = true;
+  takeOwnershipForm.addPasskey = false;
+  takeOwnershipForm.notesAppend = "";
+  takeOwnershipTaskId.value = runningTaskOfKind("take-ownership")?.id ?? null;
+  showTakeOwnership.value = true;
+}
+
+function closeTakeOwnership() {
+  showTakeOwnership.value = false;
+  takeOwnershipTaskId.value = null;
+}
+
+async function startTakeOwnership() {
+  takeOwnershipError.value = "";
+  if (!takeOwnershipForm.randomise) {
+    if (!takeOwnershipForm.newPassword) {
+      takeOwnershipError.value = t("accounts.bulkCred.errors.newPasswordRequired");
+      return;
+    }
+    if (takeOwnershipForm.newPassword !== takeOwnershipForm.repeatPassword) {
+      takeOwnershipError.value = t("accounts.bulkCred.errors.passwordMismatch");
+      return;
+    }
+  }
+  if (!takeOwnershipTargets.value.length) return;
+
+  try {
+    const task = await bulkTasksApi.takeOwnership(
+      takeOwnershipTargets.value.map((a) => a.id),
+      {
+        randomisePasswords: takeOwnershipForm.randomise,
+        newPassword: takeOwnershipForm.randomise
+          ? undefined
+          : takeOwnershipForm.newPassword,
+        removeOtherPasskeys: takeOwnershipForm.removeOtherPasskeys,
+        addPasskey: takeOwnershipForm.addPasskey,
+        notesAppend: takeOwnershipForm.notesAppend,
+      },
+      takeOwnershipForm.gapSeconds,
+    );
+    trackStartedTask(task);
+    takeOwnershipTaskId.value = task.id;
+  } catch (e: any) {
+    takeOwnershipError.value =
+      e.response?.data?.error ?? t("bulkTasks.startFailed");
   }
 }
 

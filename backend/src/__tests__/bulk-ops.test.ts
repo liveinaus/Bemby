@@ -83,6 +83,7 @@ import {
   startBulkLoginEmail,
   startBulkPasskey,
   startBulkSpamCheck,
+  startBulkTakeOwnership,
 } from "../jobs/bulkOps";
 import {
   accountOpContext,
@@ -539,6 +540,110 @@ describe("bulk credential change", () => {
       task(startBulkCredentials([id], { newPassword: "top-secret" }, 0)),
     );
     expect(JSON.stringify(done)).not.toContain("top-secret");
+  });
+});
+
+describe("take ownership (imported accounts)", () => {
+  function importedAccount(name: string, twoFa: string | null): number {
+    const id = addAccount(name);
+    testDb
+      .prepare("UPDATE tg_accounts SET additional_attributes = ? WHERE id = ?")
+      .run(
+        JSON.stringify({
+          sessionSource: "imported",
+          ...(twoFa != null ? { importedTwoFa: twoFa } : {}),
+        }),
+        id,
+      );
+    return id;
+  }
+
+  it("rotates 2FA using the account's own stored password and terminates sessions", async () => {
+    const id = importedAccount("A_1", "seller-pw");
+    tg.getPasskeys.mockResolvedValue([]);
+    const done = await settle(
+      task(startBulkTakeOwnership([id], { newPassword: "mine" }, 0)),
+    );
+    expect(tg.updateTwoFa).toHaveBeenCalledWith(
+      111,
+      "own-hash",
+      "session",
+      { currentPassword: "seller-pw", newPassword: "mine" },
+      undefined,
+      { deviceModel: "PC 64bit" },
+    );
+    expect(tg.terminateOtherSessions).toHaveBeenCalledTimes(1);
+    expect(done.items[0].status).toBe("done");
+    expect(done.items[0].data).toMatchObject({
+      twoFaChanged: true,
+      sessionsTerminated: true,
+    });
+    // The new 2FA is stored so Bemby retains the only copy, and ownership is timestamped.
+    const attrs = attributes(id);
+    expect(attrs.importedTwoFa).toBe("mine");
+    expect(typeof attrs.ownershipTakenAt).toBe("string");
+  });
+
+  it("sets a fresh 2FA when the account had none (empty current)", async () => {
+    const id = importedAccount("A_1", "");
+    tg.getPasskeys.mockResolvedValue([]);
+    await settle(task(startBulkTakeOwnership([id], { newPassword: "mine" }, 0)));
+    expect(tg.updateTwoFa).toHaveBeenCalledWith(
+      111,
+      "own-hash",
+      "session",
+      { currentPassword: undefined, newPassword: "mine" },
+      undefined,
+      { deviceModel: "PC 64bit" },
+    );
+  });
+
+  it("generates a unique random 2FA per account and never leaks it to the panel", async () => {
+    const a = importedAccount("A_1", "pw-a");
+    const b = importedAccount("A_2", "pw-b");
+    tg.getPasskeys.mockResolvedValue([]);
+    const done = await settle(
+      task(startBulkTakeOwnership([a, b], { randomisePasswords: true }, 0)),
+    );
+    const pwA = tg.updateTwoFa.mock.calls.find((c) => c[2] === "session")?.[3]
+      ?.newPassword;
+    const storedA = attributes(a).importedTwoFa as string;
+    const storedB = attributes(b).importedTwoFa as string;
+    expect(storedA).toBeTruthy();
+    expect(storedB).toBeTruthy();
+    expect(storedA).not.toBe(storedB);
+    // The generated password is stored but must not appear in the polled task.
+    expect(JSON.stringify(done)).not.toContain(storedA);
+    expect(pwA).toBe(storedA);
+  });
+
+  it("skips accounts that were not imported as cards", async () => {
+    const plain = addAccount("A_1"); // no sessionSource
+    expect(startBulkTakeOwnership([plain], { newPassword: "mine" }, 0)).toEqual({
+      ok: false,
+      error: "None of the selected accounts were imported as session cards",
+    });
+  });
+
+  it("requires a new password unless randomising", () => {
+    const id = importedAccount("A_1", "pw");
+    expect(startBulkTakeOwnership([id], { newPassword: "  " }, 0)).toEqual({
+      ok: false,
+      error: "A new password is required (or enable randomised passwords)",
+    });
+  });
+
+  it("fails the item and skips the rest when the 2FA change is refused", async () => {
+    const id = importedAccount("A_1", "wrong");
+    tg.updateTwoFa.mockRejectedValueOnce(new Error("PASSWORD_HASH_INVALID"));
+    const done = await settle(
+      task(startBulkTakeOwnership([id], { newPassword: "mine" }, 0)),
+    );
+    expect(done.items[0].status).toBe("failed");
+    expect(done.items[0].error).toBe("PASSWORD_HASH_INVALID");
+    expect(tg.terminateOtherSessions).not.toHaveBeenCalled();
+    // 2FA change failed, so the stored password must be left untouched.
+    expect(attributes(id).importedTwoFa).toBe("wrong");
   });
 });
 

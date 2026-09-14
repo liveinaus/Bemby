@@ -1,4 +1,7 @@
+import crypto from "crypto";
 import { db } from "../db/database";
+import { getAttributes, patchAttributes } from "../db/accountAttributes";
+import { decryptSecret, encryptSecret } from "../db/secretColumns";
 import {
   accountHasPasskeyFlag,
   appendAccountNotes,
@@ -341,6 +344,130 @@ export function startBulkCredentials(
         data.notesUpdated = true;
       }
       return { data };
+    },
+  });
+}
+
+// ── Take ownership of imported (card) accounts ────────────────────────────────
+// A bought session leaves the seller four ways back in: their own live session, the 2FA
+// password they set, any passkey they registered, and any login email they control. This op
+// closes all of them in one pass, using each account's OWN stored 2FA (importedTwoFa, saved at
+// import) as the current password -- so a batch whose cards each carry a different 2FA needs no
+// manual entry. Only accounts imported as cards are eligible.
+
+export type TakeOwnershipOptions = {
+  /** New 2FA to set on every account. Ignored when randomisePasswords is true. */
+  newPassword?: string;
+  /** Generate a strong unique 2FA per account instead of one shared value. */
+  randomisePasswords?: boolean;
+  /** 2FA hint to store (shared). Skip for randomised passwords -- a hint would leak them. */
+  hint?: string;
+  /** Remove passkeys Bemby does not manage (default true). */
+  removeOtherPasskeys?: boolean;
+  /** Register a fresh Bemby-managed passkey after the change (default false). */
+  addPasskey?: boolean;
+  notesAppend?: string;
+};
+
+/** Authenticated accounts that were imported as cards; others are not eligible for this op. */
+function importedAccountTargets(ids: number[]): BulkTaskEntry[] | null {
+  const entries = authenticatedAccountEntries(ids).filter(
+    (e) => getAttributes(e.refId).sessionSource === "imported",
+  );
+  return entries.length ? entries : null;
+}
+
+/** A strong random 2FA password: url-safe, no ambiguity about which characters are allowed. */
+function randomPassword(): string {
+  return crypto.randomBytes(18).toString("base64url");
+}
+
+export function startBulkTakeOwnership(
+  ids: number[],
+  options: TakeOwnershipOptions,
+  gapSeconds?: number,
+): StartBulkTaskResult {
+  if (!options?.randomisePasswords && !options?.newPassword?.trim()) {
+    return {
+      ok: false,
+      error: "A new password is required (or enable randomised passwords)",
+    };
+  }
+  const entries = importedAccountTargets(ids);
+  if (!entries) {
+    return {
+      ok: false,
+      error: "None of the selected accounts were imported as session cards",
+    };
+  }
+  const {
+    newPassword,
+    randomisePasswords,
+    hint,
+    removeOtherPasskeys = true,
+    addPasskey,
+    notesAppend,
+  } = options;
+  const append = (notesAppend ?? "").trim();
+
+  return startBulkTask({
+    kind: "take-ownership",
+    entries,
+    gapSeconds: gapSeconds ?? DEFAULT_TG_GAP_SECONDS,
+    handler: async (item, ctx) => {
+      const data: Record<string, unknown> = {};
+      // Current password is the account's own stored 2FA -- may be empty when the seller set
+      // none, in which case updateTwoFa just sets a fresh one.
+      const attrs = getAttributes(item.refId);
+      const current = decryptSecret((attrs.importedTwoFa as string) ?? "") ?? "";
+      const next = randomisePasswords
+        ? randomPassword()
+        : (newPassword as string).trim();
+
+      ctx.progress("Changing 2FA password");
+      await updateTwoFaForAccount(item.refId, {
+        currentPassword: current || undefined,
+        newPassword: next,
+        ...(randomisePasswords ? {} : hint ? { hint } : {}),
+      });
+      // Keep the new 2FA under Bemby's control so it is not lost -- this is the only copy now.
+      patchAttributes(item.refId, {
+        importedTwoFa: encryptSecret(next),
+        ownershipTakenAt: new Date().toISOString(),
+      });
+      data.twoFaChanged = true;
+
+      ctx.progress("Terminating other sessions");
+      await terminateOtherSessionsForAccount(item.refId);
+      data.sessionsTerminated = true;
+
+      // A 2FA change drops passkeys on Telegram's side; review what remains.
+      const hadPasskey = accountHasPasskeyFlag(item.refId);
+      if (removeOtherPasskeys || hadPasskey || addPasskey) {
+        ctx.progress("Reviewing passkeys");
+        const { passkeys, storedIds } = await listPasskeysForAccount(item.refId);
+        if (removeOtherPasskeys) {
+          const toRemove = passkeys.filter((pk) => !storedIds.includes(pk.id));
+          for (const pk of toRemove) {
+            await deletePasskeyForAccount(item.refId, pk.id);
+          }
+          data.passkeysRemoved = toRemove.length;
+        }
+        if (addPasskey || (hadPasskey && storedIds.length === 0)) {
+          ctx.progress("Registering Bemby passkey");
+          await registerPasskeyForAccount(item.refId);
+          data.passkeyAdded = true;
+        }
+      }
+
+      if (append) {
+        appendAccountNotes(item.refId, append);
+        data.notesUpdated = true;
+      }
+      return {
+        message: randomisePasswords ? "Ownership taken (random 2FA)" : "Ownership taken",
+        data,
+      };
     },
   });
 }

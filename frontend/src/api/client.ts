@@ -3660,6 +3660,7 @@ export type BulkTaskKind =
   | "fetch-attributes"
   | "login-email"
   | "credentials"
+  | "take-ownership"
   | "passkey"
   | "privacy"
   | "clean"
@@ -3830,6 +3831,21 @@ export const bulkTasksApi = {
   passkey: (ids: number[], gapSeconds?: number) =>
     api
       .post<BulkTask>("/bulk-tasks/passkey", { ids, gapSeconds })
+      .then((r) => r.data),
+  takeOwnership: (
+    ids: number[],
+    opts: {
+      newPassword?: string;
+      randomisePasswords?: boolean;
+      hint?: string;
+      removeOtherPasskeys?: boolean;
+      addPasskey?: boolean;
+      notesAppend?: string;
+    },
+    gapSeconds?: number,
+  ) =>
+    api
+      .post<BulkTask>("/bulk-tasks/take-ownership", { ids, ...opts, gapSeconds })
       .then((r) => r.data),
   privacy: (
     ids: number[],

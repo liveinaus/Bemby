@@ -12,6 +12,7 @@ export type BulkTaskKind =
   | "fetch-attributes"
   | "login-email"
   | "credentials"
+  | "take-ownership"
   | "passkey"
   | "privacy"
   | "clean"
@@ -139,6 +140,7 @@ const KIND_LABELS: Record<BulkTaskKind, string> = {
   "fetch-attributes": "attribute refresh",
   "login-email": "login email change",
   credentials: "credential change",
+  "take-ownership": "take ownership",
   passkey: "passkey",
   privacy: "privacy settings",
   clean: "clean",
