@@ -54,7 +54,9 @@ export function patchAttributes(
 // The bag as safe to expose to the UI. Defence in depth: strips a `passkey` key in case
 // a legacy row still has the secret embedded (it belongs in the dedicated passkey column).
 export function publicAttributes(attrs: AccountAttributes): AccountAttributes {
-  const { passkey: _passkey, ...rest } = attrs;
+  // importedTwoFa holds the (encrypted) 2FA of a card-imported account -- kept for the
+  // take-ownership step, never sent to the client.
+  const { passkey: _passkey, importedTwoFa: _twoFa, ...rest } = attrs;
   return rest;
 }
 

@@ -154,6 +154,37 @@ export function previewDeviceModel(
   }
 }
 
+/**
+ * The pinned device fingerprint for an imported account, or null. Stored in
+ * additional_attributes.pinnedClient by the session importer; only fields the vendor actually
+ * supplied are returned, so GramJS fills the rest from its own defaults.
+ */
+function readPinnedClient(accountId: number): TgDeviceParams | null {
+  let pinned: Record<string, unknown> | undefined;
+  try {
+    const row = db
+      .prepare("SELECT additional_attributes FROM tg_accounts WHERE id = ?")
+      .get(accountId) as { additional_attributes: string | null } | undefined;
+    if (!row?.additional_attributes) return null;
+    const attrs = JSON.parse(row.additional_attributes) as Record<string, unknown>;
+    pinned = attrs?.pinnedClient as Record<string, unknown> | undefined;
+  } catch {
+    return null;
+  }
+  if (!pinned || typeof pinned !== "object") return null;
+  const params: TgDeviceParams = {};
+  const put = (k: keyof TgDeviceParams, v: unknown) => {
+    if (typeof v === "string" && v) params[k] = v;
+  };
+  put("deviceModel", pinned.deviceModel);
+  put("systemVersion", pinned.systemVersion);
+  put("appVersion", pinned.appVersion);
+  put("systemLangCode", pinned.systemLangCode);
+  put("langPack", pinned.langPack);
+  put("langCode", pinned.langCode);
+  return Object.keys(params).length ? params : null;
+}
+
 function toDeviceParams(accountId: number, c: TgAppClient): TgDeviceParams {
   return {
     deviceModel: resolveDeviceModel(accountId, c),
@@ -178,6 +209,13 @@ export function resolveAppClientParams(
   appClientId: string | null | undefined,
 ): TgDeviceParams | undefined {
   try {
+    // A session imported as a bought card carries the exact device it was logged in with.
+    // Re-registering that auth key under any other fingerprint is a reliable way to get it
+    // killed, so a pinned fingerprint wins over the account's client assignment and over the
+    // random/default modes -- appClientId is ignored here on purpose.
+    const pinned = readPinnedClient(accountId);
+    if (pinned) return pinned;
+
     const list = readAppClients();
     if (!list.length) return undefined;
 

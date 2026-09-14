@@ -128,6 +128,14 @@
           <i class="fa-solid fa-layer-group"></i>
           {{ t("accounts.bulkAdd.btn") }}
         </button>
+        <button
+          v-if="bulkMgmtEnabled"
+          class="btn btn-secondary"
+          @click="openImportCards"
+        >
+          <i class="fa-solid fa-id-card"></i>
+          {{ t("accounts.importCards.btn") }}
+        </button>
         <button class="btn btn-primary" @click="openAdd">
           <i class="fa-solid fa-plus"></i> {{ t("accounts.addBtn") }}
         </button>
@@ -1833,6 +1841,227 @@
       </div>
     </div>
 
+    <!-- Import cards (session import) modal -->
+    <div v-if="showImportCards" class="modal-backdrop">
+      <div class="modal modal-lg">
+        <h3 class="modal-title">
+          <i class="fa-solid fa-id-card" style="margin-right: 8px"></i>
+          {{ t("accounts.importCards.title") }}
+        </h3>
+
+        <!-- Input step -->
+        <template v-if="!importBatch">
+          <p class="bulk-add-hint">{{ t("accounts.importCards.hint") }}</p>
+          <div v-if="importCardsError" class="error-msg">{{ importCardsError }}</div>
+          <div class="form-group">
+            <textarea
+              v-model="importCardsText"
+              class="form-input bulk-add-textarea"
+              :placeholder="importCardsPlaceholder"
+              rows="10"
+              spellcheck="false"
+            ></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">{{
+              t("accounts.importCards.converterUrlLabel")
+            }}</label>
+            <input
+              v-model="importOptions.converterBaseUrl"
+              class="form-input bulk-add-mono"
+              :placeholder="t('accounts.importCards.converterUrlPlaceholder')"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <div class="form-hint">
+              {{ t("accounts.importCards.converterUrlHint") }}
+            </div>
+          </div>
+
+          <div class="bulk-add-options">
+            <div class="form-section-label">
+              {{ t("accounts.bulkAdd.optionsTitle") }}
+            </div>
+            <label class="form-check">
+              <input type="checkbox" v-model="importOptions.aliveCheckFirst" />
+              <span>{{ t("accounts.importCards.aliveCheckLabel") }}</span>
+            </label>
+            <div class="form-hint">{{ t("accounts.importCards.aliveCheckHint") }}</div>
+            <div class="bulk-add-options-row">
+              <div class="form-group">
+                <label class="form-label">{{
+                  t("accounts.bulkAdd.gapLabel")
+                }}</label>
+                <input
+                  v-model.number="importOptions.gapSeconds"
+                  type="number"
+                  min="0"
+                  class="form-input"
+                />
+              </div>
+              <div class="form-group">
+                <label class="form-label">{{
+                  t("accounts.bulkAdd.namePrefixLabel")
+                }}</label>
+                <input v-model="importOptions.namePrefix" class="form-input" />
+              </div>
+            </div>
+            <div class="bulk-add-options-row">
+              <div class="form-group">
+                <label class="form-label">{{
+                  t("accounts.bulkAdd.nameIndexLabel")
+                }}</label>
+                <select
+                  v-model="importOptions.nameIndexMode"
+                  class="form-select"
+                >
+                  <option value="total">
+                    {{ t("accounts.bulkAdd.nameIndexTotal") }}
+                  </option>
+                  <option value="batch">
+                    {{ t("accounts.bulkAdd.nameIndexBatch") }}
+                  </option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">{{
+                  t("accounts.bulkAdd.namePadLabel")
+                }}</label>
+                <input
+                  v-model.number="importOptions.namePadDigits"
+                  type="number"
+                  min="0"
+                  max="9"
+                  class="form-input"
+                  :placeholder="t('accounts.bulkAdd.namePadAuto')"
+                />
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">{{
+                t("accounts.importCards.notesLabel")
+              }}</label>
+              <input v-model="importOptions.notesTemplate" class="form-input" />
+              <div class="form-hint">{{ t("accounts.importCards.notesHint") }}</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">{{
+                t("accounts.bulkAdd.proxiesLabel")
+              }}</label>
+              <select
+                v-model="importOptions.proxyIds"
+                multiple
+                class="form-select bulk-add-multiselect"
+              >
+                <option v-for="p in tgProxiesList" :key="p.id" :value="p.id">
+                  {{ p.name }}
+                </option>
+              </select>
+              <div class="form-hint">
+                {{ t("accounts.importCards.proxyHint") }}
+                <template v-if="hasNonTgProxies">
+                  {{ t("accounts.proxyNoTelegramHint") }}
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button class="btn btn-ghost" @click="closeImportCards">
+              <i class="fa-solid fa-xmark"></i> {{ t("common.cancel") }}
+            </button>
+            <button
+              class="btn btn-primary"
+              :disabled="
+                importCardsBusy ||
+                !importCardsText.trim() ||
+                !importOptions.converterBaseUrl.trim()
+              "
+              @click="startImportCards"
+            >
+              <i class="fa-solid fa-play"></i>
+              {{ t("accounts.importCards.start") }}
+            </button>
+          </div>
+        </template>
+
+        <!-- Progress step -->
+        <template v-else>
+          <div class="bulk-add-progress-head">
+            <span>
+              {{ t("accounts.bulkAdd.progressLabel") }}:
+              {{ importDoneCount }} / {{ importBatch.total }}
+            </span>
+            <span v-if="importBatch.running" class="bulk-add-running">
+              <i class="fa-solid fa-spinner fa-spin"></i>
+              {{ t("accounts.bulkAdd.running") }}
+            </span>
+            <span v-else class="bulk-add-finished">
+              <i class="fa-solid fa-circle-check"></i>
+              {{ t("accounts.bulkAdd.finished") }}
+            </span>
+          </div>
+          <div v-if="importBatch.running" class="form-hint">
+            {{ t("accounts.bulkAdd.minimiseHint") }}
+          </div>
+          <div class="bulk-add-list">
+            <div
+              v-for="item in importBatch.items"
+              :key="item.index"
+              class="bulk-add-item"
+            >
+              <span
+                class="bulk-add-status-dot"
+                :class="`status-${item.status}`"
+              ></span>
+              <div class="bulk-add-item-body">
+                <div class="bulk-add-item-top">
+                  <strong>{{ item.accountName || item.phoneNumber || "—" }}</strong>
+                  <span v-if="item.accountName" class="bulk-add-phone">{{
+                    item.phoneNumber
+                  }}</span>
+                  <span class="bulk-add-item-status">
+                    {{ t(`accounts.importCards.status.${item.status}`) }}
+                  </span>
+                </div>
+                <div
+                  v-if="item.error"
+                  class="bulk-add-item-msg bulk-add-item-error"
+                >
+                  {{ item.error }}
+                </div>
+                <div v-else-if="item.message" class="bulk-add-item-msg">
+                  {{ item.message }}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button
+              v-if="importBatch.running"
+              class="btn btn-ghost"
+              @click="closeImportCards"
+            >
+              <i class="fa-solid fa-window-minimize"></i>
+              {{ t("accounts.bulkAdd.minimise") }}
+            </button>
+            <button
+              v-if="importBatch.running"
+              class="btn btn-danger"
+              :disabled="importCardsBusy"
+              @click="cancelImportCards"
+            >
+              <i class="fa-solid fa-stop"></i> {{ t("accounts.bulkAdd.cancel") }}
+            </button>
+            <button v-else class="btn btn-primary" @click="closeImportCards">
+              <i class="fa-solid fa-check"></i> {{ t("common.close") }}
+            </button>
+          </div>
+        </template>
+      </div>
+    </div>
+
     <!-- Bulk rename Telegram profile modal -->
     <div v-if="showBulkTgRename" class="modal-backdrop">
       <div class="modal modal-lg">
@@ -3412,6 +3641,8 @@ import {
   type Passkey,
   type BulkAddBatch,
   type BulkAddOptions,
+  type SessionImportBatch,
+  type SessionImportOptions,
   type BulkProfileBatch,
   type BulkProfileEntry,
   type AvatarSourceMode,
@@ -4491,6 +4722,129 @@ async function cancelBulk() {
     await pollBulk();
   } finally {
     bulkAddBusy.value = false;
+  }
+}
+
+// ── Import cards (session import) state ───────────────────────────────────────
+// A separate flow from bulk-add: card lines are converted to real sessions and the accounts
+// are saved already-authenticated. Progress mirrors bulk-add so the panel reads the same.
+const showImportCards = ref(false);
+const importCardsText = ref("");
+const importCardsError = ref("");
+const importCardsBusy = ref(false);
+const importBatch = ref<SessionImportBatch | null>(null);
+let importPollTimer: ReturnType<typeof setTimeout> | null = null;
+
+const importOptions = reactive({
+  converterBaseUrl: "",
+  aliveCheckFirst: true,
+  gapSeconds: 8,
+  namePrefix: "TG_",
+  nameIndexMode: "total" as "total" | "batch",
+  namePadDigits: 0,
+  notesTemplate: "Imported session ({phone})",
+  proxyIds: [] as string[],
+});
+
+const importCardsPlaceholder =
+  "+10000000001----https://your-card-vendor.example/getcode?id=00000000-0000-0000-0000-000000000000\n00000000-0000-0000-0000-000000000000";
+
+const importDoneCount = computed(
+  () =>
+    importBatch.value?.items.filter((i) =>
+      ["created", "skipped", "failed", "frozen", "dead"].includes(i.status),
+    ).length ?? 0,
+);
+
+function openImportCards() {
+  importCardsText.value = "";
+  importCardsError.value = "";
+  if (!importBatch.value?.running) importBatch.value = null;
+  showImportCards.value = true;
+  // Prefill the converter URL with the last one used (server-side), so it is typed once. The
+  // address lives only in settings, never in the codebase.
+  if (!importOptions.converterBaseUrl) {
+    accountsApi
+      .importCardsConfig()
+      .then((c) => {
+        if (c?.converterBaseUrl && !importOptions.converterBaseUrl) {
+          importOptions.converterBaseUrl = c.converterBaseUrl;
+        }
+      })
+      .catch(() => undefined);
+  }
+  if (importBatch.value?.running) pollImportCards();
+}
+
+function closeImportCards() {
+  showImportCards.value = false;
+  stopImportPoll();
+  if (!importBatch.value?.running) {
+    importBatch.value = null;
+    load();
+  }
+}
+
+function stopImportPoll() {
+  if (importPollTimer) {
+    clearTimeout(importPollTimer);
+    importPollTimer = null;
+  }
+}
+
+async function pollImportCards() {
+  stopImportPoll();
+  try {
+    const batch = await accountsApi.importCardsStatus();
+    importBatch.value = batch;
+    if (batch?.running) {
+      importPollTimer = setTimeout(pollImportCards, 2000);
+    } else {
+      await load();
+    }
+  } catch {
+    importPollTimer = setTimeout(pollImportCards, 4000);
+  }
+}
+
+function buildImportOptions(): SessionImportOptions {
+  const o: SessionImportOptions = {
+    converterBaseUrl: importOptions.converterBaseUrl.trim(),
+    aliveCheckFirst: importOptions.aliveCheckFirst,
+    gapSeconds: importOptions.gapSeconds,
+    namePrefix: importOptions.namePrefix,
+    nameIndexMode: importOptions.nameIndexMode,
+    namePadDigits: importOptions.namePadDigits,
+    notesTemplate: importOptions.notesTemplate,
+  };
+  if (importOptions.proxyIds.length) o.proxyIds = [...importOptions.proxyIds];
+  return o;
+}
+
+async function startImportCards() {
+  importCardsError.value = "";
+  importCardsBusy.value = true;
+  try {
+    importBatch.value = await accountsApi.importCards(
+      importCardsText.value,
+      buildImportOptions(),
+    );
+    pollImportCards();
+  } catch (err: any) {
+    importCardsError.value =
+      err.response?.data?.error ?? t("accounts.importCards.startFailed");
+  } finally {
+    importCardsBusy.value = false;
+  }
+}
+
+async function cancelImportCards() {
+  importCardsBusy.value = true;
+  try {
+    await accountsApi.importCardsCancel();
+    await pollImportCards();
+  } finally {
+    importCardsBusy.value = false;
   }
 }
 
@@ -7097,9 +7451,17 @@ tr.drag-over td {
 .bulk-add-status-dot.status-cleaning,
 .bulk-add-status-dot.status-fetching,
 .bulk-add-status-dot.status-updating,
-.bulk-add-status-dot.status-working {
+.bulk-add-status-dot.status-working,
+.bulk-add-status-dot.status-checking,
+.bulk-add-status-dot.status-converting,
+.bulk-add-status-dot.status-validating,
+.bulk-add-status-dot.status-importing {
   background: var(--info);
   animation: bulk-pulse 1s ease-in-out infinite;
+}
+.bulk-add-status-dot.status-frozen,
+.bulk-add-status-dot.status-dead {
+  background: var(--danger);
 }
 .bulk-add-status-dot.status-retrying {
   background: var(--warning-solid);

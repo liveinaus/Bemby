@@ -53,6 +53,13 @@ import {
   cancelBulkAdd,
   type BulkAddOptions,
 } from "../jobs/bulkAdd";
+import {
+  startSessionImport,
+  getSessionImportStatus,
+  cancelSessionImport,
+  readLastConverterBase,
+  type SessionImportOptions,
+} from "../jobs/sessionImport";
 import { bulkMgmtGuard } from "../middleware/bulkMgmt";
 import {
   assertUsableImage,
@@ -309,6 +316,41 @@ router.get("/bulk-add/status", bulkMgmtGuard, (_req, res) => {
 // POST /bulk-add/cancel -- stop the running batch after the current step
 router.post("/bulk-add/cancel", bulkMgmtGuard, (_req, res) => {
   res.json({ cancelled: cancelBulkAdd() });
+});
+
+// GET /import-cards/config -- prefill for the import form: the last converter URL used. The
+// address is operator-supplied and stored here, never baked into the codebase.
+router.get("/import-cards/config", bulkMgmtGuard, (_req, res) => {
+  res.json({ converterBaseUrl: readLastConverterBase() });
+});
+
+// POST /import-cards -- import "protocol-only" accounts sold as cards: each line is redeemed at
+// a caller-supplied converter for a real session, validated, then saved already-authenticated.
+router.post("/import-cards", bulkMgmtGuard, (req, res) => {
+  const { text, options } = req.body as {
+    text?: string;
+    options?: SessionImportOptions;
+  };
+  if (!text || !text.trim()) {
+    res.status(400).json({ error: "text is required" });
+    return;
+  }
+  const result = startSessionImport(text, options);
+  if (!result.ok) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.status(201).json(result.batch);
+});
+
+// GET /import-cards/status -- current import batch progress (null if none has run)
+router.get("/import-cards/status", bulkMgmtGuard, (_req, res) => {
+  res.json(getSessionImportStatus());
+});
+
+// POST /import-cards/cancel -- stop the running import after the current step
+router.post("/import-cards/cancel", bulkMgmtGuard, (_req, res) => {
+  res.json({ cancelled: cancelSessionImport() });
 });
 
 // POST /bulk-profile -- update first/last name + bio on many accounts at once

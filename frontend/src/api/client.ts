@@ -204,6 +204,56 @@ export type BulkAddBatch = {
   items: BulkAddItem[];
 };
 
+// Card-import (session import) types -- accounts sold as "protocol-only" cards, converted to
+// real sessions and saved already-authenticated. Item shape mirrors bulk-add for UI reuse.
+export type SessionImportItemStatus =
+  | "pending"
+  | "checking"
+  | "frozen"
+  | "dead"
+  | "converting"
+  | "validating"
+  | "importing"
+  | "waiting"
+  | "created"
+  | "skipped"
+  | "failed";
+
+export type SessionImportOptions = {
+  converterBaseUrl?: string;
+  aliveCheckFirst?: boolean;
+  includeTdata?: boolean;
+  gapSeconds?: number;
+  namePrefix?: string;
+  nameIndexMode?: "total" | "batch";
+  namePadDigits?: number;
+  notesTemplate?: string;
+  proxyIds?: string[];
+};
+
+export type SessionImportItem = {
+  index: number;
+  phoneNumber: string;
+  apiUrl: string;
+  accountId: number | null;
+  accountName: string | null;
+  existing: boolean;
+  aliveStatus: "normal" | "frozen" | "dead" | "unknown" | null;
+  status: SessionImportItemStatus;
+  message: string;
+  error: string | null;
+};
+
+export type SessionImportBatch = {
+  id: string;
+  createdAt: string;
+  running: boolean;
+  cancelled: boolean;
+  gapSeconds: number;
+  total: number;
+  items: SessionImportItem[];
+};
+
 export type BulkProfileItemStatus =
   | "pending"
   | "updating"
@@ -1709,6 +1759,22 @@ export const accountsApi = {
   bulkAddCancel: () =>
     api
       .post<{ cancelled: boolean }>("/accounts/bulk-add/cancel")
+      .then((r) => r.data),
+  importCards: (text: string, options?: SessionImportOptions) =>
+    api
+      .post<SessionImportBatch>("/accounts/import-cards", { text, options })
+      .then((r) => r.data),
+  importCardsStatus: () =>
+    api
+      .get<SessionImportBatch | null>("/accounts/import-cards/status")
+      .then((r) => r.data),
+  importCardsConfig: () =>
+    api
+      .get<{ converterBaseUrl: string }>("/accounts/import-cards/config")
+      .then((r) => r.data),
+  importCardsCancel: () =>
+    api
+      .post<{ cancelled: boolean }>("/accounts/import-cards/cancel")
       .then((r) => r.data),
   bulkProfile: (items: BulkProfileEntry[], options?: BulkProfileOptions) =>
     api
