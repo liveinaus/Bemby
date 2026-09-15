@@ -148,6 +148,19 @@ export type Account = {
   hasBembyPasskey?: boolean;
 };
 
+/** Server-side account list filters; "" (or absent) means the filter is off. */
+export type AccountFilters = {
+  /** A stored auth status, or "needs_auth" for everything that is not authenticated. */
+  authStatus?: AuthStatus | "needs_auth" | "";
+  disabled?: "0" | "1" | "";
+  /** A spam standing, "restricted" for any of them, "unknown", or "unchecked". */
+  restriction?: string;
+  email?: "bemby" | "any" | "none" | "";
+  passkey?: "bemby" | "any" | "none" | "";
+  proxy?: "0" | "1" | "";
+  ownership?: "imported" | "manual" | "taken" | "pending" | "";
+};
+
 export type BulkAddItemStatus =
   | "pending"
   | "requesting_code"
@@ -1596,9 +1609,7 @@ export const authApi = {
 
 export const accountsApi = {
   list: () => api.get<Account[]>("/accounts").then((r) => r.data),
-  listPaged: (
-    params: ListParams & { authStatus?: string; disabled?: "0" | "1" | "" },
-  ) =>
+  listPaged: (params: ListParams & AccountFilters) =>
     api
       .get<Paged<Account>>("/accounts", { params: cleanParams(params) })
       .then((r) => r.data),

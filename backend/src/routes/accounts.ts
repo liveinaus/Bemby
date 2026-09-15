@@ -161,12 +161,37 @@ const ACCOUNT_SORTS: Record<string, string> = {
   created: "created_at",
 };
 
+/** A key in the additional_attributes bag, as a SQL expression over the JSON column. */
+const attr = (key: string) => `json_extract(additional_attributes, '$.${key}')`;
+
+/** Spam standings that restrict the account; "free" is the only unrestricted one. */
+const RESTRICTED_STANDINGS = ["lowLimited", "limited", "blocked", "frozen"];
+
+/**
+ * Accounts whose stored passkey is usable for login (its home DC is known) — the same test
+ * toJson makes for hasBembyPasskey. The column is encrypted at rest, so SQL cannot read it
+ * and the ids are gathered here instead; only rows that actually hold one are decrypted.
+ */
+function bembyPasskeyAccountIds(): number[] {
+  const rows = db
+    .prepare("SELECT id, passkey FROM tg_accounts WHERE passkey IS NOT NULL")
+    .all() as Array<{ id: number; passkey: string }>;
+  return rows
+    .filter((r) => parseStoredPasskey(r.passkey)?.dcId != null)
+    .map((r) => r.id);
+}
+
 router.get("/", (req, res) => {
   const query = req.query as Record<string, unknown>;
   const paging = parsePaging(query);
   const search = textParam(query.search);
   const authStatus = textParam(query.authStatus);
   const disabled = textParam(query.disabled);
+  const restriction = textParam(query.restriction);
+  const email = textParam(query.email);
+  const passkey = textParam(query.passkey);
+  const proxy = textParam(query.proxy);
+  const ownership = textParam(query.ownership);
 
   const conditions: string[] = [];
   const params: (string | number)[] = [];
@@ -187,7 +212,11 @@ router.get("/", (req, res) => {
       params.push(like, like, like, like, like);
     }
   }
-  if (authStatus) {
+  // "needs_auth" is every state that is not a working session, which is what an operator
+  // filtering for work to do actually wants; the rest match a single stored status.
+  if (authStatus === "needs_auth") {
+    conditions.push("auth_status <> 'authenticated'");
+  } else if (authStatus) {
     conditions.push("auth_status = ?");
     params.push(authStatus);
   }
@@ -195,6 +224,56 @@ router.get("/", (req, res) => {
     conditions.push("COALESCE(disabled, 0) = ?");
     params.push(Number(disabled));
   }
+
+  // Spam standing. "unknown" is a SpamBot reply no rule could classify (kept as
+  // spamUnknownReply), "unchecked" an account never asked about at all.
+  if (restriction === "restricted") {
+    conditions.push(
+      `${attr("restriction")} IN (${RESTRICTED_STANDINGS.map(() => "?").join(", ")})`,
+    );
+    params.push(...RESTRICTED_STANDINGS);
+  } else if (restriction === "unknown") {
+    conditions.push(`${attr("spamUnknownReply")} IS NOT NULL`);
+  } else if (restriction === "unchecked") {
+    conditions.push(
+      `${attr("restriction")} IS NULL AND ${attr("spamUnknownReply")} IS NULL`,
+    );
+  } else if (restriction) {
+    conditions.push(`${attr("restriction")} = ?`);
+    params.push(restriction);
+  }
+
+  // A login email Bemby set (the address is stored) versus one Telegram merely reports.
+  const bembyEmailSql = `COALESCE(${attr("loginEmail")}, '') <> ''`;
+  const anyEmailSql = `(COALESCE(${attr("hasEmail")}, 0) = 1 OR ${bembyEmailSql})`;
+  if (email === "bemby") conditions.push(bembyEmailSql);
+  else if (email === "any") conditions.push(anyEmailSql);
+  else if (email === "none") conditions.push(`NOT ${anyEmailSql}`);
+
+  if (passkey === "any") {
+    conditions.push(`COALESCE(${attr("hasPasskey")}, 0) = 1`);
+  } else if (passkey === "bemby" || passkey === "none") {
+    const ids = bembyPasskeyAccountIds().join(", ");
+    if (passkey === "bemby") conditions.push(ids ? `id IN (${ids})` : "0");
+    else
+      conditions.push(
+        `COALESCE(${attr("hasPasskey")}, 0) = 0${ids ? ` AND id NOT IN (${ids})` : ""}`,
+      );
+  }
+
+  if (proxy === "1") conditions.push("COALESCE(proxy_id, '') <> ''");
+  else if (proxy === "0") conditions.push("COALESCE(proxy_id, '') = ''");
+
+  // Where the account came from and whether Bemby holds its credentials: a card-imported
+  // account still on the seller's 2FA is the one that needs take-ownership run on it.
+  const importedSql = `${attr("sessionSource")} = 'imported'`;
+  if (ownership === "imported") conditions.push(importedSql);
+  else if (ownership === "manual")
+    conditions.push(`COALESCE(${attr("sessionSource")}, '') <> 'imported'`);
+  else if (ownership === "taken")
+    conditions.push(`${attr("ownershipTakenAt")} IS NOT NULL`);
+  else if (ownership === "pending")
+    conditions.push(`${importedSql} AND ${attr("ownershipTakenAt")} IS NULL`);
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
   const orderClause = parseSort(query, ACCOUNT_SORTS, ACCOUNT_SORTS.order);

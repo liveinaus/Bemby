@@ -110,6 +110,18 @@
         <button v-else class="btn btn-secondary" @click="openExportWarn">
           <i class="fa-solid fa-file-export"></i> {{ t("accounts.exportBtn") }}
         </button>
+        <button
+          v-if="bulkMgmtEnabled"
+          class="btn btn-secondary"
+          :class="{ 'btn-filter-active': activeFilterCount > 0 }"
+          @click="showFilters = !showFilters"
+        >
+          <i class="fa-solid fa-filter"></i>
+          {{ t("accounts.filters.btn")
+          }}<span v-if="activeFilterCount" class="filter-count">{{
+            activeFilterCount
+          }}</span>
+        </button>
         <button class="btn btn-secondary" @click="showExtra = !showExtra">
           <i
             class="fa-solid"
@@ -147,6 +159,29 @@
     </div>
 
     <div class="card">
+      <div v-if="bulkMgmtEnabled && showFilters" class="account-filters">
+        <label
+          v-for="f in filterFields"
+          :key="f.key"
+          class="account-filter"
+        >
+          <span class="account-filter-label">{{ f.label }}</span>
+          <select v-model="filters[f.key]" class="form-select">
+            <option value="">{{ f.allLabel }}</option>
+            <option v-for="o in f.options" :key="o.value" :value="o.value">
+              {{ o.label }}
+            </option>
+          </select>
+        </label>
+        <button
+          class="btn btn-ghost btn-sm"
+          :disabled="!activeFilterCount"
+          @click="clearFilters"
+        >
+          <i class="fa-solid fa-filter-circle-xmark"></i>
+          {{ t("accounts.filters.clear") }}
+        </button>
+      </div>
       <PaginationBar
         v-model:page="page"
         v-model:page-size="pageSize"
@@ -187,7 +222,7 @@
                 selectedIds.has(a.id) ? 'row-selected' : '',
               ]"
               style="cursor: pointer"
-              :draggable="!searchText.trim() && !sortKey"
+              :draggable="reorderable"
               @click="toggleSelect(a.id, idx, $event)"
               @dragstart="onDragStart(idx, $event)"
               @dragover.prevent="dragOverIdx = idx"
@@ -3792,6 +3827,7 @@ import {
   type AvatarPoolUpload,
   type PrivacyLevel,
   type ExtractLine,
+  type AccountFilters,
 } from "../api/client";
 import { t, locale } from "../i18n";
 import {
@@ -3831,6 +3867,130 @@ const searchText = usePersistedRef<string>("bemby:accounts:search", "");
 // Column sort; empty key = manual drag order (backend default)
 const sortKey = usePersistedRef<string>("bemby:accounts:sortKey", "");
 const sortDir = usePersistedRef<"asc" | "desc">("bemby:accounts:sortDir", "asc");
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+// Applied server-side alongside the search, so paging and the total count are over the
+// filtered set rather than over whichever page happened to load.
+type AccountFilterKey = keyof AccountFilters;
+const EMPTY_FILTERS: Record<AccountFilterKey, string> = {
+  authStatus: "",
+  disabled: "",
+  restriction: "",
+  email: "",
+  passkey: "",
+  proxy: "",
+  ownership: "",
+};
+const filters = usePersistedReactive<Record<AccountFilterKey, string>>(
+  "bemby:accounts:filters",
+  { ...EMPTY_FILTERS },
+);
+
+const filterFields = computed<
+  Array<{
+    key: AccountFilterKey;
+    label: string;
+    allLabel: string;
+    options: Array<{ value: string; label: string }>;
+  }>
+>(() => [
+  {
+    key: "authStatus",
+    label: t("accounts.colStatus"),
+    allLabel: t("accounts.filters.anyStatus"),
+    options: [
+      { value: "authenticated", label: t("accounts.status.authenticated") },
+      { value: "needs_auth", label: t("accounts.filters.needsAuth") },
+      { value: "session_expired", label: t("accounts.status.session_expired") },
+      { value: "unauthenticated", label: t("accounts.status.unauthenticated") },
+      { value: "pending_code", label: t("accounts.status.pending_code") },
+      { value: "pending_2fa", label: t("accounts.status.pending_2fa") },
+    ],
+  },
+  {
+    key: "restriction",
+    label: t("accounts.attrRestriction"),
+    allLabel: t("accounts.filters.anyRestriction"),
+    options: [
+      { value: "free", label: t("accounts.spam.free") },
+      { value: "restricted", label: t("accounts.filters.restrictedAny") },
+      { value: "lowLimited", label: t("accounts.spam.lowLimited") },
+      { value: "limited", label: t("accounts.spam.limited") },
+      { value: "blocked", label: t("accounts.spam.blocked") },
+      { value: "frozen", label: t("accounts.spam.frozen") },
+      { value: "unknown", label: t("accounts.spam.unknown") },
+      { value: "unchecked", label: t("accounts.filters.unchecked") },
+    ],
+  },
+  {
+    key: "email",
+    label: t("accounts.attrEmail"),
+    allLabel: t("accounts.filters.anyEmail"),
+    options: [
+      { value: "bemby", label: t("accounts.filters.emailBemby") },
+      { value: "any", label: t("accounts.filters.emailHas") },
+      { value: "none", label: t("accounts.filters.emailNone") },
+    ],
+  },
+  {
+    key: "passkey",
+    label: t("accounts.attrPasskey"),
+    allLabel: t("accounts.filters.anyPasskey"),
+    options: [
+      { value: "bemby", label: t("accounts.filters.passkeyBemby") },
+      { value: "any", label: t("accounts.filters.passkeyHas") },
+      { value: "none", label: t("accounts.filters.passkeyNone") },
+    ],
+  },
+  {
+    key: "disabled",
+    label: t("accounts.filters.enabledLabel"),
+    allLabel: t("accounts.filters.anyEnabled"),
+    options: [
+      { value: "0", label: t("accounts.filters.enabledOnly") },
+      { value: "1", label: t("accounts.filters.disabledOnly") },
+    ],
+  },
+  {
+    key: "proxy",
+    label: t("accounts.filters.proxyLabel"),
+    allLabel: t("accounts.filters.anyProxy"),
+    options: [
+      { value: "1", label: t("accounts.filters.proxyAssigned") },
+      { value: "0", label: t("accounts.filters.proxyNone") },
+    ],
+  },
+  {
+    key: "ownership",
+    label: t("accounts.filters.ownershipLabel"),
+    allLabel: t("accounts.filters.anyOwnership"),
+    options: [
+      { value: "imported", label: t("accounts.filters.ownershipImported") },
+      { value: "pending", label: t("accounts.filters.ownershipPending") },
+      { value: "taken", label: t("accounts.filters.ownershipTaken") },
+      { value: "manual", label: t("accounts.filters.ownershipManual") },
+    ],
+  },
+]);
+const activeFilterCount = computed(
+  () => Object.values(filters).filter(Boolean).length,
+);
+// Opens itself when a filter survived from the last visit, so a short list is explained
+const showFilters = ref(activeFilterCount.value > 0);
+
+function clearFilters() {
+  Object.assign(filters, EMPTY_FILTERS);
+}
+
+/** Manual drag order only means anything over the whole list in its stored order. */
+const reorderable = computed(
+  () => !searchText.value.trim() && !sortKey.value && !activeFilterCount.value,
+);
+
+watch(filters, () => {
+  if (page.value !== 1) page.value = 1;
+  else load();
+});
 
 // Cycle a column through asc -> desc -> manual order
 function sortBy(key: string) {
@@ -3902,7 +4062,7 @@ const dragOverIdx = ref<number | null>(null);
 
 function onDragStart(idx: number, e: DragEvent) {
   // Reordering a filtered/sorted subset is misleading; disabled in those modes
-  if (searchText.value.trim() || sortKey.value) {
+  if (!reorderable.value) {
     e.preventDefault();
     return;
   }
@@ -3941,6 +4101,16 @@ const settings = ref<{
 const bulkMgmtEnabled = computed(
   () => settings.value?.bulk_account_management === "true",
 );
+
+// The filter bar is part of account management, so it goes with it. Watched on the settings
+// rather than on the flag, which reads false until they land: a filter left over from when
+// account management was on would otherwise keep narrowing the list with nothing on screen
+// saying so. Clearing reloads through the filter watcher.
+watch(settings, (loaded) => {
+  if (!loaded || bulkMgmtEnabled.value) return;
+  showFilters.value = false;
+  if (activeFilterCount.value) clearFilters();
+});
 
 /** Whether the deployment offers the pool at all; off, nothing here mentions msOauth2api. */
 const msApiAvailable = computed(() => settings.value?.msapi_available === "true");
@@ -6076,6 +6246,7 @@ async function load() {
     search: searchParam.value,
     sortKey: sortKey.value || undefined,
     sortDir: sortKey.value ? sortDir.value : undefined,
+    ...(filters as AccountFilters),
   });
   let [res, s] = await Promise.all([
     accountsApi.listPaged(params()),
@@ -6863,6 +7034,50 @@ async function verify2fa() {
 .account-search-count {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* Filter bar; wraps to as many rows as the window needs */
+.account-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.account-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 140px;
+  flex: 1 1 140px;
+}
+
+.account-filter-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.filter-count {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 5px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.btn-filter-active {
+  border-color: var(--primary-border);
+  color: var(--primary-soft-text);
 }
 
 /* What the lockdown is about to set, listed rather than summarised */

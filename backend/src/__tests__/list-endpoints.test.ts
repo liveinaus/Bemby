@@ -78,6 +78,8 @@ const SCHEMA = `
     tg_display_name TEXT,
     tg_username    TEXT,
     notes          TEXT,
+    passkey        TEXT,
+    additional_attributes TEXT,
     created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -231,11 +233,16 @@ function insertAccount(
     phone?: string;
     tgName?: string;
     tgUsername?: string;
+    authStatus?: string;
+    proxyId?: string | null;
+    /** Stored verbatim: with no BEMBY_DATA_KEY the passkey column is not encrypted. */
+    passkey?: Record<string, unknown>;
+    attributes?: Record<string, unknown>;
   } = {},
 ) {
   return testDb
     .prepare(
-      "INSERT INTO tg_accounts (name, phone_number, disabled, notes, tg_display_name, tg_username) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO tg_accounts (name, phone_number, disabled, notes, tg_display_name, tg_username, auth_status, proxy_id, passkey, additional_attributes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .run(
       name,
@@ -244,6 +251,10 @@ function insertAccount(
       opts.notes ?? null,
       opts.tgName ?? null,
       opts.tgUsername ?? null,
+      opts.authStatus ?? "unauthenticated",
+      opts.proxyId ?? null,
+      opts.passkey ? JSON.stringify(opts.passkey) : null,
+      opts.attributes ? JSON.stringify(opts.attributes) : null,
     ).lastInsertRowid as number;
 }
 
@@ -461,6 +472,87 @@ describe("GET /accounts", () => {
     );
 
     expect(body.items.map((a: any) => a.name)).toEqual(["01"]);
+  });
+
+  const names = (body: any) => body.items.map((a: any) => a.name).sort();
+
+  it("filters by auth status, with needs_auth covering every non-working session", async () => {
+    insertAccount("live", { authStatus: "authenticated" });
+    insertAccount("expired", { authStatus: "session_expired" });
+    insertAccount("waiting", { authStatus: "pending_code" });
+
+    const expired = await getJson("/accounts?page=1&pageSize=10&authStatus=session_expired");
+    expect(names(expired.body)).toEqual(["expired"]);
+
+    const needsAuth = await getJson("/accounts?page=1&pageSize=10&authStatus=needs_auth");
+    expect(names(needsAuth.body)).toEqual(["expired", "waiting"]);
+  });
+
+  it("filters by spam standing, including restricted-as-a-group and never-checked", async () => {
+    insertAccount("free", { attributes: { restriction: "free" } });
+    insertAccount("low", { attributes: { restriction: "lowLimited" } });
+    insertAccount("limited", { attributes: { restriction: "limited" } });
+    insertAccount("odd", { attributes: { spamUnknownReply: { text: "??" } } });
+    insertAccount("never");
+
+    expect(names((await getJson("/accounts?page=1&pageSize=10&restriction=free")).body)).toEqual(["free"]);
+    expect(names((await getJson("/accounts?page=1&pageSize=10&restriction=lowLimited")).body)).toEqual(["low"]);
+    expect(names((await getJson("/accounts?page=1&pageSize=10&restriction=restricted")).body)).toEqual(["limited", "low"]);
+    expect(names((await getJson("/accounts?page=1&pageSize=10&restriction=unknown")).body)).toEqual(["odd"]);
+    expect(names((await getJson("/accounts?page=1&pageSize=10&restriction=unchecked")).body)).toEqual(["never"]);
+  });
+
+  it("filters by login email, telling a Bemby-set address from one Telegram reports", async () => {
+    insertAccount("bemby", { attributes: { hasEmail: true, loginEmail: "a@b.c" } });
+    insertAccount("theirs", { attributes: { hasEmail: true } });
+    insertAccount("none");
+
+    expect(names((await getJson("/accounts?page=1&pageSize=10&email=bemby")).body)).toEqual(["bemby"]);
+    expect(names((await getJson("/accounts?page=1&pageSize=10&email=any")).body)).toEqual(["bemby", "theirs"]);
+    expect(names((await getJson("/accounts?page=1&pageSize=10&email=none")).body)).toEqual(["none"]);
+  });
+
+  it("filters by passkey, reading the stored key for the Bemby-managed case", async () => {
+    insertAccount("bemby", {
+      attributes: { hasPasskey: true },
+      passkey: { telegramPasskeyId: "1", dcId: 2 },
+    });
+    // A stored key with no known DC cannot log in, so it is not a Bemby passkey
+    insertAccount("noDc", { attributes: { hasPasskey: true }, passkey: { telegramPasskeyId: "2" } });
+    insertAccount("theirs", { attributes: { hasPasskey: true } });
+    insertAccount("none");
+
+    expect(names((await getJson("/accounts?page=1&pageSize=10&passkey=bemby")).body)).toEqual(["bemby"]);
+    expect(names((await getJson("/accounts?page=1&pageSize=10&passkey=any")).body)).toEqual(["bemby", "noDc", "theirs"]);
+    expect(names((await getJson("/accounts?page=1&pageSize=10&passkey=none")).body)).toEqual(["none"]);
+  });
+
+  it("filters by proxy assignment and by source/ownership", async () => {
+    insertAccount("proxied", { proxyId: "p1" });
+    insertAccount("direct");
+    insertAccount("pending", { attributes: { sessionSource: "imported" } });
+    insertAccount("owned", {
+      attributes: { sessionSource: "imported", ownershipTakenAt: "2026-09-01T00:00:00Z" },
+    });
+
+    expect(names((await getJson("/accounts?page=1&pageSize=10&proxy=1")).body)).toEqual(["proxied"]);
+    expect(names((await getJson("/accounts?page=1&pageSize=10&proxy=0")).body)).toEqual(["direct", "owned", "pending"]);
+    expect(names((await getJson("/accounts?page=1&pageSize=10&ownership=imported")).body)).toEqual(["owned", "pending"]);
+    expect(names((await getJson("/accounts?page=1&pageSize=10&ownership=pending")).body)).toEqual(["pending"]);
+    expect(names((await getJson("/accounts?page=1&pageSize=10&ownership=taken")).body)).toEqual(["owned"]);
+    expect(names((await getJson("/accounts?page=1&pageSize=10&ownership=manual")).body)).toEqual(["direct", "proxied"]);
+  });
+
+  it("combines filters with the search and reports the filtered total", async () => {
+    insertAccount("keep", { authStatus: "authenticated", attributes: { restriction: "free" } });
+    insertAccount("wrongStatus", { authStatus: "session_expired", attributes: { restriction: "free" } });
+    insertAccount("wrongName", { authStatus: "authenticated", attributes: { restriction: "free" } });
+
+    const { body } = await getJson(
+      "/accounts?page=1&pageSize=10&authStatus=authenticated&restriction=free&search=keep",
+    );
+    expect(names(body)).toEqual(["keep"]);
+    expect(body.total).toBe(1);
   });
 });
 
