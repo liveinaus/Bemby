@@ -46,9 +46,14 @@ import { startProxyProviderSync } from "./tg/proxySync";
 import { applyGlobalProxy } from "./tg/globalProxy";
 import { startMemoryMonitor, markCleanShutdown } from "./monitor/memory";
 import { claimInstanceLock, releaseInstanceLock } from "./instanceLock";
+import { applyAdminPasswordResetFlag } from "./auth/adminReset";
 
 // Validate critical env vars before accepting any requests
 getJwtSecret();
+
+// A forgotten panel password: ADMIN_PASSWORD_RESET=1 puts login back on the env credentials
+// (see auth/adminReset). Before the routes go up, so the first login already sees it.
+applyAdminPasswordResetFlag();
 
 // Before the scheduler can launch anything: a second backend on this data dir competes for
 // the same licence seats and browser profiles, which kills browsers mid-run

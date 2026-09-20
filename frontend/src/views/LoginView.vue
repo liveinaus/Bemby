@@ -37,6 +37,20 @@
           {{ loading ? t('login.signingIn') : t('login.signIn') }}
         </button>
       </form>
+
+      <!-- Static help only: a forgotten password is reset from the host (see auth/adminReset),
+           so there is nothing here for the login page to call. -->
+      <button type="button" class="forgot-link" @click="showForgot = !showForgot">
+        {{ t('login.forgot') }}
+      </button>
+      <div v-if="showForgot" class="forgot-help">
+        <p>{{ t('login.forgotIntro') }}</p>
+        <ol>
+          <li v-for="(step, i) in ta('login.forgotSteps')" :key="i">{{ step }}</li>
+        </ol>
+        <pre class="forgot-code">ADMIN_PASSWORD_RESET=1</pre>
+        <p class="forgot-note">{{ t('login.forgotNote') }}</p>
+      </div>
     </div>
   </div>
 </template>
@@ -45,7 +59,7 @@
 import { onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { authApi, requirePasswordChangeSignal } from '../api/client';
-import { t } from '../i18n';
+import { t, ta } from '../i18n';
 
 const router = useRouter();
 const form = reactive({ username: '', password: '', captchaAnswer: '' });
@@ -54,6 +68,7 @@ const loading = ref(false);
 const captchaLoading = ref(false);
 const captchaSvg = ref('');
 const captchaToken = ref('');
+const showForgot = ref(false);
 
 async function loadCaptcha() {
   captchaLoading.value = true;

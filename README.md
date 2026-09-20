@@ -213,6 +213,7 @@ Railway 支持直接从 Docker Hub 镜像部署，无需 Fork 或连接 GitHub�
 - **内存使用** — 显示当前占用（RSS）、本次启动峰值、外部内存与可用上限；超过上限 75% 时日志告警并指出当时运行的任务；进程因内存不足被强制终止时无法自行留下记录，因此内存数据会定期落盘，下次启动会报告上次退出前的占用量与当时运行的任务
 - **内存上限（小内存机器）** — `TG_LIVE_CLIENT_MAX` 限制同时保持的 Telegram 连接数（默认 8）、`TG_MEDIA_MAX_MB` 与 `TG_UPLOAD_MAX_MB` 限制消息页面收发文件大小（默认 25 / 50MB）、`NODE_OPTIONS` 调整 Node 堆内存上限（镜像默认 `--max-old-space-size=512`，适配 2GB 内存）；完整列表见 `env.example`
 - **管理员凭证** — 修改管理员用户名或密码
+- **忘记密码** — 在面板里改过密码后，登录校验的是面板里保存的那份，环境变量 `ADMIN_PASSWORD` 不再起作用，只改它没有用。重置方法：在运行环境（`.env` / docker-compose.yml / 平台的环境变量设置）中加上 `ADMIN_PASSWORD_RESET=1` 并重启，登录即恢复为 `ADMIN_USERNAME` / `ADMIN_PASSWORD`，所有已登录会话同时下线，其他数据一律不动；登录后在设置中重新设置密码，再把该变量删掉。该变量只生效一次——忘了删也不会在之后的重启中再次重置；删掉后再加回来则会再次生效。登录页的「忘记密码？」也给出了这几步
 
 ---
 
@@ -579,6 +580,7 @@ Go to **Settings** to configure:
 - **Memory Usage** — shows current usage (RSS), the peak for this run, external memory, and the available limit; passing 75% of the limit logs a warning naming the job in flight. A process killed for running out of memory cannot record it, so readings are persisted periodically and the next start reports what the previous process was holding and which job was running
 - **Memory bounds (small hosts)** — `TG_LIVE_CLIENT_MAX` bounds simultaneous Telegram connections (default 8), `TG_MEDIA_MAX_MB` and `TG_UPLOAD_MAX_MB` bound files received and sent in the Messenger (default 25 / 50MB), and `NODE_OPTIONS` sets the Node heap ceiling (the image defaults to `--max-old-space-size=512`, suited to a 2GB host); see `env.example` for the full list
 - **Admin credentials** — change the admin username or password
+- **Forgot the password** — once a password has been set in the panel, login checks the panel's copy and `ADMIN_PASSWORD` is ignored, so changing the env var alone does nothing. To reset: add `ADMIN_PASSWORD_RESET=1` to the environment (`.env` / docker-compose.yml / the platform's variable settings) and restart. Login goes back to `ADMIN_USERNAME` / `ADMIN_PASSWORD`, every signed-in session is signed out, and nothing else is touched; log in, set a new password in Settings, then remove the variable. It applies once per setting -- left in place it does not reset again on later restarts, and removing then re-adding it arms it again. The login page's **Forgot password?** link spells out the same steps
 
 ---
 

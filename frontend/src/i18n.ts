@@ -83,6 +83,17 @@ const zh = {
     captchaPlaceholder: "输入图中字符",
     captchaError: "验证码错误，请重试",
     captchaExpired: "验证码已过期，请刷新",
+    forgot: "忘记密码？",
+    forgotIntro:
+      "密码只能由掌握服务器的人重置。管理员在 Bemby 的运行环境（docker-compose.yml、.env 或平台的环境变量设置）中操作：",
+    forgotSteps: [
+      "确认 ADMIN_USERNAME / ADMIN_PASSWORD 设为你知道的值——重置后就用它们登录",
+      "添加下面这个环境变量，然后重启 Bemby",
+      "用 ADMIN_USERNAME / ADMIN_PASSWORD 登录，在「设置」中重新设置密码",
+      "从环境中删掉该变量",
+    ],
+    forgotNote:
+      "只有登录凭证会被重置，账号、任务和设置一律不变；所有已登录的会话会被下线。该变量只生效一次，忘了删也不会在之后的重启中再次重置。",
   },
   forcePwd: {
     title: "安全提醒",
@@ -2801,6 +2812,17 @@ const en: typeof zh = {
     captchaPlaceholder: "Enter characters shown",
     captchaError: "Incorrect captcha, please try again",
     captchaExpired: "Captcha expired, please refresh",
+    forgot: "Forgot password?",
+    forgotIntro:
+      "Only whoever runs the server can reset it. In Bemby's environment (docker-compose.yml, .env, or the platform's variable settings):",
+    forgotSteps: [
+      "Make sure ADMIN_USERNAME / ADMIN_PASSWORD are set to values you know -- they are what you will log in with",
+      "Add the variable below, then restart Bemby",
+      "Log in with ADMIN_USERNAME / ADMIN_PASSWORD and set a new password in Settings",
+      "Remove the variable from the environment",
+    ],
+    forgotNote:
+      "Only the login credentials are reset; accounts, jobs and settings are untouched, and every signed-in session is signed out. The variable applies once: left in place, it will not reset again on later restarts.",
   },
   forcePwd: {
     title: "Security Alert",

@@ -9,6 +9,10 @@ services:
     environment:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}    # change this
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme} # change this
+      # Forgot the panel password? Set ADMIN_PASSWORD_RESET=1 in .env and restart: login goes
+      # back to the two values above and every session is signed out; nothing else changes.
+      # Log in, set a new password in Settings, then remove it. It applies once per setting.
+      ADMIN_PASSWORD_RESET: ${ADMIN_PASSWORD_RESET:-}
       # Secret used to sign login tokens. Required: set to a long random string,
       # e.g. `openssl rand -hex 32`. Compose refuses to start if it is unset.
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to a long random string, e.g. openssl rand -hex 32}
