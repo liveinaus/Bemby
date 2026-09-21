@@ -393,21 +393,31 @@ router.put('/:id/jobs/enabled', (req, res) => {
 // ── Candidate accounts ───────────────────────────────────────────────────────
 
 // Every enabled account, each carrying what the picker filters on: whether it already has
-// a job for this template, and its last known spam standing. Filtering happens in the
-// dialog rather than here, so toggling a filter costs no round trip.
+// a job for this template, its last known spam standing, and which templates it has run
+// successfully -- for "only accounts that got through the signup template". Filtering
+// happens in the dialog rather than here, so toggling a filter costs no round trip.
+//
+// A success is read off jobs.last_success_at, the durable stamp, rather than job_logs,
+// which retention prunes. Retired and switched-off jobs count too: a one-time signup job
+// turns itself off after succeeding, and that is exactly the success being asked about.
 router.get('/:id/available-accounts', (req, res) => {
   const rows = db.prepare(`
     SELECT a.id, a.name, a.phone_number, a.auth_status, a.tg_display_name, a.additional_attributes,
       EXISTS (
         SELECT 1 FROM jobs j
         WHERE j.template_id = ? AND j.account_id = a.id AND j.retired IS NULL
-      ) AS linked
+      ) AS linked,
+      (
+        SELECT GROUP_CONCAT(DISTINCT j.template_id) FROM jobs j
+        WHERE j.account_id = a.id AND j.template_id IS NOT NULL AND j.last_success_at IS NOT NULL
+      ) AS succeeded_templates
     FROM tg_accounts a
     WHERE (a.disabled = 0 OR a.disabled IS NULL)
     ORDER BY a.name COLLATE NOCASE
   `).all(req.params.id) as Array<{
     id: number; name: string; phone_number: string; auth_status: string;
     tg_display_name: string | null; additional_attributes: string | null; linked: number;
+    succeeded_templates: string | null;
   }>;
 
   res.json(rows.map(r => ({
@@ -418,6 +428,9 @@ router.get('/:id/available-accounts', (req, res) => {
     tgDisplayName: r.tg_display_name ?? null,
     linked: r.linked === 1,
     restriction: readRestriction(r.additional_attributes),
+    succeededTemplateIds: r.succeeded_templates
+      ? r.succeeded_templates.split(',').map(Number).filter(Number.isFinite)
+      : [],
   })));
 });
 

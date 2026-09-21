@@ -169,6 +169,16 @@
               <input type="checkbox" v-model="filterExcludeRestricted" />
               {{ t('templates.filterExcludeRestricted') }}
             </label>
+            <div class="form-group" style="margin-bottom:8px">
+              <label class="form-label" style="font-size:11px">{{ t('templates.filterSucceededOn') }}</label>
+              <select v-model="filterSucceededOn" class="form-input" style="font-size:12px">
+                <option :value="null">{{ t('templates.filterSucceededOnAny') }}</option>
+                <option v-for="tpl in filterSucceededOnOptions" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option>
+              </select>
+              <div style="font-size:11px;color:var(--text-faint);margin-top:3px">
+                {{ t('templates.filterSucceededOnHint') }}
+              </div>
+            </div>
             <div class="form-row" style="margin-bottom:0">
               <div class="form-group" style="margin-bottom:0">
                 <label class="form-label" style="font-size:11px">{{ t('templates.filterInclude') }}</label>
@@ -217,6 +227,13 @@
                   </span>
                   <span v-if="row.account.linked" class="badge badge-blue" style="font-size:10px">
                     {{ t('templates.createJobsLinked') }}
+                  </span>
+                  <span
+                    v-if="filterSucceededOn !== null && row.account.succeededTemplateIds.includes(filterSucceededOn)"
+                    class="badge badge-green"
+                    style="font-size:10px"
+                  >
+                    {{ t('templates.createJobsSucceededBadge') }}
                   </span>
                   <span
                     v-if="row.account.restriction && row.account.restriction !== 'free'"
@@ -422,6 +439,15 @@ const filterExcludeLinked = ref(true);
 const filterExcludeRestricted = ref(false);
 const filterInclude = ref('');
 const filterExclude = ref('');
+// Only accounts with a successful run of this other template -- a check-in template
+// created for the accounts a signup template actually got through. Null means no such
+// requirement.
+const filterSucceededOn = ref<number | null>(null);
+
+/** Every template but the one being created from: succeeding on itself is the linked flag. */
+const filterSucceededOnOptions = computed(() =>
+  templates.value.filter(t => t.id !== createJobsTpl.value?.id),
+);
 
 /** Comma- or space-separated terms, lowercased; an empty box matches nothing to do. */
 function filterTerms(raw: string): string[] {
@@ -453,6 +479,7 @@ const createJobsVisibleRows = computed(() => {
     const a = row.account;
     if (filterExcludeLinked.value && a.linked) return false;
     if (filterExcludeRestricted.value && a.restriction && BLOCKED_RESTRICTIONS.has(a.restriction)) return false;
+    if (filterSucceededOn.value !== null && !a.succeededTemplateIds.includes(filterSucceededOn.value)) return false;
     const haystack = accountHaystack(a);
     if (include.length && !include.some(term => haystack.includes(term))) return false;
     if (exclude.some(term => haystack.includes(term))) return false;
@@ -620,6 +647,7 @@ async function openCreateJobs(tpl: JobTemplate) {
   filterExcludeRestricted.value = false;
   filterInclude.value = '';
   filterExclude.value = '';
+  filterSucceededOn.value = null;
   createJobsLoading.value = true;
   createJobsRows.value = [];
   showCreateJobs.value = true;

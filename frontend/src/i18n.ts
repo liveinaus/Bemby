@@ -1809,6 +1809,11 @@ const zh = {
     filterInclude: "仅包含关键词",
     filterExclude: "排除关键词",
     filterKeywordPlaceholder: "匹配 Bemby 名称或 TG 名称，多个关键词用逗号分隔",
+    filterSucceededOn: "仅包含已成功运行过以下模板的账户",
+    filterSucceededOnAny: "不限",
+    filterSucceededOnHint:
+      "以该模板的任务至少成功过一次为准（任务已停用或已退役也算）。典型用法：注册模板跑完后，只给注册成功的账户建签到任务",
+    createJobsSucceededBadge: "已成功",
     createJobsJobName: "任务名称",
     createJobsEmbyUser: "Emby 用户名",
     createJobsEmbyPass: "Emby 密码",
@@ -4593,6 +4598,11 @@ const en: typeof zh = {
     filterInclude: "Include keywords",
     filterExclude: "Exclude keywords",
     filterKeywordPlaceholder: "Matches the Bemby or Telegram name; separate keywords with commas",
+    filterSucceededOn: "Only accounts with a successful run of",
+    filterSucceededOnAny: "Any account",
+    filterSucceededOnHint:
+      "At least one job from that template succeeded on the account, counting jobs since switched off or retired. The usual case: after a signup template has run, create check-in jobs only for the accounts it got through",
+    createJobsSucceededBadge: "Succeeded",
     createJobsJobName: "Job Name",
     createJobsEmbyUser: "Emby Username",
     createJobsEmbyPass: "Emby Password",

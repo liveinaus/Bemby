@@ -23,7 +23,9 @@ const SCHEMA = `
     name         TEXT NOT NULL,
     phone_number TEXT NOT NULL DEFAULT '',
     auth_status  TEXT NOT NULL DEFAULT 'authenticated',
-    disabled     INTEGER NOT NULL DEFAULT 0
+    disabled     INTEGER NOT NULL DEFAULT 0,
+    tg_display_name TEXT,
+    additional_attributes TEXT
   );
   CREATE TABLE job_templates (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,5 +164,74 @@ describe("create jobs from a template", () => {
     expect(
       testDb.prepare("SELECT run_every_days, run_every_days_max FROM jobs").get(),
     ).toEqual({ run_every_days: 7, run_every_days_max: null });
+  });
+});
+
+// The picker's "only accounts that succeeded on template X" filter reads each account's
+// succeededTemplateIds off this same response.
+describe("available accounts: which templates each account has succeeded on", () => {
+  const availableAccounts = async () => {
+    const res = await fetch(`${baseUrl}/templates/${templateId}/available-accounts`);
+    expect(res.status).toBe(200);
+    return (await res.json()) as Array<{ id: number; succeededTemplateIds: number[] }>;
+  };
+  const byId = (rows: Array<{ id: number }>, id: number) => rows.find((r) => r.id === id) as any;
+
+  const addTemplate = (name: string) =>
+    Number(testDb.prepare("INSERT INTO job_templates (name) VALUES (?)").run(name).lastInsertRowid);
+  const addJob = (
+    tpl: number | null,
+    account: number,
+    extra: { lastSuccessAt?: string | null; retired?: string | null; enabled?: number } = {},
+  ) =>
+    testDb
+      .prepare(
+        `INSERT INTO jobs (name, account_id, template_id, last_success_at, retired, enabled)
+         VALUES ('j', ?, ?, ?, ?, ?)`,
+      )
+      .run(account, tpl, extra.lastSuccessAt ?? null, extra.retired ?? null, extra.enabled ?? 1);
+
+  it("is empty for an account with no successful run anywhere", async () => {
+    const signup = addTemplate("Signup");
+    addJob(signup, accountId); // exists, never succeeded
+    expect(byId(await availableAccounts(), accountId).succeededTemplateIds).toEqual([]);
+  });
+
+  it("names the template once, however many of its jobs succeeded, and not one that failed", async () => {
+    const signup = addTemplate("Signup");
+    const other = addTemplate("Other");
+    addJob(signup, accountId, { lastSuccessAt: "2026-09-01T00:00:00Z" });
+    addJob(signup, accountId, { lastSuccessAt: "2026-09-02T00:00:00Z" });
+    addJob(other, accountId);
+    expect(byId(await availableAccounts(), accountId).succeededTemplateIds).toEqual([signup]);
+  });
+
+  it("counts a job that has since been switched off or retired -- a one-time signup is both", async () => {
+    const signup = addTemplate("Signup");
+    const second = Number(
+      testDb.prepare("INSERT INTO tg_accounts (name) VALUES ('002')").run().lastInsertRowid,
+    );
+    addJob(signup, accountId, { lastSuccessAt: "2026-09-01T00:00:00Z", enabled: 0 });
+    addJob(signup, second, { lastSuccessAt: "2026-09-01T00:00:00Z", retired: "2026-09-05T00:00:00Z" });
+    const rows = await availableAccounts();
+    expect(byId(rows, accountId).succeededTemplateIds).toEqual([signup]);
+    expect(byId(rows, second).succeededTemplateIds).toEqual([signup]);
+  });
+
+  it("ignores a successful job that came from no template", async () => {
+    addJob(null, accountId, { lastSuccessAt: "2026-09-01T00:00:00Z" });
+    expect(byId(await availableAccounts(), accountId).succeededTemplateIds).toEqual([]);
+  });
+
+  it("is per account", async () => {
+    const signup = addTemplate("Signup");
+    const second = Number(
+      testDb.prepare("INSERT INTO tg_accounts (name) VALUES ('002')").run().lastInsertRowid,
+    );
+    addJob(signup, accountId, { lastSuccessAt: "2026-09-01T00:00:00Z" });
+    addJob(signup, second);
+    const rows = await availableAccounts();
+    expect(byId(rows, accountId).succeededTemplateIds).toEqual([signup]);
+    expect(byId(rows, second).succeededTemplateIds).toEqual([]);
   });
 });

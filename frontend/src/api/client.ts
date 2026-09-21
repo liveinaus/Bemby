@@ -1953,6 +1953,8 @@ export type AvailableAccount = {
   linked: boolean;
   /** Last spam check verdict, null when the account has never been checked. */
   restriction: TgSpamStatus["spamStatus"] | null;
+  /** Templates this account has at least one successful run of (any job, live or retired). */
+  succeededTemplateIds: number[];
 };
 
 // Custom job icons come back as data URLs: the API sits behind a bearer-token guard and
