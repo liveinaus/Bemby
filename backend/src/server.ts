@@ -246,6 +246,10 @@ app.use(
 );
 
 const server = createServer(app);
+// Node cuts a request whose body has not fully arrived in 5 minutes. An avatar-pool archive
+// may be 300 MB (see routes/accounts), which a slow link needs longer than that to send;
+// the separate headers timeout still closes a connection that never gets past its headers.
+server.requestTimeout = 30 * 60_000;
 // One upgrade listener for every socket. A WebSocketServer bound directly to the HTTP
 // server answers all upgrades and destroys those whose path it does not know, so two of
 // them on one server kill each other's connections -- routing here is what keeps the

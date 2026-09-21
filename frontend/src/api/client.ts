@@ -328,6 +328,8 @@ export type AvatarPoolStatus = {
 export type AvatarPoolUpload = AvatarPoolStatus & {
   added: string[];
   skipped: Array<{ name: string; why: string }>;
+  /** Images already in the pool (or repeated in the upload), of which one copy is kept. */
+  duplicates: number;
 };
 
 export type BulkProfileBatch = {

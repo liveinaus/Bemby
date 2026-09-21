@@ -1127,6 +1127,22 @@
             </p>
           </div>
 
+          <!-- Avatar pool: the images the bulk profile update hands out as profile photos.
+               Stocked here ahead of time, rather than only from inside that dialog -->
+          <div class="settings-subsection" style="margin-top: 28px">
+            {{ t("settings.avatarPoolSection") }}
+          </div>
+          <div class="form-group">
+            <p style="font-size: 12px; color: var(--text-muted); margin: 0 0 6px">
+              {{ t("settings.avatarPoolHint") }}
+            </p>
+            <div v-if="avatarPool" class="form-hint" style="margin-bottom: 6px">
+              {{ t("accounts.bulkTgRename.avatarPoolCount") }}:
+              <strong>{{ avatarPool.count }}</strong> ({{ avatarPool.dir }})
+            </div>
+            <AvatarPoolUpload @uploaded="avatarPool = $event" />
+          </div>
+
           <!-- Log retention -->
           <div class="settings-subsection" style="margin-top: 28px">
             {{ t("settings.logRetentionSection") }}
@@ -3158,16 +3174,19 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted } from "vue";
 import {
+  accountsApi,
   settingsApi,
   authApi,
   dataApi,
   aiSuppliersApi,
   secretsApi,
   statusApi,
+  type AvatarPoolStatus,
   type CfBrowserTest,
   type CfBrowserTestRun,
   type CfProfile,
 } from "../api/client";
+import AvatarPoolUpload from "../components/AvatarPoolUpload.vue";
 import type {
   MemoryReport,
   TgClientPool,
@@ -4398,6 +4417,8 @@ const defaultTgApiError = ref("");
 // ── TG account display ─────────────────────────────────────────────────────────
 const accountDisplayWithTgName = ref(false);
 const accountAvatarsSetting = ref(false);
+// How many images the pool holds, shown beside its uploader
+const avatarPool = ref<AvatarPoolStatus | null>(null);
 const scheduleSeparatePageSetting = ref(false);
 const jobsTemplateEditButtonSetting = ref(false);
 const logsMessengerButtonSetting = ref(false);
@@ -4640,6 +4661,10 @@ async function restartSystem() {
 onMounted(async () => {
   loadMemory();
   loadTgPool();
+  accountsApi
+    .avatarPool()
+    .then((s) => (avatarPool.value = s))
+    .catch(() => (avatarPool.value = null));
   void loadUpdateStatus();
   void loadSecrets();
   await loadProviders();

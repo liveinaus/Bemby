@@ -2180,61 +2180,10 @@
                   {{ t("accounts.bulkTgRename.avatarPoolEmpty") }}
                 </div>
 
-                <!-- Filling the pool from here, so the images need not be copied onto the
-                     host by hand: a .zip is unpacked on the server, a single image is taken
-                     as it is -->
-                <div class="pool-upload">
-                  <input
-                    ref="avatarUploadInput"
-                    type="file"
-                    accept=".zip,application/zip,image/jpeg,image/png,image/webp"
-                    :disabled="avatarUploading"
-                    @change="uploadAvatarPoolFile"
-                  />
-                  <span v-if="avatarUploading" class="form-hint">
-                    {{ t("accounts.bulkTgRename.avatarUploading") }}
-                  </span>
-                  <div class="form-hint">
-                    {{ t("accounts.bulkTgRename.avatarUploadHint") }}
-                  </div>
-                  <div v-if="avatarUploadError" class="error-msg">
-                    {{ avatarUploadError }}
-                  </div>
-                  <div v-if="avatarUploadResult" class="form-hint">
-                    <strong>
-                      {{
-                        t("accounts.bulkTgRename.avatarUploadAdded").replace(
-                          "{n}",
-                          String(avatarUploadResult.added.length),
-                        )
-                      }}
-                    </strong>
-                    <template v-if="avatarUploadResult.skipped.length">
-                      &middot;
-                      {{
-                        t("accounts.bulkTgRename.avatarUploadSkipped").replace(
-                          "{n}",
-                          String(avatarUploadResult.skipped.length),
-                        )
-                      }}
-                      <ul class="pool-skipped">
-                        <li
-                          v-for="(row, at) in avatarUploadResult.skipped.slice(0, 8)"
-                          :key="`${at}-${row.name}`"
-                        >
-                          {{ row.name }} -- {{ row.why }}
-                        </li>
-                        <li v-if="avatarUploadResult.skipped.length > 8">
-                          {{
-                            t("accounts.bulkTgRename.avatarUploadMore").replace(
-                              "{n}",
-                              String(avatarUploadResult.skipped.length - 8),
-                            )
-                          }}
-                        </li>
-                      </ul>
-                    </template>
-                  </div>
+                <!-- Filling the pool from here, for whoever finds it empty at the moment
+                     they need it; the Settings page has the same uploader -->
+                <div class="pool-upload-inline">
+                  <AvatarPoolUpload @uploaded="avatarPool = $event" />
                 </div>
               </template>
               <label class="form-check" style="margin-top: 6px">
@@ -3840,7 +3789,6 @@ import {
   type BulkProfileEntry,
   type AvatarSourceMode,
   type AvatarPoolStatus,
-  type AvatarPoolUpload,
   type PrivacyLevel,
   type ExtractLine,
   type AccountFilters,
@@ -3870,6 +3818,7 @@ import {
 import { copyText } from "../utils/clipboard";
 import { regexValid } from "../utils/regexCheck";
 import PaginationBar from "../components/PaginationBar.vue";
+import AvatarPoolUpload from "../components/AvatarPoolUpload.vue";
 import BulkTaskProgress from "../components/BulkTaskProgress.vue";
 
 const accounts = ref<Account[]>([]);
@@ -5217,10 +5166,6 @@ const bulkTgRenameAvatar = ref(false);
 const bulkTgRenameAvatarSource = ref<AvatarSourceMode>("any");
 const bulkTgRenameNamesToo = ref(true);
 const avatarPool = ref<AvatarPoolStatus | null>(null);
-const avatarUploadInput = ref<HTMLInputElement | null>(null);
-const avatarUploading = ref(false);
-const avatarUploadError = ref("");
-const avatarUploadResult = ref<AvatarPoolUpload | null>(null);
 
 // Bulk usernames. Unlike names, a handle is globally unique, so the pattern carries a
 // {rand} suffix by default -- a plain counter collides with handles already taken.
@@ -5394,46 +5339,6 @@ function openBulkTgRename() {
     .then((s) => (avatarPool.value = s))
     .catch(() => (avatarPool.value = null));
   if (bulkTgRenameBatch.value?.running) pollBulkTgRename();
-}
-
-/**
- * Sends the chosen file to the pool and shows what came of it.
- *
- * The file input is cleared afterwards, so picking the same archive again re-uploads it
- * rather than doing nothing -- which is what someone who has just fixed the archive expects.
- */
-async function uploadAvatarPoolFile(event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  if (!file) return;
-
-  avatarUploading.value = true;
-  avatarUploadError.value = "";
-  avatarUploadResult.value = null;
-  try {
-    const result = await accountsApi.uploadAvatarPool(file);
-    avatarUploadResult.value = result;
-    // The count in the hint above comes from the same answer, so it is right without a
-    // second request
-    avatarPool.value = {
-      dir: result.dir,
-      count: result.count,
-      online: result.online,
-      styles: result.styles,
-    };
-  } catch (err: any) {
-    // A body over the limit is refused by the server's parser, which answers before the
-    // route runs and so carries none of its wording
-    avatarUploadError.value =
-      err?.response?.status === 413
-        ? t("accounts.bulkTgRename.avatarUploadTooBig")
-        : (err?.response?.data?.error ??
-          err?.message ??
-          t("accounts.bulkTgRename.avatarUploadFailed"));
-  } finally {
-    avatarUploading.value = false;
-    if (avatarUploadInput.value) avatarUploadInput.value.value = "";
-  }
 }
 
 function closeBulkTgRename() {
@@ -7308,24 +7213,10 @@ tr:hover .tg-name-refresh {
   line-height: 1.5;
 }
 
-.pool-upload {
+.pool-upload-inline {
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
-}
-
-.pool-upload input[type="file"] {
-  font-size: 12px;
-  max-width: 100%;
-}
-
-/* Reasons an archive's entries were left out: short, and scrolling rather than pushing the
-   dialog's buttons off the screen when an archive is mostly the wrong sort of file */
-.pool-skipped {
-  margin: 4px 0 0;
-  padding-left: 18px;
-  max-height: 110px;
-  overflow-y: auto;
 }
 
 .warn-box {

@@ -20,6 +20,7 @@ import {
   pickFromPool,
   poolImageExtensions,
   saveToAvatarPool,
+  AvatarPoolIndex,
 } from "../tg/avatarSource";
 
 const root = mkdtempSync(path.join(os.tmpdir(), "avatars-"));
@@ -203,5 +204,31 @@ describe("isPoolImageName", () => {
   it("looks at the last segment, not the folders above it", () => {
     expect(isPoolImageName("holiday/2019/img.png")).toBe(true);
     expect(isPoolImageName("img.png/notes.txt")).toBe(false);
+  });
+});
+
+// The same image arriving twice -- in one archive, or in a later upload under another name --
+// is kept once. Names are no guide, so it goes by content.
+describe("AvatarPoolIndex", () => {
+  it("knows an image already in the pool whatever it was called", () => {
+    saveToAvatarPool("IMG_0001.jpg", JPEG);
+    const index = AvatarPoolIndex.fromPool();
+    expect(index.duplicateOf(JPEG)).toBe("IMG_0001.jpg");
+    expect(index.duplicateOf(PNG)).toBeUndefined();
+  });
+
+  it("catches a repeat within one upload once told what was saved", () => {
+    const index = AvatarPoolIndex.fromPool();
+    expect(index.duplicateOf(PNG)).toBeUndefined();
+    index.remember(PNG, saveToAvatarPool("a.png", PNG));
+    expect(index.duplicateOf(PNG)).toBe("a.png");
+    // The first name stays the one reported, however many repeats follow
+    index.remember(PNG, "b.png");
+    expect(index.duplicateOf(PNG)).toBe("a.png");
+  });
+
+  it("starts empty when there is no pool yet", () => {
+    rmSync(pool, { recursive: true, force: true });
+    expect(AvatarPoolIndex.fromPool().duplicateOf(PNG)).toBeUndefined();
   });
 });

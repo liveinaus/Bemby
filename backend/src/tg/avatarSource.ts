@@ -207,6 +207,44 @@ export function saveToAvatarPool(suggestedName: string, buf: Buffer): string {
   return name;
 }
 
+/**
+ * What is in the pool, by content, so an upload keeps one copy of an image however many
+ * times it arrives -- twice in one archive, or again in next month's. Names say nothing
+ * here: the same photo is IMG_0001.jpg in one export and DSC_0001.jpg in another. Built
+ * once per upload, since hashing the whole pool for each of 3000 entries would square the
+ * work, and told about each file saved so repeats within the upload are caught too.
+ */
+export class AvatarPoolIndex {
+  private readonly byHash = new Map<string, string>();
+
+  /** Reads and hashes every image in the pool right now. */
+  static fromPool(): AvatarPoolIndex {
+    const index = new AvatarPoolIndex();
+    for (const file of listAvatarPool()) {
+      try {
+        index.remember(fs.readFileSync(file), path.basename(file));
+      } catch {
+        // A file gone between the listing and the read is nothing to dedupe against
+      }
+    }
+    return index;
+  }
+
+  /** The pool file holding these exact bytes, if there is one. */
+  duplicateOf(buf: Buffer): string | undefined {
+    return this.byHash.get(hashImage(buf));
+  }
+
+  remember(buf: Buffer, name: string): void {
+    const hash = hashImage(buf);
+    if (!this.byHash.has(hash)) this.byHash.set(hash, name);
+  }
+}
+
+function hashImage(buf: Buffer): string {
+  return crypto.createHash("sha256").update(buf).digest("hex");
+}
+
 /** Whether a name in an archive is worth unpacking at all. */
 export function isPoolImageName(name: string): boolean {
   const base = name.replace(/\\/g, "/").split("/").pop() ?? "";

@@ -70,6 +70,7 @@ import {
   isPoolImageName,
   poolImageExtensions,
   saveToAvatarPool,
+  AvatarPoolIndex,
   MAX_AVATAR_BYTES,
 } from "../tg/avatarSource";
 import { normaliseUsername, usernameError } from "../tg/usernames";
@@ -1199,13 +1200,14 @@ router.get("/avatar-pool", (_req, res) => {
 });
 
 /**
- * The whole upload, compressed. Wide enough for a few hundred photos and narrow enough that
+ * The whole upload, compressed. Wide enough for a few thousand photos and narrow enough that
  * one request cannot fill the disk; the pool is images for profile photos, not a file store.
+ * The body is held in memory whole while it unpacks, so this is also a memory ceiling.
  */
-const MAX_POOL_UPLOAD_BYTES = 64 * 1024 * 1024;
+const MAX_POOL_UPLOAD_BYTES = 300 * 1024 * 1024;
 
 /** Most images taken from one archive, so a stray backup zip does not unpack for minutes. */
-const MAX_POOL_UPLOAD_FILES = 500;
+const MAX_POOL_UPLOAD_FILES = 3000;
 
 // POST /avatar-pool -- add images to the local pool: a .zip of them, or one image on its own.
 //
@@ -1225,6 +1227,19 @@ router.post(
     const filename = String(req.query.filename ?? "").slice(0, 200);
     const added: string[] = [];
     const skipped: Array<{ name: string; why: string }> = [];
+    // Repeats of an image already in the pool, or earlier in this upload: one copy is kept
+    // and the rest are counted rather than listed, since they are not a problem to fix
+    let duplicates = 0;
+    const index = AvatarPoolIndex.fromPool();
+    const save = (name: string, data: Buffer): void => {
+      if (index.duplicateOf(data)) {
+        duplicates++;
+        return;
+      }
+      const saved = saveToAvatarPool(name, data);
+      index.remember(data, saved);
+      added.push(saved);
+    };
 
     if (looksLikeZip(body)) {
       let archive;
@@ -1252,7 +1267,7 @@ router.post(
           continue;
         }
         try {
-          added.push(saveToAvatarPool(entry.name, entry.data));
+          save(entry.name, entry.data);
         } catch (err: any) {
           skipped.push({ name: entry.name, why: err?.message ?? "could not be saved" });
         }
@@ -1261,7 +1276,7 @@ router.post(
       // Not an archive: take it as the single image it looks like, and say so plainly when
       // it is neither -- "add a zip or an image" is the only useful answer here
       try {
-        added.push(saveToAvatarPool(filename || "avatar.jpg", body));
+        save(filename || "avatar.jpg", body);
       } catch (err: any) {
         res.status(400).json({
           error: err?.message ?? "Not a ZIP archive or a usable image",
@@ -1270,7 +1285,7 @@ router.post(
       }
     }
 
-    res.json({ added, skipped, ...avatarPoolStatus() });
+    res.json({ added, skipped, duplicates, ...avatarPoolStatus() });
   },
 );
 

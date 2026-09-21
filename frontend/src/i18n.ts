@@ -339,13 +339,14 @@ const zh = {
       avatarPoolEmpty:
         "本地图库为空。用下面的上传按钮添加图片，或改用在线头像。",
       avatarUploadHint:
-        "可上传一个 zip 压缩包（服务端解压，只取其中的 .jpg / .png / .webp，子目录会被拉平），也可以直接上传单张图片。单张图片上限 10 MB，单次上传上限 64 MB、500 张。同名文件会自动加序号，不会覆盖已有图片。",
+        "可上传一个 zip 压缩包（服务端解压，只取其中的 .jpg / .png / .webp，子目录会被拉平），也可以直接上传单张图片。单张图片上限 10 MB，单次上传上限 300 MB、3000 张。同名文件会自动加序号，不会覆盖已有图片；内容相同的图片只保留一份。",
       avatarUploading: "上传中……",
       avatarUploadAdded: "已添加 {n} 张",
+      avatarUploadDuplicates: "{n} 张重复图片已忽略（图库中已有相同图片）",
       avatarUploadSkipped: "跳过 {n} 项：",
       avatarUploadMore: "……另有 {n} 项",
       avatarUploadFailed: "上传失败",
-      avatarUploadTooBig: "文件超过 64 MB，请分成多个压缩包上传",
+      avatarUploadTooBig: "文件超过 300 MB，请分成多个压缩包上传",
       usernameLabel: "同时设置用户名（@handle）",
       usernameFormat: "用户名格式",
       usernameHint:
@@ -2238,6 +2239,9 @@ const zh = {
     accountDisplayHint:
       "开启后，引用账户的位置（消息、任务、模板）将同时显示 Bemby 名称与 Telegram 名称。",
     accountAvatarsToggle: "在账户列表中显示 Telegram 头像",
+    avatarPoolSection: "头像图库",
+    avatarPoolHint:
+      "批量修改资料时随机分配给账户的头像图片。可在此提前上传，无需先发起批量任务。",
     accountAvatarsHint:
       "开启后，检查状态或刷新 TG 账号时会同时读取头像并保存到该账户，账户列表中会新增头像列。已有账户需刷新一次才会显示。",
     labelDefaultTgApiId: "默认 API ID",
@@ -3089,13 +3093,14 @@ const en: typeof zh = {
       avatarPoolEmpty:
         "The local pool is empty. Add images with the upload below, or switch to the online source.",
       avatarUploadHint:
-        "Upload a zip and the server unpacks it, taking the .jpg, .png and .webp files out of it and flattening any folders -- or upload a single image as it is. Up to 10 MB an image, and 64 MB or 500 images an upload. A name already in the pool gets a counter rather than overwriting what is there.",
+        "Upload a zip and the server unpacks it, taking the .jpg, .png and .webp files out of it and flattening any folders -- or upload a single image as it is. Up to 10 MB an image, and 300 MB or 3000 images an upload. A name already in the pool gets a counter rather than overwriting what is there, and an image already in the pool is dropped rather than kept twice.",
       avatarUploading: "Uploading...",
       avatarUploadAdded: "Added {n}",
+      avatarUploadDuplicates: "{n} duplicates dropped (same image already in the pool)",
       avatarUploadSkipped: "Skipped {n}:",
       avatarUploadMore: "... and {n} more",
       avatarUploadFailed: "The upload failed",
-      avatarUploadTooBig: "The file is over 64 MB -- split it into several archives",
+      avatarUploadTooBig: "The file is over 300 MB -- split it into several archives",
       usernameLabel: "Also set a username (@handle)",
       usernameFormat: "Username pattern",
       usernameHint:
@@ -5048,6 +5053,9 @@ const en: typeof zh = {
     accountDisplayHint:
       "When on, places that refer to an account (Messenger, jobs, templates) show the Bemby name alongside the Telegram name.",
     accountAvatarsToggle: "Show Telegram avatars in the accounts table",
+    avatarPoolSection: "Avatar pool",
+    avatarPoolHint:
+      "Images the bulk profile update hands out to accounts as profile photos. Stock it here ahead of time, without starting a bulk task.",
     accountAvatarsHint:
       "When on, a status check or TG name refresh also reads the profile photo and stores it against the account, and the accounts table gains an avatar column. Existing accounts show one after their next refresh.",
     labelDefaultTgApiId: "Default API ID",
