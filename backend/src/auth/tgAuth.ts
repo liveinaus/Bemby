@@ -38,6 +38,13 @@ export type TgAccountStatus = {
   lastName?: string;
   username?: string;
   phone?: string;
+  /** Telegram's user id, as text: it can exceed what a JSON number carries exactly. */
+  userId?: string;
+  /**
+   * The profile photo, when the check was asked to read it: null for an account without
+   * one. Absent when it was not asked for, or the account could not be reached at all.
+   */
+  photo?: Buffer | null;
 };
 
 type PendingAuth = {
@@ -224,6 +231,7 @@ export async function checkAccountStatus(
   sessionString: string,
   proxy?: TgProxy,
   deviceParams?: TgDeviceParams,
+  opts: { withPhoto?: boolean } = {},
 ): Promise<TgAccountStatus> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
 
@@ -259,6 +267,10 @@ export async function checkAccountStatus(
         lastName: user.lastName,
         username: user.username,
         phone: user.phone,
+        userId: user.id != null ? user.id.toString() : undefined,
+        // Read on the connection already open rather than on one of its own: every extra
+        // connect counts against the per-IP limit (see tg/floodWait)
+        ...(opts.withPhoto ? await readOwnPhotoQuietly(c) : {}),
       };
     });
   } catch (err: any) {
@@ -387,6 +399,31 @@ export async function checkUsername(
   );
 }
 
+/** The account's own photo on an open client: Telegram's small JPEG thumbnail, or null. */
+async function readOwnPhoto(c: TelegramClient): Promise<Buffer | null> {
+  const photo = await c.downloadProfilePhoto("me");
+  // Missing photos come back as undefined from some layers and as an empty buffer
+  // from others, and an empty buffer would render as a broken image.
+  if (!photo || !photo.length) return null;
+  return Buffer.isBuffer(photo) ? photo : Buffer.from(photo);
+}
+
+/**
+ * The photo as a status field, or nothing when the download failed: the status itself is
+ * the answer the caller came for, and a photo that could not be read is not a reason to
+ * withhold it. Left absent rather than null so a stored copy is not wiped over a hiccup.
+ */
+async function readOwnPhotoQuietly(
+  c: TelegramClient,
+): Promise<{ photo?: Buffer | null }> {
+  try {
+    return { photo: await readOwnPhoto(c) };
+  } catch (err: any) {
+    console.warn("[tgAuth] profile photo read failed:", err?.message ?? err);
+    return {};
+  }
+}
+
 /**
  * The account's own profile photo, or null when it has none. Returned as bytes for the
  * caller to encode however it serves them; Telegram hands back a JPEG.
@@ -399,18 +436,15 @@ export async function getProfilePhoto(
   deviceParams?: TgDeviceParams,
 ): Promise<Buffer | null> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  return withTgClient(client, "profile photo read", async (c) => {
-    const photo = await c.downloadProfilePhoto("me");
-    // Missing photos come back as undefined from some layers and as an empty buffer
-    // from others, and an empty buffer would render as a broken image.
-    if (!photo || !photo.length) return null;
-    return Buffer.isBuffer(photo) ? photo : Buffer.from(photo);
-  });
+  return withTgClient(client, "profile photo read", readOwnPhoto);
 }
 
 /**
  * Replaces the account's profile photo. Telegram keeps the previous ones on the account --
  * this adds a new photo and makes it current, which is what the official clients do too.
+ *
+ * With `readBack`, returns the thumbnail Telegram made of it, on the same connection: what
+ * is stored against the account should be Telegram's rendering, not the bytes sent up.
  */
 export async function setProfilePhoto(
   apiId: number,
@@ -419,9 +453,10 @@ export async function setProfilePhoto(
   image: { buffer: Buffer; filename: string },
   proxy?: TgProxy,
   deviceParams?: TgDeviceParams,
-): Promise<void> {
+  readBack = false,
+): Promise<Buffer | null> {
   const client = makeTgClient(sessionString, apiId, apiHash, proxy, deviceParams);
-  await withTgClient(client, "profile photo update", async (c) => {
+  return withTgClient(client, "profile photo update", async (c) => {
     const file = await c.uploadFile({
       file: new CustomFile(
         image.filename,
@@ -432,6 +467,7 @@ export async function setProfilePhoto(
       workers: 1,
     });
     await c.invoke(new Api.photos.UploadProfilePhoto({ file }));
+    return readBack ? readOwnPhoto(c) : null;
   });
 }
 

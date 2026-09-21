@@ -12,6 +12,7 @@ import {
   type AvatarSourceMode,
 } from "../tg/avatarSource";
 import { clampGap } from "./bulkTasks";
+import { accountAvatarsEnabled, saveTgAvatar } from "./accountOps";
 
 // Bulk-updates the Telegram profile (first name, last name, bio/about, profile
 // photo) of already-authenticated accounts. Accounts are processed one at a time
@@ -301,14 +302,17 @@ async function updateOne(
 
   if (config.avatarSource) {
     const pick = await pickRandomAvatar(config.avatarSource, usedAvatars);
-    await setProfilePhoto(
+    const keep = accountAvatarsEnabled();
+    const stored = await setProfilePhoto(
       creds.apiId,
       creds.apiHash,
       account.session_string,
       { buffer: pick.buffer, filename: pick.filename },
       proxy,
       deviceParams,
+      keep,
     );
+    if (keep) saveTgAvatar(account.id, stored);
     item.avatar = pick.source;
   }
 }

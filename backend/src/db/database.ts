@@ -116,6 +116,7 @@ db.exec(`
     ('ai_timeout_ms',        '25000'),
     ('ai_fallback_enabled',  'true'),
     ('account_display_with_tg_name','false'),
+    ('tg_account_avatars',   'false'),
     ('jobs_template_edit_button','false'),
     ('logs_messenger_button','false'),
     ('logs_job_edit_button','false'),
@@ -699,6 +700,19 @@ try {
 } catch {}
 try {
   db.exec("ALTER TABLE tg_accounts ADD COLUMN additional_attributes TEXT");
+} catch {}
+// The account's Telegram user id, as text: it is an identifier, not a number to do sums on
+try {
+  db.exec("ALTER TABLE tg_accounts ADD COLUMN tg_user_id TEXT");
+} catch {}
+// The account's own profile photo as Telegram's small JPEG thumbnail, and when it was read.
+// Only filled while the tg_account_avatars setting is on (see jobs/accountOps); a copy left
+// behind after the setting is turned off is harmless and is refreshed when it comes back.
+try {
+  db.exec("ALTER TABLE tg_accounts ADD COLUMN tg_avatar BLOB");
+} catch {}
+try {
+  db.exec("ALTER TABLE tg_accounts ADD COLUMN tg_avatar_at INTEGER");
 } catch {}
 
 // One-time move of passkeys from the old settings key-value store (tg_passkey_secrets)

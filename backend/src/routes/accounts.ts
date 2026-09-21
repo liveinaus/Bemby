@@ -41,7 +41,10 @@ import {
   registerPasskeyForAccount,
   resolveApiCredentials,
   resolveProxyUrl,
+  accountAvatarsEnabled,
+  saveTgAvatar,
   saveTgMeta,
+  saveTgStatusMeta,
   statusNeedsReauth,
   terminateOtherSessionsForAccount,
   updateTwoFaForAccount,
@@ -105,6 +108,7 @@ import {
   type EncryptedEnvelope,
 } from "../db/exportCrypto";
 import { decryptAccountRow, encryptSecret } from "../db/secretColumns";
+import { requireMediaAuth } from "../middleware/auth";
 
 function internalError(res: import('express').Response, err: unknown, context: string): void {
   console.error(`[accounts] ${context}:`, err);
@@ -139,6 +143,7 @@ function toJson(row: AccountRow) {
     sortOrder: row.sort_order ?? 0,
     tgDisplayName: row.tg_display_name ?? null,
     tgUsername: row.tg_username ?? null,
+    tgUserId: row.tg_user_id ?? null,
     notes: row.notes ?? null,
     resolvedDeviceModel: previewDeviceModel(row.id, row.app_client_id),
     // Generic UI-safe flags; the passkey secret is deliberately never included here.
@@ -150,6 +155,21 @@ function toJson(row: AccountRow) {
       false,
     // Whether Bemby holds a stored passkey usable for login (its home DC is known).
     hasBembyPasskey: parseStoredPasskey(row.passkey)?.dcId != null,
+    // The stored profile photo is served by /:id/avatar-image, never inlined here; this
+    // says whether there is one and, through the timestamp, when its address changes.
+    hasAvatar: Boolean(row.tg_avatar),
+    avatarUpdatedAt: row.tg_avatar_at ?? null,
+  };
+}
+
+/** The avatar fields of a row as the client sees them, for a response after a refresh. */
+function avatarJson(id: number) {
+  const row = db
+    .prepare("SELECT tg_avatar IS NOT NULL AS has, tg_avatar_at AS at FROM tg_accounts WHERE id = ?")
+    .get(id) as { has: number; at: number | null } | undefined;
+  return {
+    hasAvatar: Boolean(row?.has),
+    avatarUpdatedAt: row?.at ?? null,
   };
 }
 
@@ -204,12 +224,13 @@ router.get("/", (req, res) => {
       name LIKE ? ESCAPE '\\' OR phone_number LIKE ? ESCAPE '\\'
       OR COALESCE(tg_display_name, '') LIKE ? ESCAPE '\\'
       OR COALESCE(tg_username, '') LIKE ? ESCAPE '\\'
+      OR COALESCE(tg_user_id, '') LIKE ? ESCAPE '\\'
       OR COALESCE(notes, '') LIKE ? ESCAPE '\\'
     )`;
     conditions.push(`(${terms.map(() => oneTerm).join(" OR ")})`);
     for (const term of terms) {
       const like = `%${escapeLike(term)}%`;
-      params.push(like, like, like, like, like);
+      params.push(like, like, like, like, like, like);
     }
   }
   // "needs_auth" is every state that is not a working session, which is what an operator
@@ -569,6 +590,7 @@ type AccountImportItem = {
   sortOrder?: number | null;
   tgDisplayName?: string | null;
   tgUsername?: string | null;
+  tgUserId?: string | null;
   // Passkey secret and generic flags travel inline with the account. `passkey` is the
   // current shape; `passkeys` (array) from interim builds is still tolerated on import.
   passkey?: unknown;
@@ -615,6 +637,7 @@ router.post("/export", (req, res) => {
       // Cached Telegram identity, so the restored list is not blank until it refreshes.
       tgDisplayName: a.tg_display_name ?? null,
       tgUsername: a.tg_username ?? null,
+      tgUserId: a.tg_user_id ?? null,
       // Passkey secret (incl. private key + home DC) so the account can still log in
       // after import, even when force-reauth clears the session string.
       passkey: parseStoredPasskey(a.passkey),
@@ -703,8 +726,9 @@ router.post("/import", (req, res) => {
         .prepare(
           `INSERT INTO tg_accounts
              (name, phone_number, api_id, api_hash, session_string, auth_status, proxy_id,
-              app_client_id, disabled, notes, sort_order, tg_display_name, tg_username)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              app_client_id, disabled, notes, sort_order, tg_display_name, tg_username,
+              tg_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           a.name || a.phoneNumber,
@@ -720,6 +744,7 @@ router.post("/import", (req, res) => {
           Number.isFinite(Number(a.sortOrder)) ? Number(a.sortOrder) : 0,
           a.tgDisplayName ?? null,
           a.tgUsername ?? null,
+          a.tgUserId ?? null,
         );
       const newId = Number(info.lastInsertRowid);
       // Restore the passkey secret under the newly assigned account id. The passkey (with
@@ -830,17 +855,20 @@ router.post("/:id/check-status", async (req, res) => {
       account.session_string,
       proxy,
       deviceParams,
+      { withPhoto: accountAvatarsEnabled() },
     );
     if (statusNeedsReauth(status)) markSessionExpired(account.id);
-    saveTgMeta(account.id, status.firstName, status.lastName, status.username);
-    res.json(status);
+    saveTgStatusMeta(account.id, status);
+    const { photo: _photo, ...rest } = status;
+    res.json({ ...rest, ...avatarJson(account.id) });
   } catch (err: any) {
     if (isAuthError(err?.message ?? "")) markSessionExpired(account.id);
     internalError(res, err, 'check-status');
   }
 });
 
-// POST /:id/refresh-tg-meta -- fetch TG display name and persist it; returns { tgDisplayName, tgUsername }
+// POST /:id/refresh-tg-meta -- fetch TG display name (and the photo, when avatars are on)
+// and persist them; returns { tgDisplayName, tgUsername, hasAvatar, avatarUpdatedAt }
 router.post("/:id/refresh-tg-meta", async (req, res) => {
   const account = loadAccount(req.params.id) as AccountRow | undefined;
   if (!account) {
@@ -862,15 +890,18 @@ router.post("/:id/refresh-tg-meta", async (req, res) => {
       account.session_string,
       proxy,
       deviceParams,
+      { withPhoto: accountAvatarsEnabled() },
     );
     if (statusNeedsReauth(status)) markSessionExpired(account.id);
-    saveTgMeta(account.id, status.firstName, status.lastName, status.username);
+    saveTgStatusMeta(account.id, status);
     const displayName = [status.firstName, status.lastName]
       .filter(Boolean)
       .join(" ");
     res.json({
       tgDisplayName: displayName || null,
       tgUsername: status.username ?? null,
+      tgUserId: status.userId ?? null,
+      ...avatarJson(account.id),
     });
   } catch (err: any) {
     if (isAuthError(err?.message ?? "")) markSessionExpired(account.id);
@@ -1243,6 +1274,30 @@ router.post(
   },
 );
 
+/**
+ * Routes a browser loads by address rather than by fetch. Mounted in server.ts ahead of the
+ * session guard and carrying its own, like tgClient's mediaRouter: an <img> cannot send the
+ * Authorization header the outer guard reads, so it presents a media ticket instead.
+ */
+export const mediaRouter = Router();
+
+// GET /:id/avatar-image?ticket= -- the stored profile photo, as the accounts table shows it.
+// Served from the row, never fetched here: this is hit once per visible account, and a
+// Telegram round-trip per row would be a connection storm. The client puts the row's
+// avatarUpdatedAt in the address, so the long cache life never shows a superseded photo.
+mediaRouter.get("/:id/avatar-image", requireMediaAuth, (req, res) => {
+  const row = db
+    .prepare("SELECT tg_avatar FROM tg_accounts WHERE id = ?")
+    .get(req.params.id) as { tg_avatar: Buffer | null } | undefined;
+  if (!row?.tg_avatar) {
+    res.status(404).json({ error: "No stored avatar" });
+    return;
+  }
+  res.set("Content-Type", "image/jpeg");
+  res.set("Cache-Control", "private, max-age=86400");
+  res.send(row.tg_avatar);
+});
+
 // GET /:id/avatar -- the account's current Telegram profile photo.
 // Returned as a data URL rather than raw bytes so an <img> can show it: this router sits
 // behind requireAuth, which reads the Authorization header, and an <img> cannot send one.
@@ -1267,10 +1322,13 @@ router.get("/:id/avatar", async (req, res) => {
       proxy,
       deviceParams,
     );
+    // Freshly read, so the stored copy may as well be this one
+    if (accountAvatarsEnabled()) saveTgAvatar(account.id, photo);
     res.json({
       dataUrl: photo
         ? `data:image/jpeg;base64,${photo.toString("base64")}`
         : null,
+      ...avatarJson(account.id),
     });
   } catch (err: any) {
     if (isAuthError(err?.message ?? "")) markSessionExpired(account.id);
@@ -1310,15 +1368,18 @@ router.post(
       const proxy = parseTgProxy(resolveProxyUrl(account.proxy_id));
       const deviceParams = resolveAppClientParams(account.id, account.app_client_id);
       const filename = String(req.query.filename ?? "avatar.jpg").slice(0, 120);
-      await setProfilePhoto(
+      const keep = accountAvatarsEnabled();
+      const stored = await setProfilePhoto(
         apiId,
         apiHash,
         account.session_string,
         { buffer: body, filename },
         proxy,
         deviceParams,
+        keep,
       );
-      res.json({ ok: true });
+      if (keep) saveTgAvatar(account.id, stored);
+      res.json({ ok: true, ...avatarJson(account.id) });
     } catch (err: any) {
       if (isAuthError(err?.message ?? "")) markSessionExpired(account.id);
       internalError(res, err, "set-avatar");

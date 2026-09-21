@@ -192,6 +192,7 @@
           <thead>
             <tr>
               <th style="width: 20px"></th>
+              <th v-if="showAvatars" class="col-avatar">{{ t("accounts.colAvatar") }}</th>
               <th class="sortable" @click="sortBy('name')">
                 {{ t("common.name") }}<i :class="sortIcon('name')"></i>
               </th>
@@ -211,7 +212,7 @@
           </thead>
           <tbody>
             <tr v-if="!accounts.length">
-              <td :colspan="showExtra ? 8 : 7" class="empty">{{ t("accounts.noAccounts") }}</td>
+              <td :colspan="(showExtra ? 8 : 7) + (showAvatars ? 1 : 0)" class="empty">{{ t("accounts.noAccounts") }}</td>
             </tr>
             <tr
               v-for="(a, idx) in accounts"
@@ -232,6 +233,17 @@
             >
               <td class="drag-handle" title="Drag to reorder">
                 <i class="fa-solid fa-grip-vertical"></i>
+              </td>
+              <td v-if="showAvatars" class="col-avatar">
+                <div class="table-avatar" :title="a.tgDisplayName ?? undefined">
+                  <img
+                    v-if="a.hasAvatar && accountsApi.avatarImageUrl(a.id, a.avatarUpdatedAt)"
+                    :src="accountsApi.avatarImageUrl(a.id, a.avatarUpdatedAt)"
+                    alt=""
+                    loading="lazy"
+                  />
+                  <i v-else class="fa-solid fa-user"></i>
+                </div>
               </td>
               <td>
                 {{ a.name }}
@@ -301,6 +313,9 @@
                     phoneCountry(a.phoneNumber)!.flag
                   }}</span>
                   {{ phoneCountry(a.phoneNumber)!.name }}
+                </div>
+                <div v-if="a.tgUserId" class="phone-tg-id" :title="t('accounts.tgUserId')">
+                  <i class="fa-solid fa-hashtag"></i>{{ a.tgUserId }}
                 </div>
               </td>
               <td class="col-hide-mobile">
@@ -3808,6 +3823,7 @@ import {
   accountsApi,
   bulkTasksApi,
   settingsApi,
+  tgClientApi,
   type Account,
   type Proxy,
   type TgAppClient,
@@ -4092,6 +4108,7 @@ const settings = ref<{
   default_tg_api_id?: string;
   default_tg_api_hash?: string;
   bulk_account_management?: string;
+  tg_account_avatars?: string;
   msapi_available?: string;
   msapi_configured?: string;
   msapi_pool_type?: string;
@@ -4311,6 +4328,10 @@ const loginEmailCode = ref("");
 
 // ── TG meta refresh (display name + username stored in DB, loaded with accounts list) ──
 const metaLoading = reactive(new Set<number>());
+
+// The avatar column exists only when the setting is on; the photo itself is stored server
+// side and refreshed by the same calls that refresh the TG name.
+const showAvatars = computed(() => settings.value?.tg_account_avatars === "true");
 
 async function fetchMeta(accountId: number) {
   if (metaLoading.has(accountId)) return;
@@ -6197,9 +6218,10 @@ onMounted(async () => {
   } catch {
     // Background check failure is non-critical
   }
-  // Auto-fetch TG name for authenticated accounts that have none stored yet.
+  // Auto-fetch TG name (and id, which older rows lack) for authenticated accounts that
+  // have none stored yet.
   for (const a of accounts.value) {
-    if (a.authStatus === "authenticated" && !a.tgDisplayName) {
+    if (a.authStatus === "authenticated" && (!a.tgDisplayName || !a.tgUserId)) {
       fetchMeta(a.id); // fire-and-forget, shows spinner in cell
     }
   }
@@ -6254,6 +6276,8 @@ async function load() {
   ]);
   settings.value = s;
   applyDataStoreSetting(s);
+  // The avatar cells load by <img>, so they need a media ticket in hand (see api/client)
+  if (showAvatars.value) tgClientApi.ensureMediaTicket().catch(() => {});
   if (!res.items.length && page.value > 1) {
     // Page emptied out (e.g. after deletes); step back once
     skipPageWatch = true;
@@ -6590,8 +6614,11 @@ async function loadAvatar() {
   avatarError.value = "";
   avatarUrl.value = null;
   try {
-    const { dataUrl } = await accountsApi.getAvatar(editTarget.value.id);
+    const { dataUrl, ...stored } = await accountsApi.getAvatar(editTarget.value.id);
     avatarUrl.value = dataUrl;
+    // The read also refreshed the stored copy, so the table's cell follows
+    const idx = accounts.value.findIndex((a) => a.id === editTarget.value?.id);
+    if (idx !== -1) accounts.value[idx] = { ...accounts.value[idx], ...stored };
   } catch (err: any) {
     avatarError.value = err.response?.data?.error ?? err.message;
   } finally {
@@ -7149,6 +7176,19 @@ async function verify2fa() {
   font-size: 13px;
 }
 
+.phone-tg-id {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.phone-tg-id i {
+  margin-right: 3px;
+  opacity: 0.7;
+}
+
 .device-model-preview i {
   margin-right: 4px;
   opacity: 0.7;
@@ -7166,6 +7206,31 @@ async function verify2fa() {
 .device-model-preview-form .dmp-value {
   font-family: var(--font-mono, monospace);
   color: var(--text-body);
+}
+
+.col-avatar {
+  width: 44px;
+  padding-right: 0 !important;
+}
+
+.table-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+
+.table-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .tg-name-cell {

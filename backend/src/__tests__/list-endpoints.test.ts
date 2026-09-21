@@ -77,9 +77,12 @@ const SCHEMA = `
     sort_order     INTEGER NOT NULL DEFAULT 0,
     tg_display_name TEXT,
     tg_username    TEXT,
+    tg_user_id     TEXT,
     notes          TEXT,
     passkey        TEXT,
     additional_attributes TEXT,
+    tg_avatar      BLOB,
+    tg_avatar_at   INTEGER,
     created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -238,11 +241,12 @@ function insertAccount(
     /** Stored verbatim: with no BEMBY_DATA_KEY the passkey column is not encrypted. */
     passkey?: Record<string, unknown>;
     attributes?: Record<string, unknown>;
+    tgUserId?: string;
   } = {},
 ) {
   return testDb
     .prepare(
-      "INSERT INTO tg_accounts (name, phone_number, disabled, notes, tg_display_name, tg_username, auth_status, proxy_id, passkey, additional_attributes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO tg_accounts (name, phone_number, disabled, notes, tg_display_name, tg_username, tg_user_id, auth_status, proxy_id, passkey, additional_attributes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .run(
       name,
@@ -251,6 +255,7 @@ function insertAccount(
       opts.notes ?? null,
       opts.tgName ?? null,
       opts.tgUsername ?? null,
+      opts.tgUserId ?? null,
       opts.authStatus ?? "unauthenticated",
       opts.proxyId ?? null,
       opts.passkey ? JSON.stringify(opts.passkey) : null,
@@ -440,16 +445,18 @@ describe("GET /accounts", () => {
     insertAccount("01", { tgName: "\u5411\u9633\u800c\u751f", tgUsername: "sunward7" });
     insertAccount("02", { tgName: "Astra", tgUsername: "iulzee" });
     insertAccount("03", { tgName: "\u5403\u74dc\u7fa4\u4f17", tgUsername: "melon22" });
-    insertAccount("04", { tgName: "Nobody", tgUsername: "elsewhere" });
+    insertAccount("04", { tgName: "Nobody", tgUsername: "elsewhere", tgUserId: "7001234567" });
+    insertAccount("05", { tgName: "Nobody either", tgUsername: "elsewhere2", tgUserId: "8009876543" });
 
-    const list = ["\u5411\u9633\u800c\u751f", "@iulzee", "melon22", ""].join("\n");
+    const list = ["\u5411\u9633\u800c\u751f", "@iulzee", "melon22", "", "7001234567"].join("\n");
     const { body } = await getJson(
       `/accounts?page=1&pageSize=10&search=${encodeURIComponent(list)}`,
     );
 
-    // The @ is dropped, a bare username matches too, and the blank line counts for nothing
-    expect(body.items.map((a: any) => a.name)).toEqual(["01", "02", "03"]);
-    expect(body.total).toBe(3);
+    // The @ is dropped, a bare username matches too, the blank line counts for nothing,
+    // and a pasted Telegram id finds its account
+    expect(body.items.map((a: any) => a.name)).toEqual(["01", "02", "03", "04"]);
+    expect(body.total).toBe(4);
   });
 
   it("keeps other filters over the whole list of terms", async () => {

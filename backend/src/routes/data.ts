@@ -97,6 +97,7 @@ type AccountRow = {
   sort_order: number;
   tg_display_name: string | null;
   tg_username: string | null;
+  tg_user_id: string | null;
   notes: string | null;
   passkey: string | null;
   additional_attributes: string | null;
@@ -176,6 +177,7 @@ export type ExportPayload = {
     sortOrder?: number | null;
     tgDisplayName?: string | null;
     tgUsername?: string | null;
+    tgUserId?: string | null;
     notes?: string | null;
     // Passkey secret and generic flags travel inline with the account so nothing needs
     // remapping on import (a raw settings blob would keep stale, detached account ids).
@@ -333,6 +335,7 @@ router.post('/export', (req, res) => {
       sortOrder: a.sort_order ?? 0,
       tgDisplayName: a.tg_display_name ?? null,
       tgUsername: a.tg_username ?? null,
+      tgUserId: a.tg_user_id ?? null,
       notes: a.notes ?? null,
       passkey: parseStoredPasskey(a.passkey),
       additionalAttributes: parseAttributes(a.additional_attributes),
@@ -498,8 +501,9 @@ router.post('/import', async (req, res) => {
       const result = db.prepare(
         `INSERT INTO tg_accounts
            (name, phone_number, api_id, api_hash, session_string, auth_status, proxy_id,
-            app_client_id, disabled, sort_order, tg_display_name, tg_username, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            app_client_id, disabled, sort_order, tg_display_name, tg_username, notes,
+            tg_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         a.name, a.phoneNumber, a.apiId, encryptSecret(a.apiHash),
         encryptSecret(forceReauth ? null : (a.sessionString ?? null)),
@@ -511,6 +515,7 @@ router.post('/import', async (req, res) => {
         a.tgDisplayName ?? null,
         a.tgUsername ?? null,
         a.notes ?? null,
+        a.tgUserId ?? null,
       );
 
       const newAccountId = result.lastInsertRowid as number;

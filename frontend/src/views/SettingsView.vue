@@ -1113,6 +1113,19 @@
               {{ t("settings.accountDisplayHint") }}
             </p>
           </div>
+          <div class="form-group">
+            <label class="form-check">
+              <input
+                type="checkbox"
+                v-model="accountAvatarsSetting"
+                @change="saveAccountAvatars"
+              />
+              <span>{{ t("settings.accountAvatarsToggle") }}</span>
+            </label>
+            <p style="font-size: 12px; color: var(--text-muted); margin: 4px 0 0 24px">
+              {{ t("settings.accountAvatarsHint") }}
+            </p>
+          </div>
 
           <!-- Log retention -->
           <div class="settings-subsection" style="margin-top: 28px">
@@ -4384,6 +4397,7 @@ const defaultTgApiError = ref("");
 
 // ── TG account display ─────────────────────────────────────────────────────────
 const accountDisplayWithTgName = ref(false);
+const accountAvatarsSetting = ref(false);
 const scheduleSeparatePageSetting = ref(false);
 const jobsTemplateEditButtonSetting = ref(false);
 const logsMessengerButtonSetting = ref(false);
@@ -4674,6 +4688,7 @@ onMounted(async () => {
     defaultTgApiId.value = Number(s.default_tg_api_id) || 0;
     defaultTgApiHashMasked.value = s.default_tg_api_hash ?? "";
     accountDisplayWithTgName.value = s.account_display_with_tg_name === "true";
+    accountAvatarsSetting.value = s.tg_account_avatars === "true";
     scheduleSeparatePageSetting.value = s.schedule_separate_page === "true";
     jobsTemplateEditButtonSetting.value = s.jobs_template_edit_button === "true";
     logsMessengerButtonSetting.value = s.logs_messenger_button === "true";
@@ -5267,6 +5282,17 @@ async function saveAccountDisplay() {
   } catch {
     // revert on failure
     accountDisplayWithTgName.value = !accountDisplayWithTgName.value;
+  }
+}
+
+async function saveAccountAvatars() {
+  try {
+    await settingsApi.update({
+      tg_account_avatars: String(accountAvatarsSetting.value),
+    });
+  } catch {
+    // revert on failure
+    accountAvatarsSetting.value = !accountAvatarsSetting.value;
   }
 }
 

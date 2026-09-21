@@ -118,9 +118,12 @@ const SCHEMA = `
     sort_order      INTEGER NOT NULL DEFAULT 0,
     tg_display_name TEXT,
     tg_username     TEXT,
+    tg_user_id      TEXT,
     notes           TEXT,
     passkey         TEXT,
-    additional_attributes TEXT
+    additional_attributes TEXT,
+    tg_avatar       BLOB,
+    tg_avatar_at    INTEGER
   );
   CREATE TABLE jobs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -393,6 +396,7 @@ describe("bulk fetch attributes", () => {
       firstName: "Jane",
       lastName: "Doe",
       username: "jane",
+      userId: "123456789",
       restrictions: [],
     });
     tg.getPasswordInfo.mockResolvedValue({ loginEmailPattern: "j***@gmail.com" });
@@ -402,10 +406,11 @@ describe("bulk fetch attributes", () => {
     expect(done.items[0].status).toBe("done");
     expect(done.items[0].data?.warnings).toEqual([]);
     const row = testDb
-      .prepare("SELECT tg_display_name, tg_username FROM tg_accounts WHERE id = ?")
+      .prepare("SELECT tg_display_name, tg_username, tg_user_id FROM tg_accounts WHERE id = ?")
       .get(id) as any;
     expect(row.tg_display_name).toBe("Jane Doe");
     expect(row.tg_username).toBe("jane");
+    expect(row.tg_user_id).toBe("123456789");
     expect(attributes(id)).toMatchObject({ hasEmail: true, hasPasskey: true });
   });
 

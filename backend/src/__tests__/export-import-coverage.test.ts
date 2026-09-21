@@ -87,9 +87,10 @@ function columnsOf(table: string): string[] {
  *  - id / created_at: identity of this install's row, reassigned on import
  *  - account_id / template_id: exported as array indices instead of raw ids
  *  - api_hash / session_string / passkey: carried, but under a different key
+ *  - tg_avatar / tg_avatar_at: a cache of the profile photo, read again from Telegram
  */
 const NOT_EXPORTED: Record<string, string[]> = {
-  tg_accounts: ["id", "created_at"],
+  tg_accounts: ["id", "created_at", "tg_avatar", "tg_avatar_at"],
   jobs: ["id", "created_at", "account_id", "template_id"],
   job_templates: ["id", "created_at"],
 };

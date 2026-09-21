@@ -3,6 +3,7 @@ import { db } from "../db/database";
 import { refreshScheduler, purgeOldLogs, admitWaitingRuns } from "../scheduler";
 import { evictSurplusClients } from "../tg/liveClient";
 import { isBulkAccountManagementEnabled } from "../jobs/bulkAdd";
+import { ACCOUNT_AVATARS_KEY } from "../jobs/accountOps";
 import { isDataManagementEnabled } from "../db/dataStore";
 import {
   areCfFontsInstalled,
@@ -139,6 +140,7 @@ export const ALLOWED_KEYS = [
   "default_tg_api_id",
   "default_tg_api_hash",
   "account_display_with_tg_name",
+  ACCOUNT_AVATARS_KEY,
   "schedule_separate_page",
   "jobs_template_edit_button",
   // Per-row shortcut buttons on the logs page; each is off by default

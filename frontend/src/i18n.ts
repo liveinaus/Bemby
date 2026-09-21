@@ -113,6 +113,8 @@ const zh = {
     colStatus: "状态",
     colAdded: "添加时间",
     colTgName: "TG 账号",
+    colAvatar: "头像",
+    tgUserId: "Telegram ID",
     noAccounts: "暂无账户",
     editTitle: "编辑账户",
     addTitle: "添加账户",
@@ -2235,6 +2237,9 @@ const zh = {
     accountDisplayToggle: "以「Bemby 账户名 - TG 账号名」显示账户",
     accountDisplayHint:
       "开启后，引用账户的位置（消息、任务、模板）将同时显示 Bemby 名称与 Telegram 名称。",
+    accountAvatarsToggle: "在账户列表中显示 Telegram 头像",
+    accountAvatarsHint:
+      "开启后，检查状态或刷新 TG 账号时会同时读取头像并保存到该账户，账户列表中会新增头像列。已有账户需刷新一次才会显示。",
     labelDefaultTgApiId: "默认 API ID",
     labelDefaultTgApiHash: "默认 API Hash",
     defaultTgApiHashSet: "当前已设置（已脱敏）：",
@@ -2849,6 +2854,8 @@ const en: typeof zh = {
     colStatus: "Status",
     colAdded: "Added",
     colTgName: "TG Name",
+    colAvatar: "Avatar",
+    tgUserId: "Telegram ID",
     noAccounts: "No accounts yet",
     editTitle: "Edit Account",
     addTitle: "Add Account",
@@ -5040,6 +5047,9 @@ const en: typeof zh = {
     accountDisplayToggle: "Show accounts as {Bemby name} - {TG name}",
     accountDisplayHint:
       "When on, places that refer to an account (Messenger, jobs, templates) show the Bemby name alongside the Telegram name.",
+    accountAvatarsToggle: "Show Telegram avatars in the accounts table",
+    accountAvatarsHint:
+      "When on, a status check or TG name refresh also reads the profile photo and stores it against the account, and the accounts table gains an avatar column. Existing accounts show one after their next refresh.",
     labelDefaultTgApiId: "Default API ID",
     labelDefaultTgApiHash: "Default API Hash",
     defaultTgApiHashSet: "Currently set (masked):",

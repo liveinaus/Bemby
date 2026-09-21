@@ -137,6 +137,8 @@ export type Account = {
   sortOrder: number;
   tgDisplayName: string | null;
   tgUsername: string | null;
+  /** Telegram's numeric user id, as text; filled by the same refresh as the name. */
+  tgUserId?: string | null;
   notes: string | null;
   /** Device model Telegram sees, with template variables expanded (server-computed, read-only). */
   resolvedDeviceModel?: string | null;
@@ -146,6 +148,10 @@ export type Account = {
   hasPasskey?: boolean;
   /** True when Bemby holds a stored passkey (key + known DC) usable for login. */
   hasBembyPasskey?: boolean;
+  /** True when a profile photo is stored against the account (see accountsApi.avatarImageUrl). */
+  hasAvatar?: boolean;
+  /** When the stored photo was last read (ms epoch); part of its address, so a new one is refetched. */
+  avatarUpdatedAt?: number | null;
 };
 
 /** Server-side account list filters; "" (or absent) means the filter is off. */
@@ -1653,10 +1659,21 @@ export const accountsApi = {
       .then((r) => r.data),
   refreshTgMeta: (id: number) =>
     api
-      .post<{ tgDisplayName: string | null; tgUsername: string | null }>(
-        `/accounts/${id}/refresh-tg-meta`,
-      )
+      .post<{
+        tgDisplayName: string | null;
+        tgUsername: string | null;
+        tgUserId: string | null;
+        hasAvatar: boolean;
+        avatarUpdatedAt: number | null;
+      }>(`/accounts/${id}/refresh-tg-meta`)
       .then((r) => r.data),
+  // The stored avatar, loaded by <img> and so carrying a media ticket rather than a header
+  // (see tgClientApi.photoUrl). Empty until a ticket is held, so nothing renders a broken
+  // image in the meantime; the ticket is a ref, so those cells re-render once it arrives.
+  avatarImageUrl: (id: number, updatedAt: number | null | undefined) =>
+    mediaTicket.value
+      ? `/api/accounts/${id}/avatar-image?ticket=${encodeURIComponent(mediaTicket.value)}&v=${updatedAt ?? 0}`
+      : "",
   fetchAttributes: (id: number) =>
     api
       .post<{ account: Account; warnings: string[]; authExpired: boolean }>(
@@ -1690,7 +1707,11 @@ export const accountsApi = {
   /** Current profile photo as a data URL, or null when the account has none. */
   getAvatar: (id: number) =>
     api
-      .get<{ dataUrl: string | null }>(`/accounts/${id}/avatar`)
+      .get<{
+        dataUrl: string | null;
+        hasAvatar: boolean;
+        avatarUpdatedAt: number | null;
+      }>(`/accounts/${id}/avatar`)
       .then((r) => r.data),
   setAvatar: (id: number, file: File) =>
     api
@@ -2203,6 +2224,8 @@ export type Settings = {
   default_tg_api_hash?: string;
   /** "true" to show accounts as "{Bemby name} - {TG name}" throughout the app. */
   account_display_with_tg_name?: string;
+  /** "true" reads each account's profile photo on status checks and shows it in the accounts table. */
+  tg_account_avatars?: string;
   /** "true" moves the upcoming-runs list to its own menu entry. */
   schedule_separate_page?: string;
   /** "true" adds a template-edit button to templated jobs on the jobs page. */

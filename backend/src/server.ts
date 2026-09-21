@@ -14,7 +14,7 @@ import cors from "cors";
 import path from "path";
 
 import authRouter from "./routes/auth";
-import accountsRouter from "./routes/accounts";
+import accountsRouter, { mediaRouter as accountsMediaRouter } from "./routes/accounts";
 import jobsRouter from "./routes/jobs";
 import manualBrowserRouter from "./routes/manual-browser";
 import logsRouter from "./routes/logs";
@@ -190,6 +190,9 @@ app.get("/api/health", (_req: express.Request, res: express.Response) =>
 app.use("/api/auth", authRouter);
 
 // Protected API routes
+// Stored avatars are loaded by <img>, which authenticates with a media ticket; see the
+// note on the tg-client media router below for why this sits ahead of `requireAuth`
+app.use("/api/accounts", accountsMediaRouter);
 app.use("/api/accounts", requireAuth, accountsRouter);
 app.use("/api/jobs", requireAuth, jobsRouter);
 app.use("/api/manual-browser", requireAuth, manualBrowserRouter);

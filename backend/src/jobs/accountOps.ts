@@ -61,9 +61,12 @@ export type AccountRow = {
   sort_order: number;
   tg_display_name: string | null;
   tg_username: string | null;
+  tg_user_id: string | null;
   notes: string | null;
   passkey: string | null;
   additional_attributes: string | null;
+  tg_avatar: Buffer | null;
+  tg_avatar_at: number | null;
 };
 
 /**
@@ -202,16 +205,47 @@ export function statusNeedsReauth(status: TgAccountStatus): boolean {
   );
 }
 
+/** The user id is kept when the caller did not learn one (a profile edit, say). */
 export function saveTgMeta(
   id: number,
   firstName: string,
   lastName: string | undefined,
   username: string | undefined,
+  userId?: string,
 ): void {
   const displayName = [firstName, lastName].filter(Boolean).join(" ");
   db.prepare(
-    "UPDATE tg_accounts SET tg_display_name = ?, tg_username = ? WHERE id = ?",
-  ).run(displayName || null, username || null, id);
+    `UPDATE tg_accounts
+       SET tg_display_name = ?, tg_username = ?, tg_user_id = COALESCE(?, tg_user_id)
+     WHERE id = ?`,
+  ).run(displayName || null, username || null, userId ?? null, id);
+}
+
+/**
+ * Whether profile photos are read and kept against accounts. Off by default: it is an
+ * extra download on every status check and a blob per account, wanted only where the
+ * accounts table is going to show them.
+ */
+export const ACCOUNT_AVATARS_KEY = "tg_account_avatars";
+
+export function accountAvatarsEnabled(): boolean {
+  const row = db
+    .prepare("SELECT value FROM settings WHERE key = ?")
+    .get(ACCOUNT_AVATARS_KEY) as { value: string } | undefined;
+  return row?.value === "true";
+}
+
+/** Stores the photo read from Telegram; null records that the account has none. */
+export function saveTgAvatar(id: number, photo: Buffer | null): void {
+  db.prepare(
+    "UPDATE tg_accounts SET tg_avatar = ?, tg_avatar_at = ? WHERE id = ?",
+  ).run(photo, Date.now(), id);
+}
+
+/** Persists what a status check learned: the name always, the photo when it was read. */
+export function saveTgStatusMeta(id: number, status: TgAccountStatus): void {
+  saveTgMeta(id, status.firstName, status.lastName, status.username, status.userId);
+  if (status.photo !== undefined) saveTgAvatar(id, status.photo);
 }
 
 /** Asks @SpamBot for the account's standing and persists the restriction flag. */
@@ -285,12 +319,13 @@ export async function fetchAttributesForAccount(
       ctx.account.session_string,
       ctx.proxy,
       ctx.deviceParams,
+      { withPhoto: accountAvatarsEnabled() },
     );
     if (statusNeedsReauth(status)) {
       markSessionExpired(accountId);
       authExpired = true;
     }
-    saveTgMeta(accountId, status.firstName, status.lastName, status.username);
+    saveTgStatusMeta(accountId, status);
   });
   await runStep("password-info", async () => {
     const info = await getPasswordInfo(
