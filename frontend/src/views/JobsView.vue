@@ -594,7 +594,7 @@
               style="max-width:120px"
               :disabled="!!form.templateId"
             />
-            <div style="font-size:11px;margin-top:4px" :style="runEveryDaysValid ? 'color:var(--text-faint)' : 'color:var(--danger-soft-text)'">{{ t('jobs.runEveryDaysHint') }}</div>
+            <div style="font-size:11px;margin-top:4px" :style="runEveryDaysValid ? 'color:var(--text-faint)' : 'color:var(--danger-soft-text)'">{{ form.oneTime ? t('jobs.runEveryDaysOneTimeHint') : t('jobs.runEveryDaysHint') }}</div>
           </div>
           <div v-if="form.jobType === 'embywatch' && !form.templateId" class="form-group">
             <label class="form-label">{{ t('jobs.labelMaxRetries') }}</label>
@@ -1086,10 +1086,11 @@ function proxyOverride(): { proxyId?: string; proxyPool?: string[] } {
 // stored as runEveryDays (min) + runEveryDaysMax; the scheduler picks a random
 // value in the range each cycle.
 const runEveryDaysText = ref('1');
-function parseRunEvery(text: string): { min: number; max: number | null } {
+// A one-time job counts the range from today (0), so 0 is only a value for it.
+function parseRunEvery(text: string, oneTime = false): { min: number; max: number | null } {
   const m = String(text).trim().match(/^(\d+)\s*(?:-\s*(\d+))?$/);
   if (!m) return { min: 1, max: null };
-  const min = Math.max(1, parseInt(m[1], 10) || 1);
+  const min = Math.max(oneTime ? 0 : 1, parseInt(m[1], 10) || 0);
   const hi = m[2] != null ? parseInt(m[2], 10) : NaN;
   return { min, max: Number.isFinite(hi) && hi > min ? hi : null };
 }
@@ -1845,7 +1846,7 @@ async function saveJob() {
     const checkinButton = btnDropdown.value === '{aiBtn}'
       ? resolvedAiBtn
       : (btnDropdown.value === 'custom' ? btnCustom.value : btnDropdown.value) || undefined;
-    const re = parseRunEvery(runEveryDaysText.value);
+    const re = parseRunEvery(runEveryDaysText.value, form.oneTime);
     form.runEveryDays = re.min;
     form.runEveryDaysMax = re.max;
     const payload = {

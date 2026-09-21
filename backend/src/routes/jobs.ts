@@ -12,8 +12,18 @@ const router = Router();
 
 // Normalise a run-every-days range: min is clamped to >= 1; max is kept only
 // when it is a valid integer strictly greater than min, otherwise null (fixed).
-export function normalizeRunEvery(min: unknown, max: unknown): { min: number; max: number | null } {
-  const lo = Math.max(1, Math.floor(Number(min ?? 1)) || 1);
+/**
+ * The cadence range as stored. A recurring job cannot run "every 0 days", so its floor is
+ * 1; a one-time job counts its range from today, where 0 means today itself, so 0 stands.
+ */
+export function normalizeRunEvery(
+  min: unknown,
+  max: unknown,
+  oneTime = false,
+): { min: number; max: number | null } {
+  const floor = oneTime ? 0 : 1;
+  const minNum = Math.floor(Number(min ?? 1));
+  const lo = Number.isFinite(minNum) ? Math.max(floor, minNum) : 1;
   const hiNum = max == null || max === "" ? NaN : Math.floor(Number(max));
   const hi = Number.isFinite(hiNum) && hiNum > lo ? hiNum : null;
   return { min: lo, max: hi };
@@ -213,7 +223,7 @@ router.post("/", (req, res) => {
     return;
   }
 
-  const runEvery = normalizeRunEvery(runEveryDays, runEveryDaysMax);
+  const runEvery = normalizeRunEvery(runEveryDays, runEveryDaysMax, Boolean(oneTime));
   const result = db
     .prepare(
       `
@@ -364,9 +374,15 @@ router.put("/:id", (req, res) => {
     : existing.template_id;
 
   const updatedType = isLinked ? existing.job_type : (jobType ?? existing.job_type);
+  // Template-controlled, like the cadence beside it: a linked job follows its template,
+  // which pushes the value down on every template save
+  const updatedOneTime = isLinked
+    ? existing.one_time
+    : (oneTime !== undefined ? (oneTime ? 1 : 0) : existing.one_time);
   const runEvery = normalizeRunEvery(
     runEveryDays !== undefined ? runEveryDays : existing.run_every_days,
     runEveryDaysMax !== undefined ? runEveryDaysMax : existing.run_every_days_max,
+    updatedOneTime === 1,
   );
   db.prepare(
     `
@@ -402,9 +418,7 @@ router.put("/:id", (req, res) => {
     resolvedTemplateId,
     runEvery.min,
     runEvery.max,
-    // Template-controlled, like the cadence beside it: a linked job follows its template,
-    // which pushes the value down on every template save
-    isLinked ? existing.one_time : (oneTime !== undefined ? (oneTime ? 1 : 0) : existing.one_time),
+    updatedOneTime,
     req.params.id,
   );
 

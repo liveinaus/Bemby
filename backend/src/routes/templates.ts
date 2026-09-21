@@ -28,8 +28,11 @@ type TemplateRow = {
 
 // Normalise a run-every-days range: min >= 1; max kept only when a valid integer
 // strictly greater than min, else null (fixed interval).
-function normalizeRunEvery(min: unknown, max: unknown): { min: number; max: number | null } {
-  const lo = Math.max(1, Math.floor(Number(min ?? 1)) || 1);
+// Same rule as jobs.ts: floor of 1 for a recurring template, 0 (today) for a one-time one.
+function normalizeRunEvery(min: unknown, max: unknown, oneTime = false): { min: number; max: number | null } {
+  const floor = oneTime ? 0 : 1;
+  const minNum = Math.floor(Number(min ?? 1));
+  const lo = Number.isFinite(minNum) ? Math.max(floor, minNum) : 1;
   const hiNum = max == null || max === '' ? NaN : Math.floor(Number(max));
   const hi = Number.isFinite(hiNum) && hiNum > lo ? hiNum : null;
   return { min: lo, max: hi };
@@ -218,7 +221,7 @@ router.post('/', (req, res) => {
     return;
   }
 
-  const runEvery = normalizeRunEvery(runEveryDays, runEveryDaysMax);
+  const runEvery = normalizeRunEvery(runEveryDays, runEveryDaysMax, Boolean(oneTime));
   const result = db.prepare(`
     INSERT INTO job_templates
       (name, job_type, bot_username, timezone, reply_timeout_ms, retry_max, config, start_command, checkin_button, run_every_days, run_every_days_max, one_time)
@@ -313,9 +316,11 @@ router.put('/:id', (req, res) => {
     icon,
   } = req.body as Record<string, any>;
 
+  const updatedOneTime = oneTime !== undefined ? (oneTime ? 1 : 0) : existing.one_time;
   const runEvery = normalizeRunEvery(
     runEveryDays !== undefined ? runEveryDays : existing.run_every_days,
     runEveryDaysMax !== undefined ? runEveryDaysMax : existing.run_every_days_max,
+    updatedOneTime === 1,
   );
   const updated: TemplateRow = {
     ...existing,
@@ -337,7 +342,7 @@ router.put('/:id', (req, res) => {
       : existing.checkin_button,
     run_every_days: runEvery.min,
     run_every_days_max: runEvery.max,
-    one_time: oneTime !== undefined ? (oneTime ? 1 : 0) : existing.one_time,
+    one_time: updatedOneTime,
   };
 
   db.prepare(`

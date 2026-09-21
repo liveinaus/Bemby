@@ -18,7 +18,7 @@ vi.mock('../jobs/notify', () => ({
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { daysUntilNextRun, resolveRunEveryDays, refreshScheduler, getSchedulerStatus } from '../scheduler';
+import { daysUntilNextRun, daysUntilOneTimeRun, resolveRunEveryDays, refreshScheduler, getSchedulerStatus } from '../scheduler';
 
 // Fixed reference day; window 10:00-12:00 UTC; tests run at 08:00 (before window).
 const BASE_DATE = '2024-06-15';
@@ -65,7 +65,8 @@ const SCHEMA = `
     run_every_days_max    INTEGER,
     retired               TEXT,
     last_success_at       TEXT,
-    next_run_at           TEXT
+    next_run_at           TEXT,
+    one_time              INTEGER NOT NULL DEFAULT 0
   );
   CREATE TABLE IF NOT EXISTS job_logs (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,11 +92,12 @@ function insertJob(fields: Partial<{
   scheduleWindowEnd: number;
   timezone: string;
   templateId: number | null;
+  oneTime: boolean;
 }> = {}): number {
   const { lastInsertRowid } = testDb.prepare(`
     INSERT INTO jobs
-      (job_type, account_id, run_every_days, run_every_days_max, schedule_window_start, schedule_window_end, timezone, template_id)
-    VALUES ('embywatch', NULL, ?, ?, ?, ?, ?, ?)
+      (job_type, account_id, run_every_days, run_every_days_max, schedule_window_start, schedule_window_end, timezone, template_id, one_time)
+    VALUES ('embywatch', NULL, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     fields.runEveryDays ?? 1,
     fields.runEveryDaysMax ?? null,
@@ -103,6 +105,7 @@ function insertJob(fields: Partial<{
     fields.scheduleWindowEnd ?? 1200,
     fields.timezone ?? TZ,
     fields.templateId ?? null,
+    fields.oneTime ? 1 : 0,
   );
   return Number(lastInsertRowid);
 }
@@ -288,6 +291,60 @@ describe('run_every_days deferral after a successful run', () => {
     refreshScheduler();
 
     expect(getSchedulerStatus()[0].nextRun.startsWith(BASE_DATE)).toBe(true);
+  });
+});
+
+// ─── One-time jobs: the range is counted from today, not from the last success ──
+
+describe('one-time job scheduling', () => {
+  it('draws a day within [min, max], with 0 allowed for today', () => {
+    vi.restoreAllMocks();
+    const seen = new Set<number>();
+    for (let i = 0; i < 200; i++) seen.add(daysUntilOneTimeRun(0, 2));
+    expect([...seen].sort()).toEqual([0, 1, 2]);
+    expect(daysUntilOneTimeRun(3, null)).toBe(3);
+    expect(daysUntilOneTimeRun(5, 2)).toBe(5); // max below min reads as fixed
+  });
+
+  it('spreads a never-run job over the range instead of running it today', () => {
+    // Math.random is pinned to 0 -> the low end of the range
+    const id = insertJob({ oneTime: true, runEveryDays: 3, runEveryDaysMax: 5 });
+    refreshScheduler();
+    const [s] = getSchedulerStatus();
+    expect(s.jobId).toBe(id);
+    expect(s.nextRun.startsWith('2024-06-18')).toBe(true); // +3
+  });
+
+  it('draws the high end of the range too', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    insertJob({ oneTime: true, runEveryDays: 3, runEveryDaysMax: 5 });
+    refreshScheduler();
+    expect(getSchedulerStatus()[0].nextRun.startsWith('2024-06-20')).toBe(true); // +5
+  });
+
+  it('ignores an old success: a re-enabled job is counted from now, not from that run', () => {
+    // A recurring job that last ran 30 days ago on a 3-5 day cadence would run today; a
+    // one-time one is spread over the next 3-5 days all the same.
+    const id = insertJob({ oneTime: true, runEveryDays: 3, runEveryDaysMax: 5 });
+    logSuccess(id, 30);
+    refreshScheduler();
+    expect(getSchedulerStatus()[0].nextRun.startsWith('2024-06-18')).toBe(true); // +3
+  });
+
+  it('runs today on a range that starts at 0', () => {
+    insertJob({ oneTime: true, runEveryDays: 0, runEveryDaysMax: 5 });
+    refreshScheduler();
+    expect(getSchedulerStatus()[0].nextRun.startsWith(BASE_DATE)).toBe(true);
+  });
+
+  it('keeps the drawn day across a refresh rather than rolling again', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.99);
+    insertJob({ oneTime: true, runEveryDays: 1, runEveryDaysMax: 10 });
+    refreshScheduler();
+    const first = getSchedulerStatus()[0].nextRun;
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    refreshScheduler();
+    expect(getSchedulerStatus()[0].nextRun).toBe(first);
   });
 });
 

@@ -424,6 +424,32 @@ export function resolveRunEveryDays(
   return intervalFromSeed(min, max, `${jobId}:${lastSuccessAt(jobId) ?? "first"}`);
 }
 
+/**
+ * Days ahead for a one-time job's single run: a fresh draw from the range, counted from
+ * today (0) rather than from the last success. The job runs once and switches itself off,
+ * so "how long since it last ran" is not a question it has; what the range means here is
+ * "some day in the next N", and a batch of them is spread over those days instead of all
+ * landing today -- which is what measuring from a success long past (or none) produced.
+ * A job re-enabled after an earlier success gets the same spread, counted from now.
+ * persistNextRun keeps the draw, so a restart re-arms the same day rather than rolling
+ * again.
+ */
+export function daysUntilOneTimeRun(
+  runEveryDays: number,
+  runEveryDaysMax?: number | null,
+): number {
+  const lo = Math.max(0, Math.floor(runEveryDays) || 0);
+  const hi = runEveryDaysMax != null ? Math.max(lo, Math.floor(runEveryDaysMax)) : lo;
+  return lo + Math.floor(Math.random() * (hi - lo + 1));
+}
+
+/** Days ahead for a job that needs a new plan, by the kind of job it is. */
+function daysAheadFor(job: Job, tz: string): number {
+  return job.oneTime
+    ? daysUntilOneTimeRun(job.runEveryDays ?? 1, job.runEveryDaysMax)
+    : daysUntilNextRun(job.id, tz, job.runEveryDays ?? 1, job.runEveryDaysMax);
+}
+
 export function daysUntilNextRun(
   jobId: number,
   tz: string,
@@ -797,9 +823,7 @@ function refreshJobs(): void {
       }
       // No plan, or one whose moment has passed while the process was down -- fall back to
       // the interval, which puts a missed run at the next opportunity.
-      const daysAhead = dailyCheckOn
-        ? daysUntilNextRun(job.id, resolvedTz, job.runEveryDays ?? 1, job.runEveryDaysMax)
-        : 0;
+      const daysAhead = dailyCheckOn ? daysAheadFor(job, resolvedTz) : 0;
       scheduleOne(job, account, daysAhead);
     } else {
       // Compare resolved timezones so a default_timezone change reschedules
@@ -811,11 +835,10 @@ function refreshJobs(): void {
         existing.job.botUsername !== job.botUsername ||
         existing.job.accountId !== job.accountId ||
         existing.job.runEveryDays !== job.runEveryDays ||
-        existing.job.runEveryDaysMax !== job.runEveryDaysMax;
+        existing.job.runEveryDaysMax !== job.runEveryDaysMax ||
+        existing.job.oneTime !== job.oneTime;
       if (scheduleChanged) {
-        const daysAhead = dailyCheckOn
-          ? daysUntilNextRun(job.id, resolvedTz, job.runEveryDays ?? 1, job.runEveryDaysMax)
-          : 0;
+        const daysAhead = dailyCheckOn ? daysAheadFor(job, resolvedTz) : 0;
         scheduleOne(job, account, daysAhead);
       } else {
         // Keep the timer but update the stored snapshot so status reflects current settings
