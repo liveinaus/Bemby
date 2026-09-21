@@ -590,28 +590,46 @@
                           </div>
                         </div>
                       </div>
+                      <!--
+                        A photo or sticker that will not load is named instead of hidden:
+                        hiding it left a bubble with nothing in it at all.
+                      -->
+                      <div
+                        v-if="(msg.hasPhoto || msg.hasSticker) && mediaFailed.has(msg.id)"
+                        class="tgc-msg-media-missing"
+                      >
+                        <i class="fa-regular fa-image"></i>
+                        {{ mediaLabel(msg.hasSticker ? "sticker" : "photo") }}
+                      </div>
                       <img
-                        v-if="msg.hasPhoto"
+                        v-else-if="msg.hasPhoto"
                         :src="photoUrl(msg.id)"
                         class="tgc-msg-photo"
                         loading="lazy"
                         @click="lightboxUrl = photoUrl(msg.id)"
-                        @error="
-                          (e: Event) =>
-                            ((e.target as HTMLImageElement).style.display =
-                              'none')
-                        "
+                        @error="mediaFailed.add(msg.id)"
                       />
+                      <!-- Video stickers are webm, which an <img> cannot show -->
+                      <video
+                        v-else-if="msg.hasSticker && isVideoSticker(msg)"
+                        class="tgc-msg-sticker"
+                        muted
+                        autoplay
+                        loop
+                        playsinline
+                        :src="photoUrl(msg.id)"
+                        @loadeddata="
+                          (e: Event) =>
+                            (e.target as HTMLVideoElement).play().catch(() => {})
+                        "
+                        @error="mediaFailed.add(msg.id)"
+                      ></video>
                       <img
-                        v-if="msg.hasSticker"
+                        v-else-if="msg.hasSticker"
                         :src="photoUrl(msg.id)"
                         class="tgc-msg-sticker"
                         loading="lazy"
-                        @error="
-                          (e: Event) =>
-                            ((e.target as HTMLImageElement).style.display =
-                              'none')
-                        "
+                        @error="mediaFailed.add(msg.id)"
                       />
                       <a
                         v-if="msg.hasDocument"
@@ -2036,6 +2054,7 @@
 <script setup lang="ts">
 import {
   ref,
+  reactive,
   computed,
   watch,
   onMounted,
@@ -4750,6 +4769,19 @@ function mediaIcon(media: TgMediaKind | null | undefined): string {
   return MEDIA_ICONS[media ?? ""] ?? "fa-file-arrow-down";
 }
 
+/**
+ * Ids of photos and stickers in the open chat that failed to load, so the bubble can say
+ * what it was instead of showing nothing. Cleared with each chat change.
+ */
+const mediaFailed = reactive(new Set<number>());
+
+/** Whether a sticker is the webm kind, which needs a <video> rather than an <img>. */
+function isVideoSticker(msg: TgMessage): boolean {
+  return (
+    msg.mimeType === "video/webm" || /\.webm$/i.test(msg.fileName ?? "")
+  );
+}
+
 /** Name for an attachment the sender gave no filename. */
 function mediaLabel(media: TgMediaKind | null | undefined): string {
   return media && media !== "document"
@@ -5071,6 +5103,7 @@ async function openChat(dialog: TgDialog, addToHistory = false) {
   activeChat.value = dlg;
   saveMessengerState();
   messages.value = [];
+  mediaFailed.clear();
   firstUnreadId.value = null;
   canLoadMore.value = true;
   scrolledToBottom = true;
@@ -6940,6 +6973,18 @@ async function saveContactEdit() {
   object-fit: contain;
   display: block;
   margin-bottom: 4px;
+}
+
+.tgc-msg-media-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  opacity: 0.75;
+  font-size: 13px;
 }
 
 .tgc-msg-meta {

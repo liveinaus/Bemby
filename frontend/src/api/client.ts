@@ -3023,6 +3023,8 @@ export type TgMessage = {
   hasDocument: boolean;
   hasSticker: boolean;
   fileName: string | null;
+  /** MIME type of an attached document (video/webm for a video sticker); absent on older cache entries. */
+  mimeType?: string | null;
   buttons: TgButton[][] | null;
   reactions: TgReaction[] | null;
   replyToId: number | null;

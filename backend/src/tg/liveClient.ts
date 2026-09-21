@@ -109,6 +109,11 @@ export type TgMsgPayload = {
   hasDocument: boolean;
   hasSticker: boolean;
   fileName: string | null;
+  /**
+   * MIME type of an attached document, so the UI can tell a video sticker (video/webm) from
+   * a static one before it picks an element to show it in. Null on anything else.
+   */
+  mimeType?: string | null;
   buttons: TgButton[][] | null;
   reactions: TgReaction[] | null;
   replyToId: number | null;
@@ -800,6 +805,7 @@ function buildMsgPayload(
       msg.media instanceof Api.MessageMediaDocument && !isStickerDoc(msg.media),
     hasSticker: isStickerDoc(msg.media),
     fileName: docFileName(msg.media),
+    mimeType: docMimeType(msg.media),
     buttons: extractButtons(msg),
     reactions: extractReactions(msg),
     replyToId: opts.replyToId,
@@ -835,6 +841,16 @@ function docFileName(
     (a) => a instanceof Api.DocumentAttributeFilename,
   ) as Api.DocumentAttributeFilename | undefined;
   return attr?.fileName ?? null;
+}
+
+// MIME type of a document attachment, when Telegram recorded one.
+function docMimeType(
+  media: Api.TypeMessageMedia | null | undefined,
+): string | null {
+  if (!(media instanceof Api.MessageMediaDocument)) return null;
+  const doc = (media as Api.MessageMediaDocument).document;
+  if (!(doc instanceof Api.Document)) return null;
+  return doc.mimeType || null;
 }
 
 /**
@@ -2041,6 +2057,7 @@ export async function getPinnedMessage(
       msg.media instanceof Api.MessageMediaDocument && !isStickerDoc(msg.media),
     hasSticker: isStickerDoc(msg.media),
     fileName: docFileName(msg.media),
+    mimeType: docMimeType(msg.media),
     buttons: extractButtons(msg),
     reactions: null,
     replyToId: null,
@@ -2530,6 +2547,7 @@ export async function fetchPhoto(
   if (!msg?.media) return null;
 
   let mimeType = "image/jpeg";
+  let thumb: Api.TypePhotoSize | undefined;
   if (msg.media instanceof Api.MessageMediaDocument) {
     const doc = (msg.media as Api.MessageMediaDocument).document;
     if (doc instanceof Api.Document) {
@@ -2541,16 +2559,57 @@ export async function fetchPhoto(
         );
         return null;
       }
+      // A Lottie sticker is gzipped JSON that no browser element can show. Telegram ships a
+      // static rendering of it as the document's thumbnail, so that is what the UI gets; the
+      // alternative was an <img> that failed to load and left the bubble empty.
+      if (doc.mimeType === LOTTIE_STICKER_MIME) thumb = largestStaticThumb(doc);
     }
   }
 
-  const data = await entry.client.downloadMedia(msg, {});
+  const data = await entry.client.downloadMedia(msg, thumb ? { thumb } : {});
   if (!data) return null;
   let buf: Buffer;
   if (Buffer.isBuffer(data)) buf = data;
   else if (typeof data === "string") buf = Buffer.from(data, "binary");
   else buf = Buffer.from(data as Uint8Array);
+  if (thumb) mimeType = sniffImageMime(buf) ?? "image/webp";
   return { buf, mimeType };
+}
+
+const LOTTIE_STICKER_MIME = "application/x-tgsticker";
+
+/**
+ * The biggest thumbnail of a document that is an actual image: not the SVG outline Telegram
+ * adds for stickers (PhotoPathSize), and not a video preview, which is the same problem over
+ * again. Undefined when the document ships none, in which case the caller downloads the
+ * document itself.
+ */
+function largestStaticThumb(doc: Api.Document): Api.TypePhotoSize | undefined {
+  let best: Api.TypePhotoSize | undefined;
+  let bestSize = -1;
+  for (const t of doc.thumbs ?? []) {
+    let size: number;
+    // The three kinds GramJS's downloadMedia accepts as a thumb object.
+    if (t instanceof Api.PhotoSize) size = t.size;
+    else if (t instanceof Api.PhotoCachedSize || t instanceof Api.PhotoStrippedSize)
+      size = t.bytes.length;
+    else continue;
+    if (size > bestSize) {
+      best = t;
+      bestSize = size;
+    }
+  }
+  return best;
+}
+
+/** Image type from the file's own magic bytes, for content whose declared type is not it. */
+function sniffImageMime(buf: Buffer): string | null {
+  if (buf.length < 12) return null;
+  if (buf.subarray(0, 4).toString("ascii") === "RIFF" && buf.subarray(8, 12).toString("ascii") === "WEBP")
+    return "image/webp";
+  if (buf[0] === 0x89 && buf.subarray(1, 4).toString("ascii") === "PNG") return "image/png";
+  if (buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg";
+  return null;
 }
 
 export async function fetchAvatar(
@@ -3281,6 +3340,7 @@ export async function getThreadMessages(
         !isStickerDoc(msg.media),
       hasSticker: isStickerDoc(msg.media),
       fileName: docFileName(msg.media),
+      mimeType: docMimeType(msg.media),
       buttons: extractButtons(msg),
       reactions: extractReactions(msg),
       replyToId: null,
