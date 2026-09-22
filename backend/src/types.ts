@@ -197,6 +197,8 @@ export type CustomAction = CustomActionCommon &
         scope?: number;
       }
     | { type: "delay"; waitMs: number }
+    // `pinnedFirst` tries the chat's pinned messages before the scope window: a pinned
+    // draw or prompt stays in view however much is posted after it.
     | {
         type: "click_button";
         button: string;
@@ -205,6 +207,7 @@ export type CustomAction = CustomActionCommon &
         successContains?: string;
         failContains?: string;
         scope?: number;
+        pinnedFirst?: boolean;
       }
     | {
         // Click a button on the latest message from a specific contact (bot/group/user),
@@ -218,6 +221,7 @@ export type CustomAction = CustomActionCommon &
         successContains?: string;
         failContains?: string;
         scope?: number;
+        pinnedFirst?: boolean;
       }
     | {
         // AI selects and clicks multiple buttons in order. The AI returns a JSON array of
@@ -238,6 +242,7 @@ export type CustomAction = CustomActionCommon &
         successContains?: string;
         failContains?: string;
         scope?: number;
+        pinnedFirst?: boolean;
       }
     | {
         type: "enter_captcha";

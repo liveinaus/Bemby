@@ -554,6 +554,8 @@ export type CustomAction = CustomActionCommon &
       successContains?: string;
       failContains?: string;
       scope?: number;
+      /** Try the chat's pinned messages before the scope window */
+      pinnedFirst?: boolean;
     }
   | {
       type: "click_message_button";
@@ -564,6 +566,8 @@ export type CustomAction = CustomActionCommon &
       successContains?: string;
       failContains?: string;
       scope?: number;
+      /** Try the chat's pinned messages before the scope window */
+      pinnedFirst?: boolean;
     }
   | {
       type: "ai_multiple_btn";
@@ -577,6 +581,8 @@ export type CustomAction = CustomActionCommon &
       successContains?: string;
       failContains?: string;
       scope?: number;
+      /** Try the chat's pinned messages before the scope window */
+      pinnedFirst?: boolean;
     }
   | {
       type: "enter_captcha";

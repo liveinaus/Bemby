@@ -161,6 +161,16 @@ type SendAnchor = { msgId: number; dateSec: number };
 const hasInlineButtons = (m: Api.Message | null | undefined): boolean =>
   !!m && (m as any).replyMarkup instanceof Api.ReplyInlineMarkup;
 
+/** Does the message's inline keyboard hold a button whose text contains `text`? */
+const markupHasButton = (
+  m: Api.Message | null | undefined,
+  text: string,
+): boolean =>
+  hasInlineButtons(m) &&
+  ((m as any).replyMarkup as Api.ReplyInlineMarkup).rows.some((row) =>
+    row.buttons.some((b: any) => ((b.text as string) ?? "").includes(text)),
+  );
+
 /** Poll text is TextWithEntities from layer 225 on, and was a bare string before it. */
 const pollTextOf = (v: unknown): string =>
   typeof v === "string" ? v : (((v as any)?.text as string) ?? "");
@@ -324,7 +334,9 @@ const isEditUpdate = (update: any): boolean =>
 // which stops a stale menu from an earlier turn being clicked. scope -N also
 // admits the N most recent incoming messages that predate the anchor, for bots
 // whose live menu sits on an earlier message. anchorId 0 (nothing sent yet)
-// falls back to accepting everything.
+// falls back to accepting everything -- and with a negative scope, to the N most
+// recent incoming messages in the chat, which is how a job whose first step is a
+// click reaches a menu (or a group's draw) that was posted before it started.
 async function resolveScopeFloor(
   client: TelegramClient,
   target: Api.TypeEntityLike,
@@ -338,11 +350,50 @@ async function resolveScopeFloor(
     .getMessages(target, { limit: n + 20 })
     .catch(() => [])) as Api.Message[];
   const prior = recent
-    .filter((m) => m && !m.out && m.id <= anchorId)
+    .filter((m) => m && !m.out && (!anchorId || m.id <= anchorId))
     .map((m) => m.id)
     .sort((a, b) => b - a); // newest first
   if (!prior.length) return freshFloor;
   return prior[Math.min(n, prior.length) - 1];
+}
+
+// What a history scan reads to cover a scope. `limit` is the N messages a negative
+// scope admits plus slack for our own sends in between, never less than the handful
+// checked for a plain reply (which may land in the send-to-listen gap). `pinned` puts
+// the chat's pinned messages ahead of that window: a group's draw or verification post
+// is pinned precisely so it stays in view while thousands of messages pile up after it,
+// and no lookback count reaches that far without a flood of getHistory calls.
+type HistoryScan = { limit: number; pinned: boolean };
+const scopeHistory = (scope?: number, pinnedFirst?: boolean): HistoryScan => ({
+  limit: scope && scope < 0 ? -scope + 20 : 10,
+  pinned: !!pinnedFirst,
+});
+
+// Newest incoming message the scan admits. With `pinned`, the pinned messages are
+// tried first, newest first, and the recent window only when none of them fits;
+// otherwise it is the recent window at or above the floor. getMessages answers
+// newest-first, so the first hit in either list is the newest applicable one.
+async function scanHistoryFor(
+  client: TelegramClient,
+  target: Api.TypeEntityLike,
+  history: HistoryScan,
+  minId: number,
+  accept: (m: Api.Message) => boolean,
+  excludeId?: number,
+): Promise<Api.Message | undefined> {
+  const fits = (m: Api.Message | null | undefined): m is Api.Message =>
+    !!m && !m.out && m.id !== excludeId && accept(m);
+  if (history.pinned) {
+    const pinned = (await client
+      .getMessages(target, { limit: 20, filter: new Api.InputMessagesFilterPinned() })
+      .catch(() => [])) as Api.Message[];
+    const hit = [...pinned].sort((a, b) => b.id - a.id).find(fits);
+    if (hit) return hit;
+  }
+  const recent = (await client
+    .getMessages(target, { limit: history.limit })
+    .catch(() => [])) as Api.Message[];
+  return recent.find((m) => m && m.id >= minId && fits(m));
 }
 
 // Authoritative membership check: GetParticipant throws USER_NOT_PARTICIPANT for pending
@@ -1328,6 +1379,8 @@ async function waitForButtonsMessage(
   minId = 0,
   excludeId?: number,
   filter?: ButtonsFilter,
+  /** What the opening history scan reads; see scopeHistory. */
+  history: HistoryScan = scopeHistory(),
 ): Promise<Api.Message[]> {
   const botPeerId = await client.getPeerId(fromUsername);
 
@@ -1369,8 +1422,15 @@ async function waitForButtonsMessage(
     const wanted = (msg: Api.Message): boolean =>
       hasInlineButtons(msg) && (!filter || filter.accept(msg));
 
+    // Matched on the chat, not the sender: the job's target may be a group, where the
+    // sender of a buttons message is whoever posted it (a draw bot, an admin) and never
+    // the group itself, so NewMessage({ fromUsers }) would let nothing through.
+    const inChat = (msg: Api.Message | null | undefined): boolean =>
+      !!msg?.peerId && utils.getPeerId(msg.peerId) === botPeerId;
+
     const handler = async (event: NewMessageEvent) => {
       const msg = event.message as Api.Message;
+      if (msg.out || !inChat(msg)) return;
       collected.push(msg);
       if (wanted(msg)) succeed(msg);
     };
@@ -1380,32 +1440,19 @@ async function waitForButtonsMessage(
       const msg = update.message as Api.Message;
       if (!msg || msg.out) return;
       if (msg.id < minId) return; // out of scope (edit of a pre-anchor message)
-      if (!msg.peerId || utils.getPeerId(msg.peerId) !== botPeerId) return;
+      if (!inChat(msg)) return;
       if (wanted(msg)) succeed(msg);
     };
 
-    client.addEventHandler(
-      handler,
-      new NewMessage({ fromUsers: [fromUsername] }),
-    );
+    client.addEventHandler(handler, new NewMessage({}));
     client.addEventHandler(editHandler, new Raw({}));
 
-    // Best-effort: a buttons message may have landed in the send-to-listen gap.
-    // getMessages returns newest-first, so this seeds the most recent in-scope
-    // match ("last available button").
-    if (minId > 1) {
-      client
-        .getMessages(fromUsername, { limit: 10 })
-        .then((recent) => {
-          const seed = (recent as Api.Message[]).find(
-            (m) =>
-              m &&
-              !m.out &&
-              m.id !== excludeId &&
-              m.id >= minId &&
-              hasInlineButtons(m) &&
-              (!filter || filter.accept(m)),
-          );
+    // Best-effort: a buttons message may have landed in the send-to-listen gap, or --
+    // with a negative scope -- be one the chat already held before the job began.
+    // This seeds the most recent in-scope match ("last available button").
+    if (minId > 1 || history.pinned) {
+      scanHistoryFor(client, fromUsername, history, minId, wanted, excludeId)
+        .then((seed) => {
           if (seed) succeed(seed);
         })
         .catch(() => {
@@ -2131,6 +2178,20 @@ export async function runCustom(
                   sendAnchor?.msgId ?? 0,
                   action.scope,
                 );
+                const history = scopeHistory(action.scope, action.pinnedFirst);
+                // A literal button pins the wait to a message carrying it: in a chat
+                // holding many menus (a group's draws), the newest buttons message is
+                // rarely the one wanted, and every other one would only cost a retry.
+                const literalButton =
+                  action.button !== "{anyBtn}" && !isAiBtn(action.button)
+                    ? action.button
+                    : undefined;
+                const targetFilter: ButtonsFilter | undefined = literalButton
+                  ? {
+                      accept: (m) => markupHasButton(m, literalButton),
+                      describe: `carrying "${literalButton}"`,
+                    }
+                  : undefined;
                 // Ignore a cached buttons message that falls outside the scope
                 // (e.g. a menu from before the command we just sent).
                 let buttonsMsg: Api.Message | null =
@@ -2158,6 +2219,9 @@ export async function runCustom(
                     waitLeft(),
                     signal,
                     minId,
+                    undefined,
+                    targetFilter,
+                    history,
                   );
                   lastMessages = msgs;
                   buttonsMsg =
@@ -2283,6 +2347,8 @@ export async function runCustom(
                           signal,
                           minId,
                           buttonsMsg?.id,
+                          targetFilter,
+                          history,
                         ).catch(() => null);
                       if (msgs) {
                         lastMessages = msgs;
@@ -2301,10 +2367,13 @@ export async function runCustom(
                   // a "Verify" prompt sent alongside other messages), so it isn't the
                   // "current" buttons message. Scan recent history before matching.
                   if (!markupContainsTarget(buttonsMsg)) {
-                    const recent = (await client
-                      .getMessages(botUsername, { limit: 8 })
-                      .catch(() => [])) as Api.Message[];
-                    const hit = recent.find((m) => markupContainsTarget(m));
+                    const hit = await scanHistoryFor(
+                      client,
+                      botUsername,
+                      history,
+                      minId,
+                      markupContainsTarget,
+                    );
                     if (hit) {
                       buttonsMsg = hit;
                       lastButtonsMsg = hit;
@@ -2544,14 +2613,20 @@ export async function runCustom(
                   contactAnchors.get(contact)?.msgId ?? 0,
                   action.scope,
                 );
-                const findButtonsMsg = (msgs: Api.Message[]): Api.Message | null =>
-                  msgs.find((m) => m.id >= minId && hasInlineButtons(m)) ?? null;
+                // A literal button pins the seed to a message carrying it; {anyBtn} and
+                // an AI pick take the newest buttons message in scope.
+                const literalButton =
+                  action.button !== "{anyBtn}" && !isAiBtn(action.button)
+                    ? action.button
+                    : undefined;
+                const history = scopeHistory(action.scope, action.pinnedFirst);
 
-                // Seed from the contact's most recent messages (newest first); otherwise wait
-                // for an incoming message carrying buttons.
-                let buttonsMsg: Api.Message | null = findButtonsMsg(
-                  (await client.getMessages(entity, { limit: 10 })) as Api.Message[],
-                );
+                // Seed from the contact's pinned or most recent messages (newest first);
+                // otherwise wait for an incoming message carrying buttons.
+                let buttonsMsg: Api.Message | null =
+                  (await scanHistoryFor(client, entity, history, minId, (m) =>
+                    literalButton ? markupHasButton(m, literalButton) : hasInlineButtons(m),
+                  )) ?? null;
                 let preClickImages: string[] = [];
                 if (!buttonsMsg) {
                   const msgs = await waitForButtonsInChat(
@@ -2945,6 +3020,7 @@ export async function runCustom(
                         minId,
                         excludeId,
                         buttonsFilter,
+                        scopeHistory(action.scope, action.pinnedFirst),
                       )
                     : waitForButtonsInChat(
                         client,

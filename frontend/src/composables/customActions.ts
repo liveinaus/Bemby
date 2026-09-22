@@ -73,6 +73,8 @@ export type CustomActionForm = {
   buttonAiHint: string;
   maxRetries: number;
   scope: number;
+  /** click actions: try the chat's pinned messages before the scope window */
+  pinnedFirst: boolean;
   captchaLength: NumericField;
   successContains: string;
   failContains: string;
@@ -156,6 +158,7 @@ export function defaultAction(): CustomActionForm {
     buttonAiHint: "",
     maxRetries: 3,
     scope: 0,
+    pinnedFirst: false,
     captchaLength: "",
     successContains: "",
     failContains: "",
@@ -416,6 +419,7 @@ export function actionsFromConfig(actions: CustomAction[] | undefined): CustomAc
         successContains: a.successContains ?? "",
         failContains: a.failContains ?? "",
         scope: a.scope ?? 0,
+        pinnedFirst: a.pinnedFirst ?? false,
       };
     if (a.type === "click_button" || a.type === "click_message_button") {
       const aiMatch = a.button.match(/^\{aiBtn(?::(.+))?\}$/);
@@ -445,6 +449,7 @@ export function actionsFromConfig(actions: CustomAction[] | undefined): CustomAc
         successContains: a.successContains ?? "",
         failContains: a.failContains ?? "",
         scope: a.scope ?? 0,
+        pinnedFirst: a.pinnedFirst ?? false,
       };
     }
     if (a.type === "if_check")
@@ -608,6 +613,7 @@ export function actionsToConfig(forms: CustomActionForm[]): CustomAction[] {
         ...(a.successContains.trim() ? { successContains: a.successContains.trim() } : {}),
         ...(a.failContains.trim() ? { failContains: a.failContains.trim() } : {}),
         ...(a.scope ? { scope: a.scope } : {}),
+        ...(a.pinnedFirst ? { pinnedFirst: true } : {}),
       };
     if (a.type === "if_check") {
       const arms: CustomConditionArm[] = a.elseIfs.map((arm) => ({
@@ -643,6 +649,7 @@ export function actionsToConfig(forms: CustomActionForm[]): CustomAction[] {
       ...(a.successContains.trim() ? { successContains: a.successContains.trim() } : {}),
       ...(a.failContains.trim() ? { failContains: a.failContains.trim() } : {}),
       ...(a.scope ? { scope: a.scope } : {}),
+      ...(a.pinnedFirst ? { pinnedFirst: true } : {}),
     };
     return a.type === "click_message_button"
       ? { ...clickShared, type: "click_message_button" as const, contact: a.contact }

@@ -180,6 +180,13 @@
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
+        <label class="form-checkbox-label">
+          <input type="checkbox" v-model="action.pinnedFirst" />
+          {{ t('jobs.custom.labelPinnedFirst') }}
+        </label>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.pinnedFirstHint') }}</div>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelSuccessContains') }}</label>
         <input v-model.trim="action.successContains" class="form-input" :placeholder="t('jobs.custom.successContainsPlaceholder')" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.successContainsHint') }}</div>
@@ -229,6 +236,13 @@
         <label class="form-label">{{ t('jobs.custom.labelScope') }}</label>
         <NumberInput v-model="action.scope" class="form-input" :max="0" :step="1" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-checkbox-label">
+          <input type="checkbox" v-model="action.pinnedFirst" />
+          {{ t('jobs.custom.labelPinnedFirst') }}
+        </label>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.pinnedFirstHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelSuccessContains') }}</label>
@@ -537,6 +551,13 @@
         <label class="form-label">{{ t('jobs.custom.labelScope') }}</label>
         <NumberInput v-model="action.scope" class="form-input" :max="0" :step="1" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.scopeHint') }}</div>
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-checkbox-label">
+          <input type="checkbox" v-model="action.pinnedFirst" />
+          {{ t('jobs.custom.labelPinnedFirst') }}
+        </label>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.custom.pinnedFirstHint') }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.custom.labelSuccessContains') }}</label>
