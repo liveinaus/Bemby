@@ -52,6 +52,7 @@ import {
 import {
   openableBotMenuApp,
   openableButtonUrl,
+  sendWebAppData,
   openableMiniAppUrl,
   webButtonOf,
   type WebButton,
@@ -1555,6 +1556,8 @@ function miniAppOutcome(
   asked: number,
   ran: { outcome?: string }[] | undefined,
   suffix = "",
+  /** What the app handed its bot with `sendData`, when it did. */
+  appData?: string,
 ): string {
   const parts: string[] = [];
   if (asked) {
@@ -1562,6 +1565,7 @@ function miniAppOutcome(
     parts.push(`ran ${done}/${asked} page step${asked > 1 ? "s" : ""}`);
   }
   if (pressed) parts.push(`pressed "${pressed}"`);
+  if (appData) parts.push(`app sent ${appData.length} byte${appData.length === 1 ? "" : "s"} to the bot`);
   return parts.length
     ? `${opened}, ${parts.join(", ")}${suffix}`
     : `${opened} (nothing pressed inside the app)${suffix}`;
@@ -3629,6 +3633,8 @@ export async function runCustom(
 
                 step.clickedButton = hit.web.text;
                 const { url, signed } = await openableButtonUrl(client, hit.web, target, hit.msg);
+                // The bot behind the app: what signed the URL, and what a `sendData` goes to
+                const appBot = (hit.msg as any).viaBotId ?? hit.msg.senderId ?? target;
                 step.cfMiniApp = true;
                 step.cfMiniAppSigned = signed;
                 if (!signed) {
@@ -3735,6 +3741,17 @@ export async function runCustom(
                   // Init data ages, so each attempt gets a freshly signed URL
                   refreshUrl: async () =>
                     (await openableButtonUrl(client, hit!.web, target, hit!.msg)).url,
+                  // A reply-keyboard app reports back through `sendData`; a real client
+                  // relays it to the bot, so this does too. An inline-keyboard app has no
+                  // such channel (it answers through its query_id) and Telegram refuses the
+                  // send, so it is only offered where it can work.
+                  ...(hit.web.simple
+                    ? {
+                        onWebAppData: async (data: string) => {
+                          await sendWebAppData(client, appBot, hit!.web.text, data);
+                        },
+                      }
+                    : {}),
                 });
                 step.cfHost = cf.finalHost;
                 step.cfChallenged = cf.challenged;
@@ -3766,6 +3783,8 @@ export async function runCustom(
                   cf.inAppAction,
                   action.steps?.length ?? 0,
                   cf.webSteps,
+                  "",
+                  cf.appData,
                 );
 
                 if (textSaysFail(cf.text, action.failContains)) {

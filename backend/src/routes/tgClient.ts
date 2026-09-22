@@ -67,6 +67,7 @@ import {
   fetchAvatarsBatch,
   checkMembership,
   resolveWebApp,
+  sendWebAppDataToBot,
   startBot,
   getPinnedMessage,
   getReadOutboxMaxId,
@@ -1026,11 +1027,13 @@ router.get("/:accountId/bot-info/:chatId", async (req, res) => {
 // POST /:accountId/webview/resolve -- resolve a mini app URL to an authenticated web app URL
 router.post("/:accountId/webview/resolve", async (req, res) => {
   const accountId = Number(req.params.accountId);
-  const { url, botChatId, peerChatId, fromBotMenu } = req.body as {
+  const { url, botChatId, peerChatId, fromBotMenu, simple } = req.body as {
     url: string;
     botChatId?: string;
     peerChatId?: string;
     fromBotMenu?: boolean;
+    /** The button sits on a reply keyboard, so Telegram is asked the way a client asks. */
+    simple?: boolean;
   };
   if (!url) {
     res.status(400).json({ error: "url required" });
@@ -1044,6 +1047,7 @@ router.post("/:accountId/webview/resolve", async (req, res) => {
       botChatId,
       peerChatId,
       fromBotMenu,
+      simple,
     );
     // Telegram answering at all is not the same as Telegram signing the address: a request
     // made the wrong way comes back with a URL and no account data in it, and the only sign
@@ -1061,6 +1065,34 @@ router.post("/:accountId/webview/resolve", async (req, res) => {
     // Assuming otherwise showed the operator a dead panel reading "refused to connect".
     const frameable = await isFrameable(webAppUrl);
     res.json({ webAppUrl, resolved, frameable, signed });
+  } catch (err: any) {
+    tgError(err, accountId, res);
+  }
+});
+
+// POST /:accountId/webview/send-data -- relay a Mini App's `sendData` to its bot, as a
+// client does for an app opened from a reply keyboard
+router.post("/:accountId/webview/send-data", async (req, res) => {
+  const accountId = Number(req.params.accountId);
+  const { botChatId, buttonText, data } = req.body as {
+    botChatId?: string;
+    buttonText?: string;
+    data?: string;
+  };
+  if (!botChatId || typeof data !== "string") {
+    res.status(400).json({ error: "botChatId and data required" });
+    return;
+  }
+  // Telegram caps the payload as the Bot API does (4096 bytes); refuse here rather than
+  // hand the app's error back as a Telegram one
+  if (Buffer.byteLength(data, "utf8") > 4096) {
+    res.status(400).json({ error: "data exceeds 4096 bytes" });
+    return;
+  }
+  try {
+    const entry = await getLiveClient(accountId);
+    await sendWebAppDataToBot(entry, botChatId, String(buttonText ?? ""), data);
+    res.json({ ok: true });
   } catch (err: any) {
     tgError(err, accountId, res);
   }

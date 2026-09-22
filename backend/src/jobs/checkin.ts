@@ -838,15 +838,19 @@ export async function parseMessages(
   return { html, hasMedia, images, buttons };
 }
 
-// Finds an openable inline button that carries a web address rather than a
-// callback: a URL button (e.g. "我不是机器人") or a Mini App button (e.g. FutureEcho's
-// "🔐 Verify", or a "打开小程序签到" checkin app). Mini App buttons are flagged so the
-// caller can have Telegram sign the URL before opening it. When `matchText` is given,
-// only a button whose label carries it is returned -- `|`-separated wordings match
-// whichever one the bot rendered, for a bot that follows the account's language.
+// Finds an openable button that carries a web address rather than a callback: a URL
+// button (e.g. "我不是机器人") or a Mini App button (e.g. FutureEcho's "🔐 Verify", or a
+// "打开小程序签到" checkin app). Mini App buttons are flagged so the caller can have
+// Telegram sign the URL before opening it. Both keyboards count: the inline one under
+// the message, and the reply keyboard a bot pins above the composer, which is where a
+// "开始验证" app button lives. When `matchText` is given, only a button whose label
+// carries it is returned -- `|`-separated wordings match whichever one the bot rendered,
+// for a bot that follows the account's language.
 export function findUrlButton(msg: Api.Message | undefined, matchText?: string): WebButton | undefined {
   const markup = (msg as any)?.replyMarkup;
-  if (!(markup instanceof Api.ReplyInlineMarkup)) return undefined;
+  if (!(markup instanceof Api.ReplyInlineMarkup || markup instanceof Api.ReplyKeyboardMarkup)) {
+    return undefined;
+  }
   for (const row of markup.rows) {
     for (const btn of row.buttons) {
       const web = webButtonOf(btn);

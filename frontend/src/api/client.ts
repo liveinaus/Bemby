@@ -2971,6 +2971,8 @@ export type TgButton = {
   data: string | null;
   url: string | null;
   webApp: boolean; // Telegram Mini App -- must open in a real browser
+  /** The Mini App sits on a reply keyboard: signed the simple way, reports back with sendData. */
+  simpleWebApp?: boolean;
   send: boolean; // reply-keyboard button -- clicking sends its text as a message
   requestPhone: boolean; // reply-keyboard button -- shares our own phone as a contact
 };
@@ -3663,6 +3665,8 @@ export const tgClientApi = {
     peerChatId?: string | null,
     /** The address came from the bot's menu button; Telegram signs that case only when told. */
     fromBotMenu?: boolean,
+    /** The button sits on a reply keyboard, so Telegram is asked the way a client asks. */
+    simple?: boolean,
   ) =>
     api
       .post<{
@@ -3676,6 +3680,17 @@ export const tgClientApi = {
         botChatId,
         peerChatId,
         fromBotMenu,
+        simple,
+      })
+      .then((r) => r.data),
+
+  /** Relays a Mini App's `sendData` to its bot, as a client does for a reply-keyboard app. */
+  webviewSendData: (accountId: number, botChatId: string, buttonText: string, data: string) =>
+    api
+      .post<{ ok: boolean }>(`/tg-client/${accountId}/webview/send-data`, {
+        botChatId,
+        buttonText,
+        data,
       })
       .then((r) => r.data),
 };

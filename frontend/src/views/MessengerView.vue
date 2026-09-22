@@ -2248,6 +2248,11 @@ const webViewPanel = ref<{
   proxied?: boolean;
   /** Served from the viewer origin, so a real origin of its own is safe to grant. */
   isolated?: boolean;
+  /**
+   * Where a `sendData` from the app goes: only an app opened from a reply keyboard has that
+   * channel, so this is set for those and the bridge event is dropped for any other.
+   */
+  sendDataTo?: { botChatId: string; buttonText: string };
 } | null>(null);
 // Chooser for non-Telegram links: Bemby viewer or external browser
 const linkChooserUrl = ref<string | null>(null);
@@ -3643,6 +3648,17 @@ function miniAppThemeParams() {
       };
 }
 
+/** The event payload of a bridge message, which telegram-web-app.js posts as a JSON string. */
+function eventDataOf(raw: unknown): Record<string, unknown> | undefined {
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    const data = parsed?.eventData;
+    return data && typeof data === "object" ? data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function handleMiniAppMessage(e: MessageEvent) {
   if (!webViewPanel.value) return;
   let eventType: string | undefined;
@@ -3652,7 +3668,29 @@ async function handleMiniAppMessage(e: MessageEvent) {
   } catch {
     return;
   }
-  if (eventType === "web_app_close") webViewPanel.value = null;
+  if (eventType === "web_app_close") {
+    webViewPanel.value = null;
+    return;
+  }
+  if (eventType === "web_app_data_send") {
+    // The app is handing its result to the bot. A real client relays it and closes the
+    // panel, and the bot's reply then lands in the chat like any other message
+    const target = webViewPanel.value.sendDataTo;
+    const payload = eventDataOf(e.data)?.data;
+    if (!target || typeof payload !== "string" || !selectedAccountId.value) return;
+    webViewPanel.value = null;
+    try {
+      await tgClientApi.webviewSendData(
+        selectedAccountId.value,
+        target.botChatId,
+        target.buttonText,
+        payload,
+      );
+    } catch (err: any) {
+      showToast(err?.response?.data?.error ?? err?.message ?? "Failed to send the app's data to the bot");
+    }
+    return;
+  }
   if (eventType === "web_app_ready") {
     // Send theme params so the mini app can match the UI colour scheme
     (e.source as Window)?.postMessage(
@@ -3696,11 +3734,14 @@ async function openMiniApp(
   title: string,
   botChatId?: string | null,
   fromBotMenu = false,
+  /** The button sits on a reply keyboard: signed the simple way, and its sendData is relayed. */
+  simple = false,
 ): Promise<void> {
   if (!selectedAccountId.value) {
     window.open(url, "_blank", "noopener");
     return;
   }
+  const sendDataTo = simple && botChatId ? { botChatId, buttonText: title } : undefined;
   try {
     const { webAppUrl, frameable, signed } = await tgClientApi.webviewResolve(
       selectedAccountId.value,
@@ -3708,6 +3749,7 @@ async function openMiniApp(
       botChatId,
       activeChatId.value,
       fromBotMenu,
+      simple,
     );
     // Said here rather than left to the app: unsigned, it loads and then fails on its own
     // terms ("No initData found"), which reads as the viewer being broken
@@ -3719,7 +3761,7 @@ async function openMiniApp(
       return;
     }
     if (frameable) {
-      webViewPanel.value = { url: webAppUrl, title };
+      webViewPanel.value = { url: webAppUrl, title, sendDataTo };
       return;
     }
     // Most apps now refuse to be framed by anything but Telegram, so the panel shows a
@@ -3730,7 +3772,7 @@ async function openMiniApp(
       if (!window.open(webAppUrl, "_blank", "noopener")) askOpenLink(webAppUrl);
       return;
     }
-    webViewPanel.value = { url: proxyUrl, title, proxied: true, isolated };
+    webViewPanel.value = { url: proxyUrl, title, proxied: true, isolated, sendDataTo };
   } catch {
     if (!window.open(url, "_blank", "noopener")) askOpenLink(url);
   }
@@ -4185,6 +4227,7 @@ async function clickInlineButton(
     webApp: boolean;
     send: boolean;
     requestPhone: boolean;
+    simpleWebApp?: boolean;
   },
   ri: number,
   bi: number,
@@ -4222,7 +4265,9 @@ async function clickInlineButton(
           (activeChat.value?.type === "bot" || activeChat.value?.type === "user"
             ? activeChatId.value
             : null);
-        await openMiniApp(btn.url, btn.text || "Mini App", botChatId);
+        // The button's own text goes with it: a reply-keyboard app's sendData is tagged
+        // with the button it was opened from, and the bot may key on that
+        await openMiniApp(btn.url, btn.text || "Mini App", botChatId, false, !!btn.simpleWebApp);
       } else {
         await handleTgUrl(btn.url);
       }

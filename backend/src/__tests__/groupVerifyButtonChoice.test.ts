@@ -111,6 +111,37 @@ describe("`|` alternatives in a button matcher", () => {
     expect(findUrlButton(msgWith("whatever"), undefined)?.text).toBe("whatever");
   });
 
+  // A bot that wants its app reachable at any time puts it on the reply keyboard above the
+  // composer rather than under a message -- "开始验证" with the web-app marker, in the
+  // official client. That keyboard can only hold the Simple variant, and finding it there is
+  // what lets the "open Mini App" action pick it up at all.
+  it("finds a web app on the reply keyboard above the composer", () => {
+    const msg = {
+      message: "请点击下方按钮完成安全验证",
+      replyMarkup: new Api.ReplyKeyboardMarkup({
+        rows: [
+          new Api.KeyboardButtonRow({
+            buttons: [
+              new Api.KeyboardButtonSimpleWebView({ text: "🛡 开始验证", url: "https://verify.example/app" }),
+            ],
+          }),
+        ],
+      }),
+    } as unknown as Api.Message;
+    const found = findUrlButton(msg, "开始验证");
+    expect(found?.text).toBe("🛡 开始验证");
+    expect(found?.miniApp).toBe(true);
+    expect(found?.simple).toBe(true);
+    expect(findUrlButton(msg, undefined)?.text).toBe("🛡 开始验证");
+    // A plain reply-keyboard button sends text; it opens nothing
+    const plain = {
+      replyMarkup: new Api.ReplyKeyboardMarkup({
+        rows: [new Api.KeyboardButtonRow({ buttons: [new Api.KeyboardButton({ text: "主界面" })] })],
+      }),
+    } as unknown as Api.Message;
+    expect(findUrlButton(plain, undefined)).toBeUndefined();
+  });
+
   it("matches the group verify button in either language", () => {
     const want = "在私信中验证|Verify in private chat";
     expect(matchesAnyLabel("在私信中验证", want)).toBe(true);

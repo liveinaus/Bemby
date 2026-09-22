@@ -1,4 +1,5 @@
 import { Api, TelegramClient } from "telegram";
+import { generateRandomBigInt } from "telegram/Helpers";
 
 // Mini App (WebView) buttons carry a bare page address. Telegram never opens that
 // address directly -- it asks the server for a signed URL first, then renders it in
@@ -61,8 +62,11 @@ export type MiniAppLink = { botUsername: string; appShortName?: string; startPar
 export type BotStartLink = { botUsername: string; startParam: string };
 
 /**
- * An inline button that leads somewhere outside the chat.
+ * A button that leads somewhere outside the chat.
  * - `miniApp` -- opens a Mini App, so Telegram must sign the URL first
+ * - `simple` -- the Mini App sits on a reply keyboard (the row above the composer) rather
+ *   than under a message. Telegram signs those through RequestSimpleWebView, and the app
+ *   reports back with `sendData` since its init data carries no query_id
  * - `startLink` -- a deep link that is followed by sending `/start PARAM` to that bot,
  *   not by loading a page
  */
@@ -70,6 +74,7 @@ export type WebButton = {
   text: string;
   url: string;
   miniApp: boolean;
+  simple?: boolean;
   miniAppLink?: MiniAppLink;
   startLink?: BotStartLink;
 };
@@ -123,10 +128,17 @@ export function parseBotStartLink(tmeOrUrl: string): BotStartLink | null {
   return { botUsername: m[1], startParam };
 }
 
-/** Reads the destination off an inline button, classifying what opening it means. */
+/**
+ * Reads the destination off a button, classifying what opening it means. Inline keyboards
+ * carry KeyboardButtonWebView; a reply keyboard can only hold the Simple variant, which is
+ * what a bot uses when it wants the app reachable from the composer at any time.
+ */
 export function webButtonOf(btn: Api.TypeKeyboardButton): WebButton | undefined {
-  if (btn instanceof Api.KeyboardButtonWebView || btn instanceof Api.KeyboardButtonSimpleWebView) {
+  if (btn instanceof Api.KeyboardButtonWebView) {
     return { text: btn.text, url: btn.url, miniApp: true };
+  }
+  if (btn instanceof Api.KeyboardButtonSimpleWebView) {
+    return { text: btn.text, url: btn.url, miniApp: true, simple: true };
   }
   if (btn instanceof Api.KeyboardButtonUrl) {
     const miniAppLink = parseMiniAppLink(btn.url);
@@ -183,36 +195,68 @@ async function resolveMiniAppLink(
  * Asks Telegram for the signed Mini App URL behind a WebView button: the same page
  * plus the `tgWebAppData` fragment identifying the account. Without it the app loads
  * logged out. Falls back to the bare URL when the bot refuses the request.
+ *
+ * Which request comes first follows what a real client does. An inline-keyboard button
+ * goes through RequestWebView, whose init data carries a query_id for apps that answer
+ * through the bot. A reply-keyboard button (`simple`) goes through RequestSimpleWebView,
+ * whose init data carries none: such an app hands its result back with `sendData`, and
+ * one that checks for a query_id it should not have may refuse to run. The other form is
+ * kept as a fallback either way, since a bot that rejects one often accepts the other.
  */
 export async function resolveMiniAppUrl(
   client: TelegramClient,
   bot: Api.TypeEntityLike,
   url: string,
   peer?: Api.TypeEntityLike,
+  opts: { simple?: boolean } = {},
 ): Promise<{ url: string; resolved: boolean }> {
   const platform = "web";
 
-  // Inline-keyboard buttons use RequestWebView; its URL carries the full init data
-  // (query_id included), which apps that call back into the bot need.
-  try {
+  const inline = async () => {
     const res = (await client.invoke(
       new Api.messages.RequestWebView({ peer: peer ?? bot, bot, url, platform }),
     )) as Api.WebViewResultUrl;
-    if (res?.url) return { url: withClientLaunchParams(res.url), resolved: true };
-  } catch {
-    /* not accepted as an inline webview -- try the simple form below */
-  }
-
-  try {
+    return res?.url ? withClientLaunchParams(res.url) : undefined;
+  };
+  const simple = async () => {
     const res = (await client.invoke(
       new Api.messages.RequestSimpleWebView({ bot, url, platform }),
     )) as Api.WebViewResultUrl;
-    if (res?.url) return { url: withClientLaunchParams(res.url), resolved: true };
-  } catch {
-    /* bot refused; caller falls back to the bare URL */
+    return res?.url ? withClientLaunchParams(res.url) : undefined;
+  };
+
+  for (const ask of opts.simple ? [simple, inline] : [inline, simple]) {
+    try {
+      const signed = await ask();
+      if (signed) return { url: signed, resolved: true };
+    } catch {
+      /* not accepted in this form -- try the other; the caller falls back to the bare URL */
+    }
   }
 
   return { url, resolved: false };
+}
+
+/**
+ * Delivers what a Mini App handed over with `WebApp.sendData()` to its bot, as a client
+ * does: the bot receives it as a `web_app_data` service message tagged with the button
+ * the app was opened from. Only an app opened from a reply keyboard has this channel; one
+ * under a message answers through its query_id instead, and Telegram refuses the send.
+ */
+export async function sendWebAppData(
+  client: TelegramClient,
+  bot: Api.TypeEntityLike,
+  buttonText: string,
+  data: string,
+): Promise<void> {
+  await client.invoke(
+    new Api.messages.SendWebViewData({
+      bot,
+      randomId: generateRandomBigInt() as any,
+      buttonText,
+      data,
+    }),
+  );
 }
 
 /**
@@ -310,12 +354,13 @@ export async function openableButtonUrl(
 
   if (!web.miniApp) return { url: web.url, signed: false };
 
+  const kind = { simple: web.simple };
   const sender = (msg as any)?.viaBotId ?? msg?.senderId ?? undefined;
   if (sender) {
-    const viaSender = await resolveMiniAppUrl(client, sender, web.url, peer);
+    const viaSender = await resolveMiniAppUrl(client, sender, web.url, peer, kind);
     if (viaSender.resolved) return { url: viaSender.url, signed: true };
   }
 
-  const viaPeer = await resolveMiniAppUrl(client, peer, web.url, peer);
+  const viaPeer = await resolveMiniAppUrl(client, peer, web.url, peer, kind);
   return { url: viaPeer.url, signed: viaPeer.resolved };
 }

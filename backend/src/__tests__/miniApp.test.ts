@@ -18,9 +18,14 @@ describe('webButtonOf', () => {
     });
   });
 
-  it('flags a simple WebView button', () => {
+  it('flags a simple WebView button as a reply-keyboard app', () => {
     const btn = new Api.KeyboardButtonSimpleWebView({ text: 'Verify', url: 'https://example.com/app' });
-    expect(webButtonOf(btn)?.miniApp).toBe(true);
+    expect(webButtonOf(btn)).toEqual({
+      text: 'Verify',
+      url: 'https://example.com/app',
+      miniApp: true,
+      simple: true,
+    });
   });
 
   it('ignores callback buttons', () => {

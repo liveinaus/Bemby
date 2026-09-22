@@ -164,6 +164,12 @@ export type CheckinPageResult = {
   /** Label of the checkin control pressed inside a Mini App page, if any. */
   inAppAction?: string;
   /**
+   * What the app handed its bot with `WebApp.sendData()`, when `onWebAppData` delivered it.
+   * A reply-keyboard app reports its outcome this way rather than on the page, so this is
+   * as much the result of the run as the final text is.
+   */
+  appData?: string;
+  /**
    * Text the page showed at any point while the run drove it, deduped and capped. A Mini App
    * puts its outcome in a toast that is gone by the time the final page is read, so the
    * success wording is matched against this too. Failure wording is not: a state the page
@@ -354,6 +360,13 @@ export type LoadOptions = {
   successContains?: string;
   /** Answers a question read off the app (used by the `{aiInput}` step). */
   solveQuestion?: (question: string) => Promise<string>;
+  /**
+   * Delivers what the app hands over with `WebApp.sendData()` to its bot, as a Telegram
+   * client would. Only an app opened from a reply keyboard has this channel, and for one it
+   * is often the whole point: the app verifies the person and the bot acts on the data.
+   * Without a handler the call is dropped, and the bot never hears the app finished.
+   */
+  onWebAppData?: (data: string) => Promise<void>;
   /**
    * Exits to try, in order, when a challenge is refused. Cloudflare accepts some IPs and
    * not others, so a single proxy is often not enough.
@@ -1470,14 +1483,53 @@ async function solveCap(page: Page, deadline: number): Promise<boolean> {
 // telegram-web-app.js posts events to the host client; with no host it either
 // throws or silently drops them, and apps that call WebApp.ready() first then break.
 // This stub is what a Telegram Android/iOS webview exposes, so the bridge works and
-// the signed initData in the URL fragment is picked up as normal.
+// the signed initData in the URL fragment is picked up as normal. Events are also queued
+// on the window for the Node side to drain, which is how an app's `sendData` reaches the
+// bot. Queued rather than pushed: the stealth browser build installs an exposeFunction
+// binding but never delivers its calls (it keeps the CDP Runtime domain off), whereas
+// evaluate() is what the whole solver already runs on.
 const WEBVIEW_PROXY_SHIM = `
   window.TelegramWebviewProxy = window.TelegramWebviewProxy || {
     postEvent: function (type, data) {
       try { window.dispatchEvent(new CustomEvent('tg-post', { detail: { type: type, data: data } })); } catch (e) {}
+      try { (window.__tgBridgeQueue = window.__tgBridgeQueue || []).push({ type: type, data: data }); } catch (e) {}
     },
   };
 `;
+
+/** Takes what the app posted since the last drain, in order. String form: see `__name`. */
+const DRAIN_BRIDGE_QUEUE =
+  "(function () { var q = window.__tgBridgeQueue || []; window.__tgBridgeQueue = []; return q; })()";
+
+/** The event telegram-web-app.js posts for `WebApp.sendData(data)`. */
+const WEB_APP_DATA_SEND = "web_app_data_send";
+
+/** The event telegram-web-app.js posts for `WebApp.close()`. */
+const WEB_APP_CLOSE = "web_app_close";
+
+/**
+ * How long an app that reports by itself is given to do so once the challenge is behind it
+ * and nothing was found to press: a verification app validates its token, sends its data
+ * and closes, and that round-trip takes a moment.
+ */
+const APP_REPORT_WAIT_MS = 15_000;
+
+/**
+ * Reads the payload of a bridge event. telegram-web-app.js posts the event data as a JSON
+ * string; other SDKs hand the object over as it is.
+ */
+function bridgeEventData(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === "object") return raw as Record<string, unknown>;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {
+      /* not JSON */
+    }
+  }
+  return {};
+}
 
 // A passkey/WebAuthn registration opens a native browser dialog ("insert your security key")
 // that no page script and no automation selector can reach -- it blocks the run until it times
@@ -6687,6 +6739,42 @@ async function attemptLoad(
       await page.addInitScript(WEBAUTHN_NEUTRALISE).catch(() => {});
     }
 
+    // What the app handed its bot with sendData, in the order it did, and whether it asked
+    // the client to close it. Either means the app considers its job done: a verification
+    // app validates, reports and closes, and a real client shows nothing more of it
+    const appData: string[] = [];
+    let appClosed = false;
+    const appDone = () => appData.length > 0 || appClosed;
+    // Drains what the app posted to the bridge and acts on it. Called wherever the run
+    // already pauses to look at the page, so a report lands within a poll of being made.
+    // Delivery to the bot is not awaited in the page, so a slow bot cannot stall the app.
+    const deliveries: Promise<void>[] = [];
+    const pumpBridge = async () => {
+      if (!opts.miniApp) return;
+      const drained = await page.evaluate(DRAIN_BRIDGE_QUEUE).catch(() => []);
+      // A page mid-navigation can answer with nothing at all
+      const events = (Array.isArray(drained) ? drained : []) as { type: string; data: unknown }[];
+      for (const ev of events) {
+        if (!ev || typeof ev !== "object") continue;
+        if (ev.type === WEB_APP_CLOSE) {
+          appClosed = true;
+          continue;
+        }
+        if (ev.type !== WEB_APP_DATA_SEND) continue;
+        const data = bridgeEventData(ev.data).data;
+        if (typeof data !== "string") continue;
+        appData.push(data);
+        if (!opts.onWebAppData) {
+          note("the app sent data to its bot, which an inline-keyboard app cannot do");
+          continue;
+        }
+        deliveries.push(
+          opts.onWebAppData(data).catch((err: any) => {
+            note(`app data not delivered to the bot: ${err?.message ?? err}`);
+          }),
+        );
+      }
+    };
     if (opts.miniApp) {
       await page.addInitScript(WEBVIEW_PROXY_SHIM).catch(() => {});
       // Before the app loads, so it has nothing to prefer over the account just signed for
@@ -6713,6 +6801,7 @@ async function attemptLoad(
     const withoutHash = (u: string) => u.split("#")[0];
     const startUrl = withoutHash(page.url());
     await waitForPageReady(page, budgetDeadline);
+    await pumpBridge();
 
     // Works a challenge that is on the page right now. Returns null when there is
     // none, so callers can tell "nothing to do" from "tried and failed".
@@ -6855,6 +6944,7 @@ async function attemptLoad(
       seenChars += trimmed.length;
     };
     if (opts.miniApp && solved) {
+      await pumpBridge();
       priorText = await page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
       const clicks = await runInAppClicks(page, opts.inAppClicks ?? [], budgetDeadline, {
         solveQuestion: opts.solveQuestion,
@@ -6862,12 +6952,27 @@ async function attemptLoad(
         exactLabels: opts.exactAppLabels,
         successContains: opts.successContains,
         priorText,
-        autoDetect: !opts.webSteps?.length,
+        // An app that has already reported to its bot has nothing left to press
+        autoDetect: !opts.webSteps?.length && !appDone(),
       });
       inAppAction = clicks.trace;
       inAppFailure = clicks.failure;
       inAppActed = clicks.acted;
       for (const t of clicks.seen) noteSeen(t);
+
+      // Nothing was found to press, but this kind of app may not have anything: a
+      // reply-keyboard verification app clears the challenge, reports and closes on its
+      // own, and it is only given the chance to when its data has somewhere to go. Give
+      // it a moment before calling the missing control a failure.
+      const selfReporting = !!opts.onWebAppData && !(opts.inAppClicks ?? []).length;
+      await pumpBridge();
+      if (inAppFailure && selfReporting) {
+        const reportBy = Math.min(Date.now() + APP_REPORT_WAIT_MS, budgetDeadline);
+        while (!appDone() && Date.now() < reportBy) {
+          await sleep(tune.pollMs, reportBy);
+          await pumpBridge();
+        }
+      }
 
       // A verification the app raises only once the checkin is pressed needs a moment to
       // render. Asking once, immediately, sees nothing there and calls the step done --
@@ -6902,7 +7007,25 @@ async function attemptLoad(
         text = await page.evaluate(() => document.body?.innerText ?? "").catch(() => "");
         noteSeen(text);
         if (SUCCESS_RE.test(text)) break;
+        // An app that reports to its bot rather than on the page is done at that point
+        await pumpBridge();
+        if (appDone()) break;
       }
+    }
+
+    // Anything posted since the last look, and every relay finished, before the verdict:
+    // a run must not end with the bot's copy of the data still in flight
+    await pumpBridge();
+    await Promise.all(deliveries);
+
+    // Settled last, because the app may only get to report once a challenge the in-app
+    // steps ran into has been cleared above: a control that was not there to press is no
+    // failure when the app then reported to its bot, or closed itself, on its own
+    if (inAppFailure && appDone()) {
+      inAppAction = [inAppAction, appData.length ? "app reported to its bot" : "app closed itself"]
+        .filter(Boolean)
+        .join(" → ");
+      inAppFailure = undefined;
     }
 
     const pageTitle = (await page.title().catch(() => "")) || undefined;
@@ -6920,13 +7043,16 @@ async function attemptLoad(
       });
     }
 
+    // An app that reported to its bot, or closed itself, has done its job whatever the page
+    // shows afterwards: a real client takes the panel down at that point, so a blank page
+    // is the expected end
     const verdict = opts.miniApp
       ? miniAppVerdict({
           challenged,
           solved,
           text,
           inAppAction,
-          inAppActed,
+          inAppActed: inAppActed || appDone(),
           inAppFailure,
           navError,
           priorText,
@@ -6944,6 +7070,7 @@ async function attemptLoad(
       seenText: seenTexts.length ? seenTexts.join("\n") : undefined,
       finalHost,
       inAppAction,
+      appData: appData.length ? appData.join("\n") : undefined,
       webSteps,
       reason: verdict.reason,
       navError,

@@ -12,7 +12,7 @@ import { parseTgProxy } from "../jobs/runner";
 import { missingProxyMessage } from "./proxyProviders";
 import { globalTgProxy } from "./globalProxy";
 import { resolveAppClientParams } from "./appClient";
-import { parseMiniAppLink, withClientLaunchParams } from "./miniApp";
+import { parseMiniAppLink, sendWebAppData, withClientLaunchParams } from "./miniApp";
 import { displayPeerId } from "./peerTarget";
 import {
   cachedChannelDm,
@@ -39,6 +39,11 @@ export type TgButton = {
   data: string | null; // base64-encoded callback data
   url: string | null;
   webApp: boolean; // Telegram Mini App button -- must open in a real browser
+  /**
+   * The Mini App sits on a reply keyboard rather than under a message: Telegram signs it
+   * through RequestSimpleWebView, and the app reports back with `sendData`.
+   */
+  simpleWebApp?: boolean;
   send: boolean; // reply-keyboard button -- clicking sends its text as a message
   requestPhone: boolean; // reply-keyboard button -- shares our own phone as a contact
 };
@@ -628,6 +633,7 @@ function extractButtons(msg: Api.Message): TgButton[][] | null {
         webApp:
           btn instanceof Api.KeyboardButtonWebView ||
           btn instanceof Api.KeyboardButtonSimpleWebView,
+        simpleWebApp: btn instanceof Api.KeyboardButtonSimpleWebView,
         // Only plain text buttons can be fulfilled by sending their text;
         // location/poll/webview variants can't, so leave them inert.
         send: btn instanceof Api.KeyboardButton,
@@ -3496,16 +3502,20 @@ export async function startBot(
 export { parseMiniAppLink };
 
 // Resolves a mini app URL to an authenticated web app URL.
-// Handles two cases:
+// Handles these cases:
 //   - t.me/BotName?startapp=HASH            -- uses RequestMainWebView
 //   - t.me/BotName/AppShortName?startapp=HASH -- uses RequestAppWebView
-//   - Direct web app URL from a KeyboardButtonWebView -- uses RequestSimpleWebView
+//   - Direct web app URL from a KeyboardButtonWebView -- uses RequestWebView, falling
+//     back to RequestSimpleWebView
+//   - Direct web app URL from a reply keyboard's KeyboardButtonSimpleWebView (`simple`)
+//     -- the other way round, as a real client asks for it
 export async function resolveWebApp(
   entry: LiveEntry,
   tmeOrUrl: string,
   botChatId?: string, // for direct URLs we need to know which bot owns the app
   peerChatId?: string, // chat where the webview button lives (for RequestWebView)
   fromBotMenu?: boolean, // the address came from the bot's menu button, not a message
+  simple?: boolean, // the button sits on a reply keyboard, not under a message
 ): Promise<{ url: string; resolved: boolean }> {
   const miniApp = parseMiniAppLink(tmeOrUrl);
   if (miniApp) {
@@ -3564,8 +3574,8 @@ export async function resolveWebApp(
           await ensureEntityCached(entry, peerChatId);
           peer = entry.entityCache.get(peerChatId) ?? bot;
         }
-        try {
-          const result = (await entry.client.invoke(
+        const inline = async () =>
+          (await entry.client.invoke(
             new Api.messages.RequestWebView({
               peer,
               bot,
@@ -3578,23 +3588,27 @@ export async function resolveWebApp(
               ...(fromBotMenu ? { fromBotMenu: true } : {}),
             } as any),
           )) as any;
-          return {
-            url: withClientLaunchParams(result.url as string),
-            resolved: true,
-          };
-        } catch {
-          const result = (await entry.client.invoke(
+        // A reply-keyboard app gets init data with no query_id, which is what its `sendData`
+        // channel expects; an app that checks for one it should not have refuses to run
+        const simpleForm = async () =>
+          (await entry.client.invoke(
             new Api.messages.RequestSimpleWebView({
               bot,
               url: tmeOrUrl,
               platform: "web",
             } as any),
           )) as any;
-          return {
-            url: withClientLaunchParams(result.url as string),
-            resolved: true,
-          };
+        const [first, second] = simple ? [simpleForm, inline] : [inline, simpleForm];
+        let result: any;
+        try {
+          result = await first();
+        } catch {
+          result = await second();
         }
+        return {
+          url: withClientLaunchParams(result.url as string),
+          resolved: true,
+        };
       }
     } catch {
       // Bot rejected the webview request; treat as unresolved
@@ -3603,6 +3617,23 @@ export async function resolveWebApp(
 
   // Could not obtain an authenticated web app URL -- caller decides the fallback
   return { url: tmeOrUrl, resolved: false };
+}
+
+/**
+ * Relays what a Mini App handed over with `WebApp.sendData()` to its bot, as a real client
+ * does once the app is opened from a reply keyboard. The bot receives it as a
+ * `web_app_data` service message tagged with the button the app was opened from.
+ */
+export async function sendWebAppDataToBot(
+  entry: LiveEntry,
+  botChatId: string,
+  buttonText: string,
+  data: string,
+): Promise<void> {
+  await ensureEntityCached(entry, botChatId);
+  const bot = entry.entityCache.get(botChatId);
+  if (!(bot instanceof Api.User) || !bot.bot) throw new Error("Not a bot chat");
+  await sendWebAppData(entry.client, bot, buttonText, data);
 }
 
 // Re-fetches the channel from TG to get the latest membership state.
