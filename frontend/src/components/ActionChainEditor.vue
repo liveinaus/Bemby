@@ -428,8 +428,13 @@
       </div>
     </div>
 
-    <!-- open_url / open_message_url -->
-    <div v-if="action.type === 'open_url' || action.type === 'open_message_url'" class="custom-action-params">
+    <!-- open_url / open_message_url / save_message_url -->
+    <div v-if="action.type === 'open_url' || action.type === 'open_message_url' || action.type === 'save_message_url'" class="custom-action-params">
+      <div v-if="action.type === 'save_message_url'" class="form-group" style="margin-bottom:8px">
+        <label class="form-label">{{ t('jobs.custom.labelVarName') }}</label>
+        <input v-model.trim="action.varName" class="form-input" placeholder="url" />
+        <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ saveUrlVarHint(action.varName) }}</div>
+      </div>
       <div v-if="action.type === 'open_url'" class="form-group" style="margin-bottom:0">
         <label class="form-label">{{ t('jobs.web.labelUrl') }}</label>
         <input v-model.trim="action.url" class="form-input" :placeholder="t('jobs.web.urlPlaceholder')" />
@@ -464,6 +469,11 @@
           </div>
         </div>
       </template>
+      <div v-if="action.type === 'save_message_url'" class="form-group" style="margin-bottom:0;margin-top:8px">
+        <label class="form-label">{{ t('jobs.custom.labelMaxRetries') }}</label>
+        <NumberInput v-model="action.maxRetries" class="form-input" :min="0" :max="10" />
+      </div>
+      <template v-else>
       <div class="form-group" style="margin-bottom:0;margin-top:10px">
         <WebStepsEditor :steps="action.webSteps" :ai-key-missing="aiKeyMissing" />
       </div>
@@ -511,6 +521,7 @@
         <input v-model.trim="action.profileId" class="form-input" :placeholder="profileIdPlaceholder" />
         <div style="font-size:11px;color:var(--text-faint);margin-top:3px">{{ t('jobs.web.profileIdHint') }}</div>
       </div>
+      </template>
     </div>
 
     <!-- ai_multiple_btn -->
@@ -736,6 +747,7 @@ const TYPE_LABELS: Record<CustomActionType, string> = {
   open_bot_menu_app: 'actionOpenBotMenuApp',
   open_url: 'actionOpenUrl',
   open_message_url: 'actionOpenMessageUrl',
+  save_message_url: 'actionSaveMessageUrl',
   if_check: 'actionIfCheck',
   end_job: 'actionEndJob',
   fail_job: 'actionFailJob',
@@ -750,6 +762,10 @@ const NEEDS_BROWSER = new Set<CustomActionType>([
   'open_url',
   'open_message_url',
 ]);
+
+// Built here: a `}}` inside a template interpolation would end it early
+const saveUrlVarHint = (name: string) =>
+  t('jobs.custom.saveUrlVarHint').split('{v}').join('{' + (name || 'url') + '}');
 
 const typeLabel = (ty: CustomActionType) => t(`jobs.custom.${TYPE_LABELS[ty]}`);
 

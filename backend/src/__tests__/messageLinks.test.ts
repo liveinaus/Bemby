@@ -71,6 +71,41 @@ describe("messageLinks", () => {
     ]);
     expect(messageLinks(msg)).toEqual([]);
   });
+
+  it("reads a login button, keeping its id for URL authorisation", () => {
+    const msg = withButtons([
+      new Api.KeyboardButtonUrlAuth({ text: "Log in", url: "https://site.example/login", buttonId: 7 }),
+    ]);
+    expect(messageLinks(msg)).toEqual([
+      { text: "Log in", url: "https://site.example/login", fromButton: true, urlAuthButtonId: 7 },
+    ]);
+  });
+
+  it("offers Mini App buttons, inline and above the composer, only when asked", () => {
+    const inline = withButtons([
+      new Api.KeyboardButtonWebView({ text: "App", url: "https://app.example.com" }),
+    ]);
+    const composer = {
+      id: 4,
+      message: "",
+      replyMarkup: new Api.ReplyKeyboardMarkup({
+        rows: [
+          new Api.KeyboardButtonRow({
+            buttons: [
+              new Api.KeyboardButton({ text: "签到" }),
+              new Api.KeyboardButtonSimpleWebView({ text: "开始验证", url: "https://v.example" }),
+            ],
+          }),
+        ],
+      }),
+    } as unknown as Api.Message;
+
+    expect(messageLinks(composer)).toEqual([]);
+    expect(messageLinks(inline, { apps: true })[0]).toMatchObject({ url: "https://app.example.com" });
+    const app = pickMessageLink(composer, "开始验证", { apps: true });
+    expect(app).toMatchObject({ url: "https://v.example", fromButton: true });
+    expect(app?.app?.simple).toBe(true);
+  });
 });
 
 describe("pickMessageLink", () => {

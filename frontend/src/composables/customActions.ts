@@ -111,6 +111,8 @@ export type CustomActionForm = {
   linkText: string;
   /** open_message_url: how long to wait for a message carrying the link */
   linkWaitMs: number;
+  /** save_message_url: the variable the link is stored under */
+  varName: string;
   /** open_url: sub-steps run on the page once it is up */
   webSteps: WebStepForm[];
   /** Carry on with the next action when this one fails, rather than failing the job. */
@@ -183,6 +185,7 @@ export function defaultAction(): CustomActionForm {
     url: "",
     linkText: "",
     linkWaitMs: 30000,
+    varName: "url",
     webSteps: [],
     continueOnError: false,
     cond: defaultCondition(),
@@ -220,6 +223,7 @@ export function offeredActionTypes(
     "open_bot_menu_app",
     "open_url",
     "open_message_url",
+    "save_message_url",
     "end_job",
     "fail_job",
   ];
@@ -404,6 +408,19 @@ export function actionsFromConfig(actions: CustomAction[] | undefined): CustomAc
         miniAppProxyPool: [...(a.proxyPool ?? [])],
         miniAppTryAllProxies: a.tryAllProxies ?? true,
         profileId: a.profileId ?? "",
+      };
+    if (a.type === "save_message_url")
+      return {
+        ...base,
+        ...common,
+        type: a.type,
+        varName: a.varName ?? "url",
+        contact: a.contact ?? "",
+        linkText: a.linkText ?? "",
+        messageContains: a.messageContains ?? "",
+        scope: a.scope ?? 0,
+        linkWaitMs: a.linkWaitMs ?? 30000,
+        maxRetries: a.maxRetries ?? 0,
       };
     if (a.type === "ai_multiple_btn")
       return {
@@ -600,6 +617,18 @@ export function actionsToConfig(forms: CustomActionForm[]): CustomAction[] {
         ...(a.linkWaitMs > 0 ? { linkWaitMs: a.linkWaitMs } : {}),
       };
     }
+    if (a.type === "save_message_url")
+      return {
+        ...common,
+        type: "save_message_url" as const,
+        varName: a.varName.trim() || "url",
+        ...(a.contact.trim() ? { contact: a.contact.trim() } : {}),
+        ...(a.linkText.trim() ? { linkText: a.linkText.trim() } : {}),
+        ...(a.messageContains.trim() ? { messageContains: a.messageContains.trim() } : {}),
+        ...(a.scope ? { scope: a.scope } : {}),
+        ...(a.linkWaitMs > 0 ? { linkWaitMs: a.linkWaitMs } : {}),
+        ...(a.maxRetries > 0 ? { maxRetries: a.maxRetries } : {}),
+      };
     if (a.type === "ai_multiple_btn")
       return {
         ...common,

@@ -548,6 +548,21 @@ export type CustomAction = CustomActionCommon &
         profileId?: string;
       }
     | {
+        // Reads a link off a message the way `open_message_url` does, but keeps it rather
+        // than opening it: the address lands in `{varName}` for a later `open_url` or page
+        // step. Also takes Mini App buttons (inline or above the composer), signed, and
+        // login buttons, accepted the way the official app's "Open this link?" prompt does.
+        type: "save_message_url";
+        /** Variable the address is stored under, used later as `{varName}`. */
+        varName: string;
+        contact?: string;
+        linkText?: string;
+        messageContains?: string;
+        scope?: number;
+        linkWaitMs?: number;
+        maxRetries?: number;
+      }
+    | {
         type: "subscribe_channel";
         channelId: string;
         checkMembership?: boolean;

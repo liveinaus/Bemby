@@ -57,7 +57,11 @@ import {
   webButtonOf,
   type WebButton,
 } from "../tg/miniApp";
-import { pickMessageLink, type MessageLink } from "../tg/messageLinks";
+import {
+  pickMessageLink,
+  resolveMessageLink,
+  type MessageLink,
+} from "../tg/messageLinks";
 import { resolvePeerTarget } from "../tg/peerTarget";
 import {
   cfMaxCandidates,
@@ -1488,6 +1492,7 @@ export function stepNeedingBot(
       case "open_bot_menu_app":
       // And this one reads a chat for the link it opens, so it needs to know whose.
       case "open_message_url":
+      case "save_message_url":
         return !a.contact?.trim();
       case "open_mini_app_url":
       case "send_contact_message":
@@ -1650,6 +1655,64 @@ export async function runCustom(
       // Last message we sent to each specific contact, keyed by the trimmed
       // contact handle -- the scope anchor for click_message_button.
       const contactAnchors = new Map<string, SendAnchor>();
+      // Values an action saved for later ones (`save_message_url`), read back as `{name}`
+      const jobVars = new Map<string, string>();
+      const jobVarsObj = () => Object.fromEntries(jobVars);
+
+      /**
+       * The link a chat has just offered, for `open_message_url` and `save_message_url`:
+       * the newest message past the scope floor, else the next one to arrive.
+       */
+      const findMessageLink = async (
+        action: Extract<CustomAction, { type: "open_message_url" | "save_message_url" }>,
+        target: string,
+        want: string,
+        mustContain: string,
+      ): Promise<{ entity: Api.TypeEntityLike; msg: Api.Message; link: MessageLink }> => {
+        const contact = action.contact?.trim() ?? "";
+        const entity: Api.TypeEntityLike = contact
+          ? await resolvePeerTarget(client, contact)
+          : target;
+        const anchor = contact ? contactAnchors.get(contact) : sendAnchor;
+        const minId = await resolveScopeFloor(client, entity, anchor?.msgId ?? 0, action.scope);
+        const opts = { apps: action.type === "save_message_url" };
+        // Our own messages carry links too (a command we sent back), and a stale
+        // link from an earlier turn is exactly what the scope floor keeps out
+        const pick = (m: Api.Message): MessageLink | undefined =>
+          m && !m.out && m.id >= minId && msgTextMatches(m, mustContain)
+            ? pickMessageLink(m, want, opts)
+            : undefined;
+
+        // Newest first: the link the bot has just sent, not one further back
+        const recent = (await client.getMessages(entity, { limit: 10 })) as Api.Message[];
+        let hit: { msg: Api.Message; link: MessageLink } | null = null;
+        for (const m of recent) {
+          const link = pick(m);
+          if (link) {
+            hit = { msg: m, link };
+            break;
+          }
+        }
+        if (!hit)
+          hit = await waitForLinkInChat(
+            client,
+            entity,
+            waitBudget(action.linkWaitMs)(),
+            pick,
+            signal,
+          );
+        if (signal?.aborted) throw new Error("Job cancelled");
+        if (!hit)
+          throw new Error(
+            `No link${want ? ` matching "${want}"` : ""} from ${target}` +
+              `${mustContain ? ` in a message containing "${mustContain}"` : ""}.` +
+              (opts.apps
+                ? ""
+                : " Mini App buttons and t.me links are not web pages; the Mini App " +
+                  "actions open those."),
+          );
+        return { entity, ...hit };
+      };
 
       /**
        * Everything the page sub-steps need that lives on this side of the browser: the vision
@@ -1854,6 +1917,7 @@ export async function runCustom(
       // credentials filed under the job that signs in with them are reachable as
       // `{data.folder.{jobId}.password}`, so one template covers every job
       webVars: {
+        ...jobVarsObj(),
         jobId: String(cfRun.jobId),
         ...(account
           ? { accountPhone: account.phoneNumber, accountName: account.name }
@@ -3608,6 +3672,28 @@ export async function runCustom(
                 break;
               }
 
+              case "save_message_url": {
+                const target = action.contact?.trim() || botUsername;
+                const want = action.linkText?.trim() ?? "";
+                const mustContain = action.messageContains?.trim() ?? "";
+                const varName = action.varName?.trim() || "url";
+                step.label = `Save link${want ? ` "${want}"` : ""} from ${target || "the bot"} as {${varName}}`;
+                if (!target) throw new Error("No contact to read a link from, and the job has no bot");
+
+                const hit = await findMessageLink(action, target, want, mustContain);
+                if (hit.link.fromButton) step.clickedButton = hit.link.text;
+                const parsed = await parseMessages([hit.msg], client, signal);
+                if (parsed.html) step.preClickHtml = parsed.html;
+                if (parsed.buttons.length) step.preClickButtons = parsed.buttons;
+
+                const { url, signed } = await resolveMessageLink(client, hit.entity, hit.msg, hit.link);
+                if (hit.link.app && !signed)
+                  throw new Error(`Telegram would not sign the Mini App behind "${hit.link.text}"`);
+                jobVars.set(varName, url);
+                step.result = `{${varName}} = ${url}${signed ? " (signed)" : ""}`;
+                break;
+              }
+
               case "open_mini_app": {
                 const target = action.contact?.trim() || botUsername;
                 const wantBtn = action.button?.trim();
@@ -3843,7 +3929,7 @@ export async function runCustom(
                 } else {
                   // Placeholders expand as they do for a command, so one template URL can
                   // still carry a per-run value
-                  const rawUrl = expandCommand(action.url ?? "").trim();
+                  const rawUrl = expandCommand(action.url ?? "", jobVarsObj()).trim();
                   if (!rawUrl) throw new Error("This action needs a Mini App URL");
                   // Blank names the job's own bot, which is the common case: a template set
                   // up for one bot works for every account linked to it
@@ -4038,53 +4124,10 @@ export async function runCustom(
                       "No contact to read a link from, and the job has no bot",
                     );
 
-                  const entity: Api.TypeEntityLike = contact
-                    ? await resolvePeerTarget(client, contact)
-                    : botUsername;
-                  const anchor = contact ? contactAnchors.get(contact) : sendAnchor;
-                  const minId = await resolveScopeFloor(
-                    client,
-                    entity,
-                    anchor?.msgId ?? 0,
-                    action.scope,
-                  );
-                  // Our own messages carry links too (a command we sent back), and a stale
-                  // link from an earlier turn is exactly what the scope floor keeps out
-                  const pick = (m: Api.Message): MessageLink | undefined =>
-                    m && !m.out && m.id >= minId && msgTextMatches(m, mustContain)
-                      ? pickMessageLink(m, want)
-                      : undefined;
-
-                  // Newest first: the link the bot has just sent, not one further back
-                  const recent = (await client.getMessages(entity, {
-                    limit: 10,
-                  })) as Api.Message[];
-                  let hit: { msg: Api.Message; link: MessageLink } | null = null;
-                  for (const m of recent) {
-                    const link = pick(m);
-                    if (link) {
-                      hit = { msg: m, link };
-                      break;
-                    }
-                  }
-                  if (!hit)
-                    hit = await waitForLinkInChat(
-                      client,
-                      entity,
-                      waitBudget(action.linkWaitMs)(),
-                      pick,
-                      signal,
-                    );
-                  if (signal?.aborted) throw new Error("Job cancelled");
-                  if (!hit)
-                    throw new Error(
-                      `No link${want ? ` matching "${want}"` : ""} from ${target}` +
-                        `${mustContain ? ` in a message containing "${mustContain}"` : ""}. ` +
-                        "Mini App buttons and t.me links are not web pages; the Mini App " +
-                        "actions open those.",
-                    );
-
-                  url = hit.link.url;
+                  const hit = await findMessageLink(action, target, want, mustContain);
+                  // Login buttons are accepted first, so the page opens signed in
+                  const resolved = await resolveMessageLink(client, hit.entity, hit.msg, hit.link);
+                  url = resolved.url;
                   linkLabel = hit.link.text;
                   if (hit.link.fromButton) step.clickedButton = hit.link.text;
                   // The message the link was taken from, so the log shows the offer as it
@@ -4095,7 +4138,7 @@ export async function runCustom(
                 } else {
                   // Placeholders are expanded the same way a command's are, so a URL can carry
                   // a random query value per run
-                  url = expandCommand(action.url ?? "").trim();
+                  url = expandCommand(action.url ?? "", jobVarsObj()).trim();
                   // Named before the checks below, so a misconfigured URL still logs a step
                   // that says which one it was
                   step.label = `Open ${url || "(no URL)"}${stepsNote}`;

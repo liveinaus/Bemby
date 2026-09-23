@@ -757,6 +757,17 @@ export type CustomAction = CustomActionCommon &
       /** Browser profile to run on; same naming as `open_url`. */
       profileId?: string;
     }
+  | {
+      /** Read a link off the chat (button, text link, Mini App or login button) into `{varName}`. */
+      type: "save_message_url";
+      varName: string;
+      contact?: string;
+      linkText?: string;
+      messageContains?: string;
+      scope?: number;
+      linkWaitMs?: number;
+      maxRetries?: number;
+    }
   | { type: "subscribe_channel"; channelId: string; checkMembership?: boolean }
   | ({
       /**
