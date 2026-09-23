@@ -100,7 +100,7 @@
               <button
                 class="tgc-folder-tab"
                 :class="{ active: activeFolder === 'all' }"
-                @click="activeFolder = 'all'"
+                @click="selectFolder('all')"
               >
                 All
               </button>
@@ -109,7 +109,7 @@
                 :key="f.id"
                 class="tgc-folder-tab"
                 :class="{ active: activeFolder === f.id }"
-                @click="activeFolder = f.id"
+                @click="selectFolder(f.id)"
               >
                 {{ f.emoticon ? f.emoticon + " " : "" }}{{ f.title }}
               </button>
@@ -2124,6 +2124,32 @@ function saveMessengerState(): void {
   } catch {}
 }
 
+// The folder tab is remembered per account, so switching accounts and coming back
+// lands on the folder that account was left on, not on "All"
+const MESSENGER_FOLDER_KEY = "bemby_messenger_folder";
+
+function loadFolderState(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(MESSENGER_FOLDER_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function savedFolderFor(accountId: number): number | null {
+  return loadFolderState()[String(accountId)] ?? null;
+}
+
+function saveFolderFor(accountId: number, folder: "all" | number): void {
+  try {
+    const state = loadFolderState();
+    if (folder === "all") delete state[String(accountId)];
+    else state[String(accountId)] = folder;
+    localStorage.setItem(MESSENGER_FOLDER_KEY, JSON.stringify(state));
+  } catch {}
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 const accounts = ref<Account[]>([]);
@@ -2492,6 +2518,11 @@ function startBgDialogLoad(accountId: number) {
 let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 const tgFolders = ref<TgFolder[]>([]);
 const activeFolder = ref<"all" | number>("all");
+
+function selectFolder(folder: "all" | number) {
+  activeFolder.value = folder;
+  if (selectedAccountId.value) saveFolderFor(selectedAccountId.value, folder);
+}
 
 let liveWs: WebSocket | null = null;
 let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2932,7 +2963,7 @@ async function confirmCleanAccount() {
     profileDetails.value = null;
     showProfile.value = false;
     contacts.value = [];
-    activeFolder.value = "all";
+    selectFolder("all");
     await loadDialogs();
     let msg = t("tgc.clean.toastResult")
       .replace("{left}", String(result.left))
@@ -5049,6 +5080,11 @@ async function loadDialogs() {
     if (selectedAccountId.value !== accountId) return;
     dialogs.value = firstBatch;
     tgFolders.value = folders;
+    const savedFolder = savedFolderFor(accountId);
+    activeFolder.value =
+      savedFolder != null && folders.some((f) => f.id === savedFolder)
+        ? savedFolder
+        : "all";
   } catch (e: any) {
     if (selectedAccountId.value !== accountId) return;
     const raw =
