@@ -43,7 +43,7 @@ export type SessionImportItem = {
   apiUrl: string;
   accountId: number | null;
   accountName: string | null;
-  /** True when a matching account already existed and was left untouched. */
+  /** True when a matching account already existed (skipped if authenticated, else re-authenticated). */
   existing: boolean;
   aliveStatus: AliveStatus | null;
   status: SessionImportItemStatus;
@@ -221,7 +221,51 @@ async function validateSession(
   }
 }
 
-type ExistingRow = { id: number; name: string };
+type ExistingRow = {
+  id: number;
+  name: string;
+  auth_status: string;
+  proxy_id: string | null;
+};
+
+// Pin the device fingerprint so resolveAppClientParams never rolls a random client for a
+// bought key. The 2FA is kept (encrypted, UI-stripped) for the later take-ownership step.
+function patchImportedAttributes(id: number, account: ConvertedAccount): void {
+  patchAttributes(id, {
+    sessionSource: "imported",
+    pinnedClient: {
+      deviceModel: account.meta.deviceModel ?? null,
+      systemVersion: account.meta.systemVersion ?? null,
+      appVersion: account.meta.appVersion ?? null,
+      systemLangCode: account.meta.systemLangCode ?? null,
+      langPack: account.meta.langPack ?? null,
+    },
+    ...(account.meta.twoFa
+      ? { importedTwoFa: encryptSecret(account.meta.twoFa) }
+      : {}),
+  });
+}
+
+/** Give an existing, unauthenticated account the imported session and the vendor's api creds. */
+function reauthExistingAccount(
+  id: number,
+  account: ConvertedAccount,
+  proxyId: string | null,
+): void {
+  db.prepare(
+    `UPDATE tg_accounts
+        SET api_id = ?, api_hash = ?, session_string = ?, auth_status = 'authenticated',
+            proxy_id = ?
+      WHERE id = ?`,
+  ).run(
+    account.meta.apiId,
+    encryptSecret(account.meta.apiHash),
+    encryptSecret(account.sessionString),
+    proxyId,
+    id,
+  );
+  patchImportedAttributes(id, account);
+}
 
 /** Insert the account already-authenticated, pinning the vendor's fingerprint and api creds. */
 function insertImportedAccount(
@@ -249,21 +293,7 @@ function insertImportedAccount(
       notes,
     );
   const id = Number(info.lastInsertRowid);
-  // Pin the device fingerprint so resolveAppClientParams never rolls a random client for a
-  // bought key. The 2FA is kept (encrypted, UI-stripped) for the later take-ownership step.
-  patchAttributes(id, {
-    sessionSource: "imported",
-    pinnedClient: {
-      deviceModel: account.meta.deviceModel ?? null,
-      systemVersion: account.meta.systemVersion ?? null,
-      appVersion: account.meta.appVersion ?? null,
-      systemLangCode: account.meta.systemLangCode ?? null,
-      langPack: account.meta.langPack ?? null,
-    },
-    ...(account.meta.twoFa
-      ? { importedTwoFa: encryptSecret(account.meta.twoFa) }
-      : {}),
-  });
+  patchImportedAttributes(id, account);
   return id;
 }
 
@@ -282,10 +312,10 @@ async function runBatch(
         : proxies;
 
     const findByPhone = db.prepare(
-      "SELECT id, name FROM tg_accounts WHERE phone_number = ?",
+      "SELECT id, name, auth_status, proxy_id FROM tg_accounts WHERE phone_number = ?",
     );
     const findByUserId = db.prepare(
-      "SELECT id, name FROM tg_accounts WHERE json_extract(additional_attributes, '$.tgUserId') = ?",
+      "SELECT id, name, auth_status, proxy_id FROM tg_accounts WHERE json_extract(additional_attributes, '$.tgUserId') = ?",
     );
 
     const countRow = db
@@ -407,14 +437,15 @@ async function runBatch(
       }
 
       const phone = acc.phone || acc.meta.phone || item.phoneNumber;
-      const existing =
-        (findByPhone.get(phone) as ExistingRow | undefined) ?? undefined;
-      if (existing) {
+      // An existing account with a working session is left alone; one needing auth takes
+      // the imported session instead of being skipped.
+      let target = findByPhone.get(phone) as ExistingRow | undefined;
+      if (target?.auth_status === "authenticated") {
         item.status = "skipped";
         item.existing = true;
-        item.accountId = existing.id;
-        item.accountName = existing.name;
-        item.message = "Already exists (matched by phone)";
+        item.accountId = target.id;
+        item.accountName = target.name;
+        item.message = "Already exists and authenticated (matched by phone)";
         continue;
       }
 
@@ -426,7 +457,7 @@ async function runBatch(
       }
       validatedAny = true;
 
-      const proxyId = pickRandom(candidateProxies)?.id ?? null;
+      const proxyId = target?.proxy_id ?? pickRandom(candidateProxies)?.id ?? null;
       item.status = "validating";
       item.message = "Connecting to verify the session";
       let me: { userId: string; username?: string; firstName?: string };
@@ -440,12 +471,38 @@ async function runBatch(
       }
 
       const dupById = findByUserId.get(me.userId) as ExistingRow | undefined;
-      if (dupById) {
-        item.status = "skipped";
+      if (dupById && dupById.id !== target?.id) {
+        if (dupById.auth_status === "authenticated") {
+          item.status = "skipped";
+          item.existing = true;
+          item.accountId = dupById.id;
+          item.accountName = dupById.name;
+          item.message = `Already exists and authenticated (same Telegram account, #${dupById.id})`;
+          continue;
+        }
+        target ??= dupById;
+      }
+
+      const who = `${me.firstName ?? phone}${me.username ? ` (@${me.username})` : ""}`;
+      if (target) {
+        item.status = "importing";
+        item.message = "Re-authenticating existing account";
         item.existing = true;
-        item.accountId = dupById.id;
-        item.accountName = dupById.name;
-        item.message = `Already exists (same Telegram account, #${dupById.id})`;
+        item.accountId = target.id;
+        item.accountName = target.name;
+        try {
+          reauthExistingAccount(target.id, acc, target.proxy_id ?? proxyId);
+          patchAttributes(target.id, {
+            tgUserId: me.userId,
+            ...(me.username ? { tgUsernameCache: me.username } : {}),
+          });
+          item.status = "created";
+          item.message = `Re-authenticated existing account with ${who}`;
+        } catch (err: any) {
+          item.status = "failed";
+          item.error = `Save failed: ${err?.message ?? err}`;
+          item.message = item.error;
+        }
         continue;
       }
 
@@ -467,7 +524,7 @@ async function runBatch(
         item.accountName = name;
         item.existing = false;
         item.status = "created";
-        item.message = `Imported ${me.firstName ?? phone}${me.username ? ` (@${me.username})` : ""}`;
+        item.message = `Imported ${who}`;
       } catch (err: any) {
         item.status = "failed";
         item.error = `Save failed: ${err?.message ?? err}`;
